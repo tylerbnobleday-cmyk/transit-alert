@@ -74,6 +74,109 @@ interface LayerState {
   heatCircles: boolean;
 }
 
+type LiveVehicle = {
+  tdn: string;
+  lat: number;
+  lng: number;
+  line: string;
+  destination: string;
+  status?: "on_time" | "delayed" | "early";
+  timestamp?: string;
+  direction: "up" | "down" | "city-bound" | "outbound";
+  heading?: number;
+  trainType: string;
+  consist: string;
+  serviceDescription?: string;
+};
+function getLiveLineColor(line: string): string {
+  const colorMap: Record<string, string> = {
+    frankston: "#22c55e",
+    mernda: "#BE1014",
+    hurstbridge: "#BE1014",
+    craigieburn: "#FFD200",
+    upfield: "#FFD200",
+    lilydale: "#003A8F",
+    belgrave: "#003A8F",
+    "glen waverley": "#003A8F",
+    glenwaverley: "#003A8F",
+    alamein: "#003A8F",
+    sandringham: "#F178AF",
+    werribee: "#F178AF",
+    williamstown: "#F178AF",
+    altona: "#F178AF",
+    sunbury: "#279FD5",
+    cranbourne: "#279FD5",
+    pakenham: "#279FD5",
+  };
+
+  return colorMap[line.toLowerCase()] ?? "#3b82f6";
+}
+
+function getDirectionArrow(direction: LiveVehicle["direction"]) {
+  switch (direction) {
+    case "up":
+    case "city-bound":
+      return "⬆";
+    case "down":
+    case "outbound":
+      return "⬇";
+    default:
+      return "•";
+  }
+}
+
+function createLiveTrainIcon(vehicle: LiveVehicle) {
+  const color = getLiveLineColor(vehicle.line);
+  const arrow = getDirectionArrow(vehicle.direction);
+
+  return L.divIcon({
+    html: `
+      <div style="position:relative;width:54px;height:54px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;inset:0;border-radius:50%;background:${color};opacity:0.22;animation:ping 2s infinite;"></div>
+
+        <div style="
+          width:26px;
+          height:26px;
+          border-radius:9999px;
+          background:${color};
+          border:2px solid white;
+          box-shadow:0 4px 14px rgba(0,0,0,0.6);
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          color:white;
+          font-size:13px;
+          font-weight:700;
+          transform: rotate(${vehicle.heading ?? 0}deg);
+        ">
+          ${arrow}
+        </div>
+
+        <div style="
+          position:absolute;
+          top:-8px;
+          right:-10px;
+          background:#0f172a;
+          color:white;
+          font-size:9px;
+          font-weight:700;
+          padding:2px 5px;
+          border-radius:6px;
+          border:1px solid rgba(255,255,255,0.15);
+          box-shadow:0 4px 10px rgba(0,0,0,0.4);
+          white-space:nowrap;
+        ">
+          ${vehicle.tdn}
+        </div>
+      </div>
+    `,
+    className: "bg-transparent border-none",
+    iconSize: [54, 54],
+    iconAnchor: [27, 27],
+    popupAnchor: [0, -22],
+  });
+}
+
 // =========================
 // Constants
 // =========================
@@ -558,6 +661,7 @@ const MELBOURNE_CENTRAL_TO_STATE_LIBRARY: [number, number][] = [
 ];
 
 const CAUFIELD_LOOP: [number, number][] = [
+  
   [-37.81934099941143, 144.9524609650515],
   [-37.81766430074989, 144.95108174796619],
   [-37.81602005179086, 144.94986938945834],
@@ -570,10 +674,12 @@ const CAUFIELD_LOOP: [number, number][] = [
   [-37.808079259516454, 144.97045264993122],
   [-37.80890995342101, 144.97193322934783],
   [-37.81031702586954, 144.97240529813624],
-  [-37.8147653441898, 144.97416778728817],
-  [-37.815923183065, 144.97346658889202],
+  [-37.81794590442121, 144.97726539063947], // curve?? 
+  [-37.816901671251536, 144.9743776743041], 
+  [-37.81696275340265, 144.97150400581788],
+  [-37.81697970439321, 144.97113922540086],
   [-37.81778485426324, 144.96826388056115],
-  [-37.8184161, 144.9664779],
+  [-37.8184161, 144.9664779], // FLINDERTS  
   [-37.819578159795725, 144.9610791331353],
   [-37.82104238088903, 144.95707972900598],
   [-37.8211906937223, 144.95500906362312],
@@ -660,7 +766,77 @@ const UPFIELD_LINE = UPFIELD_STATIONS.map((station) => station.position);
 const WERRIBEE_LINE = WERRIBEE_STATIONS.map((station) => station.position);
 const WILLIAMSTOWN_LINE = WILLIAMSTOWN_STATIONS.map((station) => station.position);
 const ALTONA_LOOP_LINE = ALTONA_LOOP_STATIONS.map((station) => station.position);
-const FRANKSTON_LINE = FRANKSTON_STATIONS.map((station) => station.position);
+const FRANKSTON_TRACK: [number, number][] = [
+  [-38.1426676, 145.1262003], // Frankston
+  [-38.1378, 145.1282],
+  [-38.1315, 145.1312],
+  [-38.1265, 145.1340],
+  [-38.121688, 145.1354187], // Kananook
+  [-38.1160, 145.1338],
+  [-38.1100, 145.1308],
+  [-38.1040134, 145.1282259], // Seaford
+  [-38.0960, 145.1263],
+  [-38.0875, 145.1245],
+  [-38.0774817, 145.1230629], // Carrum
+  [-38.0710, 145.1217],
+  [-38.065449, 145.120108], // Bonbeach
+  [-38.0594, 145.1185],
+  [-38.0532764, 145.1166366], // Chelsea
+  [-38.0450, 145.1117],
+  [-38.0365046, 145.1075721], // Edithvale
+  [-38.0317, 145.1049],
+  [-38.0272365, 145.1021263], // Aspendale
+  [-38.0188, 145.0959],
+  [-38.0067174, 145.0875658], // Mordialloc
+  [-37.9996, 145.0816],
+  [-37.9924751, 145.0755901], // Parkdale
+  [-37.9878, 145.0710],
+  [-37.9835507, 145.066334], // Mentone
+  [-37.9750, 145.0596],
+  [-37.9670081, 145.0546951], // Cheltenham
+  [-37.9628, 145.0517],
+  [-37.9584027, 145.0488064], // Southland
+  [-37.9532, 145.0452],
+  [-37.9484438, 145.04188], // Highett
+  [-37.9410, 145.0392],
+  [-37.9343919, 145.0368952], // Moorabbin
+  [-37.9297, 145.0358],
+  [-37.9251159, 145.0354959], // Patterson
+  [-37.9214, 145.0360],
+  [-37.9175354, 145.0369346], // Bentleigh
+  [-37.9142, 145.0375],
+  [-37.9114018, 145.0381036], // McKinnon
+  [-37.9078, 145.0388],
+  [-37.9042587, 145.0394811], // Ormond
+  [-37.8968, 145.0409],
+  [-37.8893136, 145.042285], // Glen Huntly
+  [-37.8832, 145.0424],
+  [-37.8773212, 145.0423811], // Caulfield
+  [-37.8715, 145.0364],
+  [-37.8663425, 145.029464], // Malvern
+  [-37.8611, 145.0240],
+  [-37.8562948, 145.0192436], // Armadale
+  [-37.8532, 145.0161],
+  [-37.8506631, 145.0136792], // Toorak
+  [-37.8475, 145.0084],
+  [-37.8446738, 145.0019694], // Hawksburn
+  [-37.8413712064182, 144.99381416666222],
+  [-37.84074027756291, 144.99277197708855], // South Yarra Enterance Curve
+  [-37.84014541175312, 144.9924065225265], // South Yarra Enterance Curve 2
+  [-37.839508877221995, 144.9922573545601], // South Yarra Enterance Curve 3
+  [-37.83900452634713, 144.99223852217295], // South Yarra Birdge 
+  [-37.83851468142509, 144.99226132094938], // South Yarra
+  [-37.83566353672182, 144.9928552912536] , // South yarra to Richmond curve 
+  [-37.83444244894703, 144.9930213092438], // South yarra to Richmond curve 2 
+  [-37.83209166656431, 144.9935008513864], // South yarra to Richmond curve 3
+  [-37.827184389560315, 144.99390491980614], // South yarra to Richmond curve 4
+[-37.82548101345592, 144.99258525053799], // South yarra to Richmond curve 5
+[-37.825565758588816, 144.99270326773168], // South yarra to Richmond curve 6
+  [-37.82359625345165, 144.9891977969667], // Richmond
+  [-37.81817298581704, 144.97748903675006], 
+[-37.81794590442121, 144.97726539063947], // curve?? 
+
+];
 const CRANBOURNE_LINE = CRANBOURNE_STATIONS.map((station) => station.position);
 const PAKENHAM_LINE = PAKENHAM_STATIONS.map((station) => station.position);
 const SUNBURY_LINE = SUNBURY_STATIONS.map((station) => station.position);
@@ -1095,6 +1271,7 @@ export function Map({ journeyRoute }: MapProps) {
   const reports = Array.isArray(data) ? data : [];
 
   const [userLoc, setUserLoc] = useState<[number, number] | null>(null);
+  const [liveVehicles, setLiveVehicles] = useState<LiveVehicle[]>([]);
 const [layers, setLayers] = useState<LayerState>({
   merndaLine: true,
   hurstbridgeLine: true,
@@ -1130,7 +1307,80 @@ const [layers, setLayers] = useState<LayerState>({
     } else {
       setUserLoc(MELBOURNE_CENTER);
     }
-  }, []);
+  }, []);useEffect(() => {
+  setLiveVehicles([
+    {
+      tdn: "3812",
+      lat: -37.8180,
+      lng: 144.9660,
+      line: "Mernda",
+      destination: "Mernda",
+      status: "on_time",
+      timestamp: new Date().toISOString(),
+      direction: "down",
+      heading: 35,
+      trainType: "X'Trapolis 100",
+      consist: "927M-1684T-928M",
+      serviceDescription: "Down Mernda via Clifton Hill",
+    },
+    {
+      tdn: "2641",
+      lat: -37.8400,
+      lng: 144.9900,
+      line: "Sandringham",
+      destination: "Sandringham",
+      status: "delayed",
+      timestamp: new Date().toISOString(),
+      direction: "down",
+      heading: 180,
+      trainType: "X'Trapolis 100",
+      consist: "851M-1621T-852M",
+      serviceDescription: "Down Sandringham",
+    },
+    {
+      tdn: "1476",
+      lat: -37.81208959576545,
+      lng: 144.97341988188822,
+      line: "Frankston",
+      destination: "Frankston",
+      status: "delayed",
+      timestamp: new Date().toISOString(),
+      direction: "down",
+      heading: 165,
+      trainType: "HCMT",
+      consist: "9001-9101-9201-9301-9701-9801-9901",
+      serviceDescription: "Frankston direct via City Loop",
+    },
+    {
+      tdn: "5210",
+      lat: -37.8078,
+      lng: 144.9430,
+      line: "Craigieburn",
+      destination: "Craigieburn",
+      status: "on_time",
+      timestamp: new Date().toISOString(),
+      direction: "down",
+      heading: 340,
+      trainType: "Siemens Nexas",
+      consist: "701M-2501T-702M",
+      serviceDescription: "Down Craigieburn",
+    },
+    {
+      tdn: "6423",
+      lat: -37.8772,
+      lng: 145.0423,
+      line: "Pakenham",
+      destination: "East Pakenham",
+      status: "early",
+      timestamp: new Date().toISOString(),
+      direction: "down",
+      heading: 120,
+      trainType: "HCMT",
+      consist: "9015-9115-9215-9315-9715-9815-9915",
+      serviceDescription: "Down Pakenham",
+    },
+  ]);
+}, []);
 
   const toggleLayer = useCallback((key: keyof LayerState) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1279,40 +1529,25 @@ const [layers, setLayers] = useState<LayerState>({
           maxZoom={19}
         />
 
-        {layers.frankstonLine && (
-          <>
-            <Polyline
-              positions={offsetPolylineCoordinates(FRANKSTON_LINE, "left")}
-              pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.85 }}
-            />
-            <Polyline
-              positions={offsetPolylineCoordinates(FRANKSTON_LINE, "right")}
-              pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.85 }}
-            />
-            {renderStationMarkers(FRANKSTON_STATIONS, "#22c55e", "#16a34a")}
-          </>
-        )}
-
-        {layers.frankstonLine && (
-          <>
-            <Polyline
-              positions={offsetPolylineCoordinates(CAUFIELD_LOOP, "left")}
-              pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.85 }}
-            />
-            {renderStationMarkers(CAUFIELDLOOP_STATIONS, "#22c55e", "#16a34a")}
-          </>
-        )}
+{layers.frankstonLine && (
+  <>
+  <Polyline positions={CAUFIELD_LOOP}
+      pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
+ />
+    <Polyline
+      positions={FRANKSTON_TRACK}
+      pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
+    />
+    {renderStationMarkers(FRANKSTON_STATIONS, "#22c55e", "#16a34a")}
+  </>
+)}
 {layers.merndaLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(MERNDA_LINE, "left", 0.5)}
+      positions={MERNDA_LINE}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    <Polyline
-      positions={offsetPolylineCoordinates(MERNDA_LINE, "right", 0.5)}
-      pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
-    />
-    {renderStationMarkers(MERNDA_STATIONS, "#BE1014", "#c21875")}
+    {renderStationMarkers(MERNDA_STATIONS, "#BE1014", "#BE1014")}
   </>
 )}
 
@@ -1339,24 +1574,21 @@ const [layers, setLayers] = useState<LayerState>({
     {renderStationMarkers(CLIFTONHILLGROUPLOOP_STATIONS, "#BE1014", "#BE1014")}
   </>
 )}
-{(layers.sunburyLine|| layers.craigieburnLine || layers.upfieldLine || layers.northernLoop) && (          <>
-            <Polyline
-              positions={offsetPolylineCoordinates(NORTHERN_LOOP, "right", 0.5)}
-              pathOptions={{ color: "#FFD200", weight: 5, opacity: 0.85 }}
-            />
-            {renderStationMarkers(
-              NORTHERNGROUPLOOP_STATIONS,
-              "#FFD200",
-              "#cca700"
-            )}
-          </>
-        )}
+{(layers.sunburyLine || layers.craigieburnLine || layers.upfieldLine || layers.northernLoop) && (
+  <>
+    <Polyline
+      positions={NORTHERN_LOOP}
+      pathOptions={{ color: "#FFD200", weight: 5, opacity: 0.85 }}
+    />
+    {renderStationMarkers(NORTHERNGROUPLOOP_STATIONS, "#FFD200", "#cca700")}
+  </>
+)}
 
         {(layers.lilydaleLine || layers.belgraveLine || layers.alameinLine || layers.glenWaverleyLine || layers.burnleyLoop) && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(BURNLEY_LOOP, "left", 0.45)}
-      pathOptions={{ color: "#003A8F", weight: 5, opacity: 0.85 }}
+  pathOptions={{ color: "#003A8F", weight: 3, opacity: 0.6 }}
     />
     {renderStationMarkers(BURNLEYGROUPLOOP_STATIONS, "#003A8F", "#003A8F")}
   </>
@@ -1690,7 +1922,105 @@ const [layers, setLayers] = useState<LayerState>({
         )}
 
         {userLoc && <LocationCenterer loc={userLoc} />}
+{liveVehicles.map((vehicle) => (
+  <Marker
+    key={vehicle.tdn}
+    position={[vehicle.lat, vehicle.lng]}
+    icon={createLiveTrainIcon(vehicle)}
+  >
+    <Popup>
+      <div className="p-4 w-72">
+        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-white/10">
+          <span className="text-xl">🚆</span>
+          <div>
+            <p className="font-bold text-white text-sm">
+              {vehicle.line} Line
+            </p>
+            <p className="text-[10px] text-blue-400 font-semibold uppercase tracking-wider">
+              Live Sample Service
+            </p>
+          </div>
+          <div className="ml-auto bg-white/10 text-white text-[10px] px-2 py-1 rounded-lg font-bold">
+            {vehicle.tdn}
+          </div>
+        </div>
 
+        <div className="space-y-2 text-xs">
+          <div>
+            <p className="text-[10px] text-white/30 uppercase tracking-wider">
+              Destination
+            </p>
+            <p className="text-sm text-white/90 font-medium">
+              {vehicle.destination}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <p className="text-[10px] text-white/30 uppercase tracking-wider">
+                Direction
+              </p>
+              <p className="text-white/80">
+                {vehicle.direction}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-[10px] text-white/30 uppercase tracking-wider">
+                Status
+              </p>
+              <p className="text-white/80 capitalize">
+                {vehicle.status ?? "unknown"}
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[10px] text-white/30 uppercase tracking-wider">
+              Train Type
+            </p>
+            <p className="text-white/80">
+              {vehicle.trainType}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-[10px] text-white/30 uppercase tracking-wider">
+              Consist
+            </p>
+            <p className="text-white/80 break-words">
+              {vehicle.consist}
+            </p>
+          </div>
+
+          {vehicle.serviceDescription && (
+            <div>
+              <p className="text-[10px] text-white/30 uppercase tracking-wider">
+                Service
+              </p>
+              <p className="text-white/80">
+                {vehicle.serviceDescription}
+              </p>
+            </div>
+          )}
+
+          {vehicle.timestamp && (
+            <div>
+              <p className="text-[10px] text-white/30 uppercase tracking-wider">
+                Updated
+              </p>
+              <p className="text-white/60">
+                {formatDistanceToNow(new Date(vehicle.timestamp), {
+                  addSuffix: true,
+                })}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </Popup>
+  </Marker>
+))}
         {visibleReports.map((report) => {
           if (!report.lat || !report.lng) return null;
 
