@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   MapContainer,
   TileLayer,
@@ -11,17 +12,13 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import { formatDistanceToNow } from "date-fns";
-import {
-  useGetReports,
-  useGetConsistStatus,
-} from "@/lib/api-client-react/src/generated/api";
+import { useGetReports } from "@/lib/api-client-react/src/generated/api";
 import type { Report } from "@/lib/api-client-react/src/generated/api.schemas";
+import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
 import {
   Train,
   MapPin,
   Layers,
-  Eye,
-  EyeOff,
   AlertTriangle,
   Clock,
   Info,
@@ -47,6 +44,7 @@ export type Station = {
 
 interface MapProps {
   journeyRoute?: Station[];
+  splitCrossCityGroup?: boolean;
 }
 
 interface LayerState {
@@ -74,20 +72,19 @@ interface LayerState {
   heatCircles: boolean;
 }
 
-type LiveVehicle = {
-  tdn: string;
-  lat: number;
-  lng: number;
-  line: string;
-  destination: string;
-  status?: "on_time" | "delayed" | "early";
-  timestamp?: string;
-  direction: "up" | "down" | "city-bound" | "outbound";
-  heading?: number;
-  trainType: string;
-  consist: string;
-  serviceDescription?: string;
-};
+type ServiceFilterKey =
+  | "vline"
+  | "metroTunnelServices"
+  | "crossCityPink"
+  | "werribeeWilliamstownGroup"
+  | "sandringhamGroup"
+  | "frankstonGroup"
+  | "caulfieldGroup"
+  | "burnleyGroup"
+  | "cliftonHillGroup"
+  | "upfieldCraigieburn"
+  | "upfieldCraigieburnCityLoop";
+
 function getLiveLineColor(line: string): string {
   const colorMap: Record<string, string> = {
     frankston: "#22c55e",
@@ -112,7 +109,7 @@ function getLiveLineColor(line: string): string {
   return colorMap[line.toLowerCase()] ?? "#3b82f6";
 }
 
-function getDirectionArrow(direction: LiveVehicle["direction"]) {
+function getDirectionArrow(direction: LiveTrain["direction"]) {
   switch (direction) {
     case "up":
     case "city-bound":
@@ -125,7 +122,7 @@ function getDirectionArrow(direction: LiveVehicle["direction"]) {
   }
 }
 
-function createLiveTrainIcon(vehicle: LiveVehicle) {
+function createLiveTrainIcon(vehicle: LiveTrain) {
   const color = getLiveLineColor(vehicle.line);
   const arrow = getDirectionArrow(vehicle.direction);
 
@@ -204,6 +201,84 @@ const DIRECTION_LABEL: Record<string, string> = {
   outbound: "Outbound 🏠",
   unknown: "",
 };
+
+const SERVICE_FILTERS: Array<{
+  key: ServiceFilterKey;
+  category: "regional" | "metro" | "special";
+  label: string;
+  description?: string;
+  tone: string;
+}> = [
+  {
+    key: "vline",
+    category: "regional",
+    label: "V/Line",
+    description: "Regional network",
+    tone: "bg-purple-500/15 border-purple-400/30 text-purple-200",
+  },
+  {
+    key: "metroTunnelServices",
+    category: "special",
+    label: "Metro Tunnel",
+    description: "Sunbury, Cranbourne, Pakenham",
+    tone: "bg-[#279FD5]/15 border-[#279FD5]/40 text-[#b8e7fb]",
+  },
+  {
+    key: "crossCityPink",
+    category: "metro",
+    label: "Bayside / Cross City",
+    description: "Werribee, Williamstown, Sandringham",
+    tone: "bg-pink-500/15 border-pink-400/30 text-pink-200",
+  },
+  {
+    key: "werribeeWilliamstownGroup",
+    category: "metro",
+    label: "Werribee / Williamstown",
+    description: "Werribee, Laverton, Williamstown",
+    tone: "bg-pink-500/15 border-pink-400/30 text-pink-200",
+  },
+  {
+    key: "sandringhamGroup",
+    category: "metro",
+    label: "Sandringham",
+    description: "Sandringham line",
+    tone: "bg-pink-500/15 border-pink-400/30 text-pink-200",
+  },
+  {
+    key: "burnleyGroup",
+    category: "metro",
+    label: "Belgrave, Lilydale, Glen Waverley, Alamein",
+    description: "Burnley group",
+    tone: "bg-blue-500/15 border-blue-400/30 text-blue-200",
+  },
+  {
+    key: "cliftonHillGroup",
+    category: "metro",
+    label: "Mernda and Hurstbridge Lines",
+    description: "Clifton Hill group",
+    tone: "bg-[#BE1014]/15 border-[#BE1014]/40 text-[#f6b1b3]",
+  },
+  {
+    key: "caulfieldGroup",
+    category: "metro",
+    label: "Frankston",
+    description: "Frankston line",
+    tone: "bg-emerald-500/15 border-emerald-400/30 text-emerald-200",
+  },
+  {
+    key: "upfieldCraigieburn",
+    category: "metro",
+    label: "Upfield / Craigieburn",
+    description: "Upfield, Craigieburn",
+    tone: "bg-yellow-500/15 border-yellow-400/30 text-yellow-200",
+  },
+  {
+    key: "upfieldCraigieburnCityLoop",
+    category: "metro",
+    label: "Via City Loop",
+    tone: "bg-slate-400/15 border-slate-300/30 text-slate-100",
+  },
+];
 
 // =========================
 // Station Data
@@ -1257,21 +1332,28 @@ label: "Werribee / Williamstown / Altona",
 // =========================
 // Main Component
 // =========================
-export function Map({ journeyRoute }: MapProps) {
+export function Map({ journeyRoute = [], splitCrossCityGroup = false }: MapProps = {}) {
   const mapRef = useRef<L.Map | null>(null);
-
-  const { data: consistData } = useGetConsistStatus("430M", {
-    query: { refetchInterval: 10000 },
-  });
+  const consistData = undefined as any;
 
   const { data } = useGetReports({
     query: { refetchInterval: 30000 },
   });
 
+  const {
+    data: liveVehicles = [],
+    isLoading: isLiveTrainsLoading,
+    error: liveTrainsError,
+  } = useQuery({
+    queryKey: ["/api/ptv/live-trains"],
+    queryFn: fetchLiveTrains,
+    refetchInterval: 15000,
+    retry: false,
+  });
+
   const reports = Array.isArray(data) ? data : [];
 
   const [userLoc, setUserLoc] = useState<[number, number] | null>(null);
-  const [liveVehicles, setLiveVehicles] = useState<LiveVehicle[]>([]);
 const [layers, setLayers] = useState<LayerState>({
   merndaLine: true,
   hurstbridgeLine: true,
@@ -1307,84 +1389,110 @@ const [layers, setLayers] = useState<LayerState>({
     } else {
       setUserLoc(MELBOURNE_CENTER);
     }
-  }, []);useEffect(() => {
-  setLiveVehicles([
-    {
-      tdn: "3812",
-      lat: -37.8180,
-      lng: 144.9660,
-      line: "Mernda",
-      destination: "Mernda",
-      status: "on_time",
-      timestamp: new Date().toISOString(),
-      direction: "down",
-      heading: 35,
-      trainType: "X'Trapolis 100",
-      consist: "927M-1684T-928M",
-      serviceDescription: "Down Mernda via Clifton Hill",
-    },
-    {
-      tdn: "2641",
-      lat: -37.8400,
-      lng: 144.9900,
-      line: "Sandringham",
-      destination: "Sandringham",
-      status: "delayed",
-      timestamp: new Date().toISOString(),
-      direction: "down",
-      heading: 180,
-      trainType: "X'Trapolis 100",
-      consist: "851M-1621T-852M",
-      serviceDescription: "Down Sandringham",
-    },
-    {
-      tdn: "1476",
-      lat: -37.81208959576545,
-      lng: 144.97341988188822,
-      line: "Frankston",
-      destination: "Frankston",
-      status: "delayed",
-      timestamp: new Date().toISOString(),
-      direction: "down",
-      heading: 165,
-      trainType: "HCMT",
-      consist: "9001-9101-9201-9301-9701-9801-9901",
-      serviceDescription: "Frankston direct via City Loop",
-    },
-    {
-      tdn: "5210",
-      lat: -37.8078,
-      lng: 144.9430,
-      line: "Craigieburn",
-      destination: "Craigieburn",
-      status: "on_time",
-      timestamp: new Date().toISOString(),
-      direction: "down",
-      heading: 340,
-      trainType: "Siemens Nexas",
-      consist: "701M-2501T-702M",
-      serviceDescription: "Down Craigieburn",
-    },
-    {
-      tdn: "6423",
-      lat: -37.8772,
-      lng: 145.0423,
-      line: "Pakenham",
-      destination: "East Pakenham",
-      status: "early",
-      timestamp: new Date().toISOString(),
-      direction: "down",
-      heading: 120,
-      trainType: "HCMT",
-      consist: "9015-9115-9215-9315-9715-9815-9915",
-      serviceDescription: "Down Pakenham",
-    },
-  ]);
-}, []);
+  }, []);
 
   const toggleLayer = useCallback((key: keyof LayerState) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
+
+  const toggleServiceFilter = useCallback((filter: ServiceFilterKey) => {
+    setLayers((prev) => {
+      switch (filter) {
+        case "vline":
+          return prev;
+        case "metroTunnelServices":
+          return {
+            ...prev,
+            metroTunnel: !prev.metroTunnel,
+            sunburyLine: !prev.metroTunnel,
+            cranbourneLine: !prev.metroTunnel,
+            pakenhamLine: !prev.metroTunnel,
+          };
+        case "crossCityPink":
+          return {
+            ...prev,
+            werribeeLine: !prev.werribeeLine,
+            sandringhamLine: !prev.sandringhamLine,
+          };
+        case "werribeeWilliamstownGroup":
+          return {
+            ...prev,
+            werribeeLine: !prev.werribeeLine,
+          };
+        case "sandringhamGroup":
+          return {
+            ...prev,
+            sandringhamLine: !prev.sandringhamLine,
+          };
+        case "burnleyGroup": {
+          const nextValue = !(prev.belgraveLine || prev.lilydaleLine || prev.glenWaverleyLine || prev.alameinLine || prev.burnleyLoop);
+          return {
+            ...prev,
+            belgraveLine: nextValue,
+            lilydaleLine: nextValue,
+            glenWaverleyLine: nextValue,
+            alameinLine: nextValue,
+            burnleyLoop: nextValue,
+          };
+        }
+        case "cliftonHillGroup": {
+          const nextValue = !(prev.merndaLine || prev.hurstbridgeLine || prev.cliftonHillLoop);
+          return {
+            ...prev,
+            merndaLine: nextValue,
+            hurstbridgeLine: nextValue,
+            cliftonHillLoop: nextValue,
+          };
+        }
+        case "caulfieldGroup":
+        case "frankstonGroup": {
+          const nextValue = !prev.frankstonLine;
+          return {
+            ...prev,
+            frankstonLine: nextValue,
+          };
+        }
+        case "upfieldCraigieburn":
+          return {
+            ...prev,
+            upfieldLine: !prev.upfieldLine,
+            craigieburnLine: !prev.craigieburnLine,
+          };
+        case "upfieldCraigieburnCityLoop":
+          return { ...prev, northernLoop: !prev.northernLoop };
+        default:
+          return prev;
+      }
+    });
+  }, []);
+
+  const isServiceFilterActive = useCallback((filter: ServiceFilterKey) => {
+    switch (filter) {
+      case "vline":
+        return false;
+      case "metroTunnelServices":
+        return layers.metroTunnel || layers.sunburyLine || layers.cranbourneLine || layers.pakenhamLine;
+      case "crossCityPink":
+        return layers.werribeeLine || layers.sandringhamLine;
+      case "werribeeWilliamstownGroup":
+        return layers.werribeeLine;
+      case "sandringhamGroup":
+        return layers.sandringhamLine;
+      case "burnleyGroup":
+        return layers.belgraveLine || layers.lilydaleLine || layers.glenWaverleyLine || layers.alameinLine || layers.burnleyLoop;
+      case "cliftonHillGroup":
+        return layers.merndaLine || layers.hurstbridgeLine || layers.cliftonHillLoop;
+      case "caulfieldGroup":
+      case "frankstonGroup":
+        return layers.frankstonLine;
+      case "upfieldCraigieburn":
+        return layers.upfieldLine || layers.craigieburnLine;
+      case "upfieldCraigieburnCityLoop":
+        return layers.northernLoop;
+      default:
+        return false;
+    }
+  }, [layers]);
 
   const visibleReports = reports.filter((report) => {
     if (report.reportType === "inspector" && !layers.inspectors) return false;
@@ -1396,6 +1504,40 @@ const [layers, setLayers] = useState<LayerState>({
   const inspectorReports = reports.filter(
     (report) => report.reportType === "inspector" && report.lat && report.lng
   );
+
+  const liveTrainsErrorMessage =
+    liveTrainsError instanceof Error ? liveTrainsError.message : null;
+  const hasLiveTrainFeedError = Boolean(liveTrainsErrorMessage);
+  const liveTrainStatusTone = hasLiveTrainFeedError
+    ? "text-amber-200 border-amber-400/30 bg-amber-500/12"
+    : liveVehicles.length > 0
+      ? "text-emerald-200 border-emerald-400/30 bg-emerald-500/12"
+      : "text-white/75 border-white/10 bg-slate-950/70";
+  const liveTrainStatusLabel = hasLiveTrainFeedError
+    ? "Live tracker needs attention"
+    : isLiveTrainsLoading
+      ? "Loading live trains"
+      : liveVehicles.length > 0
+        ? `${liveVehicles.length} live train${liveVehicles.length === 1 ? "" : "s"} on map`
+        : "No active trains returned right now";
+  const liveTrainStatusDetail = hasLiveTrainFeedError
+    ? liveTrainsErrorMessage
+    : "Source: TransportVic consist tracking, with PTV fallback when available";
+  const visibleServiceFilters = SERVICE_FILTERS.filter((filter) => {
+    if (filter.key === "crossCityPink") {
+      return !splitCrossCityGroup;
+    }
+    if (filter.key === "werribeeWilliamstownGroup" || filter.key === "sandringhamGroup") {
+      return splitCrossCityGroup;
+    }
+    if (filter.key === "upfieldCraigieburnCityLoop") {
+      return false;
+    }
+    if (filter.key === "frankstonGroup") {
+      return false;
+    }
+    return true;
+  });
 
   return (
     <div className="absolute inset-0 z-0">
@@ -1937,7 +2079,7 @@ const [layers, setLayers] = useState<LayerState>({
               {vehicle.line} Line
             </p>
             <p className="text-[10px] text-blue-400 font-semibold uppercase tracking-wider">
-              Live Sample Service
+              Live Service
             </p>
           </div>
           <div className="ml-auto bg-white/10 text-white text-[10px] px-2 py-1 rounded-lg font-bold">
@@ -2102,56 +2244,125 @@ const [layers, setLayers] = useState<LayerState>({
 
       <LayerControl layers={layers} onChange={toggleLayer} />
 
-      <div className="absolute top-1/2 right-4 transform -translate-y-1/2 flex flex-col gap-2 z-[1000]">
-        <button
-          onClick={() => mapRef.current?.zoomIn()}
-          className="bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg p-2 backdrop-blur-sm transition-colors"
-          title="Zoom In"
-        >
-          <ZoomIn className="w-4 h-4 text-white" />
-        </button>
+      <div className="pointer-events-none absolute left-4 top-28 z-[1000] max-w-xs">
+        <div className={`rounded-2xl border px-4 py-3 shadow-xl backdrop-blur-xl ${liveTrainStatusTone}`}>
+          <div className="flex items-center gap-2">
+            <Train className="h-4 w-4" />
+            <p className="text-sm font-semibold">Live train tracking</p>
+          </div>
+          <p className="mt-2 text-sm">{liveTrainStatusLabel}</p>
+          <p className="mt-1 text-xs opacity-80">{liveTrainStatusDetail}</p>
+        </div>
+      </div>
 
-        <button
-          onClick={() => mapRef.current?.zoomOut()}
-          className="bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg p-2 backdrop-blur-sm transition-colors"
-          title="Zoom Out"
-        >
-          <ZoomOut className="w-4 h-4 text-white" />
-        </button>
-
-        <button
-          onClick={() => {
-            if (userLoc && mapRef.current) {
-              mapRef.current.setView(userLoc, mapRef.current.getZoom());
-            }
-          }}
-          className="bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg p-2 backdrop-blur-sm transition-colors"
-          title="Center on Location"
-        >
-          <Navigation className="w-4 h-4 text-white" />
-        </button>
-
-        <div className="flex flex-col items-center gap-1">
+      <div className="absolute bottom-6 right-4 z-[1000] flex max-w-[220px] flex-col gap-2 sm:right-6">
+        <div className="flex flex-col gap-2 self-end">
           <button
-            onClick={() => toggleLayer("metroTunnel")}
-            className={`border rounded-lg p-2 backdrop-blur-sm transition-colors ${
-              layers.metroTunnel
-                ? "bg-blue-500/30 border-blue-400/50 hover:bg-blue-500/40"
-                : "bg-white/10 border-white/20 hover:bg-white/20"
-            }`}
-            title="Toggle Metro Tunnel (blue line only)"
+            type="button"
+            onClick={() => mapRef.current?.zoomIn()}
+            className="rounded-xl border border-white/20 bg-white/10 p-2 backdrop-blur-sm transition-colors hover:bg-white/20"
+            title="Zoom in"
           >
-            {layers.metroTunnel ? (
-              <Eye className="w-4 h-4 text-blue-300" />
-            ) : (
-              <EyeOff className="w-4 h-4 text-white/50" />
-            )}
+            <ZoomIn className="h-4 w-4 text-white" />
           </button>
-          <span className="text-[10px] text-white/60">Blue Metro Tunnel</span>
+          <button
+            type="button"
+            onClick={() => mapRef.current?.zoomOut()}
+            className="rounded-xl border border-white/20 bg-white/10 p-2 backdrop-blur-sm transition-colors hover:bg-white/20"
+            title="Zoom out"
+          >
+            <ZoomOut className="h-4 w-4 text-white" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (userLoc && mapRef.current) {
+                mapRef.current.setView(userLoc, mapRef.current.getZoom());
+              }
+            }}
+            className="rounded-xl border border-white/20 bg-white/10 p-2 backdrop-blur-sm transition-colors hover:bg-white/20"
+            title="Center on my location"
+          >
+            <Navigation className="h-4 w-4 text-white" />
+          </button>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 shadow-xl backdrop-blur-xl">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
+            Service Filters
+          </p>
+          <div className="mt-3 flex flex-col gap-2">
+            {visibleServiceFilters.map((filter) => {
+              const active = isServiceFilterActive(filter.key);
+              const isDisabled = filter.key === "vline";
+              const chips = getFilterChips(filter.key);
+              return (
+                <div key={filter.key} className="flex flex-col">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isDisabled) toggleServiceFilter(filter.key);
+                    }}
+                    disabled={isDisabled}
+                    className={`rounded-xl border px-3 py-2 text-left transition ${
+                      isDisabled
+                        ? "cursor-not-allowed border-purple-400/20 bg-purple-500/8 text-purple-200/55 opacity-70"
+                        : active
+                          ? filter.tone
+                          : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                    }`}
+                  >
+                    <div className="text-xs font-semibold">{filter.label}</div>
+                    {filter.description && (
+                      <div className="mt-0.5 text-[10px] font-medium leading-4 text-current/75">
+                        {filter.description}
+                      </div>
+                    )}
+                    {chips.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {chips.map((chip) => (
+                          <span
+                            key={`${filter.key}-${chip}`}
+                            className="rounded-full border border-current/20 bg-black/15 px-2 py-0.5 text-[10px] font-semibold text-current/85"
+                          >
+                            {chip}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {isDisabled && (
+                      <div className="mt-0.5 text-[10px] font-medium leading-4 text-current/65">
+                        Unavailable right now while live V/Line is still being debugged.
+                      </div>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
       <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_120px_rgba(10,10,20,0.7)] z-[500]" />
     </div>
   );
+}
+
+function getFilterChips(filterKey: ServiceFilterKey) {
+  switch (filterKey) {
+    case "metroTunnelServices":
+      return [new Date().getMinutes() % 4 === 0 ? "Munnel" : "Metro Tunnel"];
+    case "burnleyGroup":
+      return ["Via Burnley Loop"];
+    case "cliftonHillGroup":
+      return ["Via Clifton Hill Loop"];
+    case "caulfieldGroup":
+      return ["Via Caulfield Loop", "Continues to Stony Point (shuttle)"];
+    case "frankstonGroup":
+      return ["Branch off Frankston"];
+    case "upfieldCraigieburn":
+      return ["Via Northern Loop"];
+    default:
+      return [];
+  }
 }

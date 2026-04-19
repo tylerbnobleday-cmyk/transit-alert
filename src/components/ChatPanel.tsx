@@ -1,48 +1,43 @@
-import { useState, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { X, Send, MessageCircle } from "lucide-react";
-import { useGetChatMessages, useSendChatMessage } from "@/lib/api-client-react/src/generated/api";
+import { AnimatePresence, motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { useQueryClient } from "@tanstack/react-query";
+import { ExternalLink, MessageCircle, RefreshCw, TrainFront, X } from "lucide-react";
+import { fetchConsistSnapshot } from "@/lib/transportvic-bot";
 
 interface ChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+function getStatusCopy(status: "active" | "idle" | "finished") {
+  switch (status) {
+    case "active":
+      return "Currently running";
+    case "idle":
+      return "Waiting for next trip";
+    default:
+      return "Finished for now";
+  }
+}
+
 export function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
-  const queryClient = useQueryClient();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [message, setMessage] = useState("");
-  const [username] = useState("User_" + Math.floor(Math.random() * 9999));
-
-  const { data } = useGetChatMessages({
-    query: { refetchInterval: 10000 }
+  const {
+    data,
+    isLoading,
+    isFetching,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["/api/consist/430M"],
+    queryFn: () => fetchConsistSnapshot("430M"),
+    enabled: isOpen,
+    refetchInterval: isOpen ? 60000 : false,
+    retry: false,
   });
 
-  const messages = Array.isArray(data) ? data : [];
-
-  const { mutate: sendMessage, isPending } = useSendChatMessage({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["/api/chat"] });
-        setMessage("");
-      }
-    }
-  });
-
-  // Auto scroll to bottom
-  useEffect(() => {
-    if (scrollRef.current && isOpen) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isOpen]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!message.trim()) return;
-    sendMessage({ data: { message, username } });
-  };
+  const updatedLabel = data?.as_of
+    ? formatDistanceToNow(new Date(data.as_of), { addSuffix: true })
+    : null;
 
   return (
     <AnimatePresence>
@@ -53,87 +48,194 @@ export function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 md:hidden"
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm md:hidden"
           />
-          <motion.div
+          <motion.aside
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed top-0 bottom-0 right-0 w-full md:w-[400px] z-50 bg-card border-l border-white/10 shadow-2xl flex flex-col"
+            className="fixed right-0 top-0 bottom-0 z-50 flex w-full flex-col border-l border-white/10 bg-card md:w-[430px]"
           >
-            {/* Header */}
-            <div className="p-5 border-b border-white/10 bg-white/5 flex items-center justify-between">
+            <div className="flex items-center justify-between border-b border-white/10 bg-white/5 p-5">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/30">
-                  <MessageCircle className="w-5 h-5 text-primary" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-primary/30 bg-primary/20">
+                  <MessageCircle className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <h2 className="font-display font-bold text-xl text-white leading-none">Alert Talk</h2>
-                  <p className="text-xs text-green-400 font-medium flex items-center gap-1 mt-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Live Community
+                  <h2 className="font-display text-xl font-bold leading-none text-white">430M Tracker Bot</h2>
+                  <p className="mt-1 text-xs font-medium text-blue-300">
+                    Powered by TransportVic consist tracking
                   </p>
                 </div>
               </div>
-              <button 
-                onClick={onClose}
-                className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors"
-              >
-                <X className="w-5 h-5 text-white/70" />
-              </button>
-            </div>
 
-            {/* Messages */}
-            <div 
-              ref={scrollRef}
-              className="flex-1 overflow-y-auto p-5 space-y-4 bg-gradient-to-b from-transparent to-black/20"
-            >
-              {messages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center opacity-50">
-                  <MessageCircle className="w-12 h-12 mb-3" />
-                  <p>No messages yet. Start the conversation!</p>
-                </div>
-              ) : (
-                messages.map((msg, i) => {
-                  const isMe = msg.username === username;
-                  return (
-                    <div key={msg.id || i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1 ml-1">
-                        {isMe ? 'You' : msg.username} • {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
-                      </span>
-                      <div className={`px-4 py-2.5 rounded-2xl max-w-[85%] text-sm ${
-                        isMe 
-                          ? 'bg-primary text-primary-foreground rounded-tr-sm shadow-[0_4px_15px_rgba(37,99,235,0.2)]' 
-                          : 'bg-white/10 text-white rounded-tl-sm border border-white/5'
-                      }`}>
-                        {msg.message}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Input */}
-            <div className="p-4 border-t border-white/10 bg-card">
-              <form onSubmit={handleSubmit} className="flex gap-2">
-                <input 
-                  type="text"
-                  placeholder="Type an alert or question..."
-                  value={message}
-                  onChange={e => setMessage(e.target.value)}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-full px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-primary focus:bg-white/10 transition-all"
-                />
-                <button 
-                  type="submit"
-                  disabled={isPending || !message.trim()}
-                  className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed shrink-0 transition-transform active:scale-95 shadow-lg"
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => refetch()}
+                  className="rounded-full bg-white/5 p-2 transition-colors hover:bg-white/10"
+                  aria-label="Refresh tracker"
                 >
-                  <Send className="w-5 h-5 ml-1" />
+                  <RefreshCw className={`h-4 w-4 text-white/70 ${isFetching ? "animate-spin" : ""}`} />
                 </button>
-              </form>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-full bg-white/5 p-2 transition-colors hover:bg-white/10"
+                  aria-label="Close tracker"
+                >
+                  <X className="h-5 w-5 text-white/70" />
+                </button>
+              </div>
             </div>
-          </motion.div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              {isLoading ? (
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-5 text-sm text-white/70">
+                  Loading live consist status...
+                </div>
+              ) : error instanceof Error ? (
+                <div className="rounded-3xl border border-amber-400/20 bg-amber-500/10 p-5 text-sm text-amber-100">
+                  <p className="font-semibold">Tracker unavailable</p>
+                  <p className="mt-2 opacity-80">{error.message}</p>
+                </div>
+              ) : data ? (
+                <div className="space-y-4">
+                  <section className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-300/80">
+                          Live status
+                        </p>
+                        <h3 className="mt-2 flex items-center gap-2 text-xl font-semibold text-white">
+                          <TrainFront className="h-5 w-5 text-blue-300" />
+                          Consist {data.consist}
+                        </h3>
+                        <p className="mt-1 text-sm text-white/65">{getStatusCopy(data.status)}</p>
+                      </div>
+                      <a
+                        href={`https://transportvic.me/metro/tracker/consist?consist=${encodeURIComponent(data.consist)}&date=`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
+                      >
+                        Open source <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
+
+                    {updatedLabel && (
+                      <p className="mt-4 text-xs text-white/45">Updated {updatedLabel}</p>
+                    )}
+                  </section>
+
+                  <section className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+                    <p className="text-sm font-semibold text-white">Current trip</p>
+                    {data.current_trip ? (
+                      <div className="mt-3 space-y-3 text-sm text-white/75">
+                        <div>
+                          <p className="text-lg font-semibold text-white">
+                            {data.current_trip.origin} to {data.current_trip.destination}
+                          </p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/40">
+                            Trip {data.current_trip.id}
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Departs</p>
+                            <p className="mt-1 font-medium text-white">{data.current_trip.departs}</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Arrives</p>
+                            <p className="mt-1 font-medium text-white">{data.current_trip.arrives}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-white/60">No active trip at the moment.</p>
+                    )}
+                  </section>
+
+                  <section className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+                    <p className="text-sm font-semibold text-white">Position estimate</p>
+                    {data.position ? (
+                      <div className="mt-3 space-y-3 text-sm text-white/75">
+                        <div>
+                          <p className="font-medium text-white">{data.position.current_stop}</p>
+                          <p className="mt-1 text-white/60">
+                            {data.position.vehicle_stop_status === "IN_TRANSIT_TO"
+                              ? `Heading toward ${data.position.next_stop ?? "the next stop"}`
+                              : "Stopped at station"}
+                          </p>
+                        </div>
+                        {typeof data.position.progress_pct === "number" && (
+                          <div>
+                            <div className="mb-2 flex items-center justify-between text-xs text-white/45">
+                              <span>Trip progress</span>
+                              <span>{data.position.progress_pct}%</span>
+                            </div>
+                            <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                              <div
+                                className="h-full rounded-full bg-blue-500 transition-all"
+                                style={{ width: `${data.position.progress_pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Current stop</p>
+                            <p className="mt-1 text-white">{data.position.current_stop_time}</p>
+                          </div>
+                          <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Next stop</p>
+                            <p className="mt-1 text-white">
+                              {data.position.next_stop_time ?? "Waiting"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-white/60">No stop-level estimate available right now.</p>
+                    )}
+                  </section>
+
+                  <section className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+                    <p className="text-sm font-semibold text-white">Next trip</p>
+                    {data.next_trip ? (
+                      <div className="mt-3 text-sm text-white/75">
+                        <p className="font-medium text-white">
+                          {data.next_trip.origin} to {data.next_trip.destination}
+                        </p>
+                        <p className="mt-1">Departs {data.next_trip.departs} and arrives {data.next_trip.arrives}</p>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-white/60">No next trip published right now.</p>
+                    )}
+                  </section>
+
+                  <section className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+                    <p className="text-sm font-semibold text-white">Network alerts</p>
+                    {data.network_alerts.length === 0 ? (
+                      <p className="mt-3 text-sm text-white/60">No alerts parsed from the live board right now.</p>
+                    ) : (
+                      <div className="mt-3 space-y-2">
+                        {data.network_alerts.map((alert, index) => (
+                          <div
+                            key={`${alert}-${index}`}
+                            className="rounded-2xl border border-amber-400/15 bg-amber-500/10 px-3 py-3 text-sm text-amber-100"
+                          >
+                            {alert}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </div>
+              ) : null}
+            </div>
+          </motion.aside>
         </>
       )}
     </AnimatePresence>
