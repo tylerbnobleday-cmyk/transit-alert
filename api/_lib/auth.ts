@@ -1,7 +1,12 @@
 import crypto from "node:crypto";
-import { and, eq } from "drizzle-orm";
-import { db } from "../../src/lib/db/src/index";
-import { appUsersTable, userPreferencesTable, appConfigTable, markerOverridesTable } from "../../src/lib/db/src/schema";
+import { eq } from "../../src/lib/db/node_modules/drizzle-orm/index.js";
+import { db } from "../../src/lib/db/src/index.js";
+import {
+  appUsersTable,
+  userPreferencesTable,
+  appConfigTable,
+  markerOverridesTable,
+} from "../../src/lib/db/src/schema/auth.js";
 
 export const ROLE_OPTIONS = [
   "Admin",
@@ -222,7 +227,7 @@ export async function registerUser(input: { username: string; email: string; pas
 export async function getUserByUsernameOrEmail(username: string, email: string) {
   return db.query.appUsersTable.findFirst({
     where: eq(appUsersTable.username, username),
-  }).then(async (existingByUsername) => {
+  }).then(async (existingByUsername: Awaited<ReturnType<typeof db.query.appUsersTable.findFirst>>) => {
     if (existingByUsername) return existingByUsername;
     return db.query.appUsersTable.findFirst({
       where: eq(appUsersTable.email, email),
@@ -281,7 +286,9 @@ export async function upsertUserPreferences(
 
 export async function getAppConfig() {
   const rows = await db.select().from(appConfigTable);
-  return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  return Object.fromEntries(
+    rows.map((row: { key: string; value: Record<string, unknown> }) => [row.key, row.value]),
+  );
 }
 
 export async function setAppConfigValue(key: string, value: Record<string, unknown>, updatedBy?: string) {
