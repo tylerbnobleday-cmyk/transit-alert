@@ -14,7 +14,11 @@ import L from "leaflet";
 import { formatDistanceToNow } from "date-fns";
 import { useGetReports } from "@/lib/api-client-react/src/generated/api";
 import type { Report } from "@/lib/api-client-react/src/generated/api.schemas";
+import smartbusIcon from "@/assets/icons/smartbus.svg";
+import trainIcon from "@/assets/icons/train.svg";
+import tramIcon from "@/assets/icons/tram.svg";
 import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
+import { fetchConsistSnapshot } from "@/lib/transportvic-bot";
 import { fetchMarkerOverrides, saveMarkerOverrides, type MarkerOverride } from "@/lib/marker-overrides";
 import {
   Train,
@@ -25,6 +29,8 @@ import {
   Info,
   ZoomIn,
   ZoomOut,
+  ArrowRight,
+  ExternalLink,
   Navigation,
 } from "lucide-react";
 
@@ -132,52 +138,96 @@ function getDirectionArrow(direction: LiveTrain["direction"]) {
 
 function createLiveTrainIcon(vehicle: LiveTrain) {
   const color = getLiveLineColor(vehicle.line);
-  const arrow = getDirectionArrow(vehicle.direction);
+  const arrow = "▲";
+  const rotation =
+    typeof vehicle.heading === "number" && Number.isFinite(vehicle.heading)
+      ? vehicle.heading
+      : vehicle.direction === "up" || vehicle.direction === "city-bound"
+        ? 0
+        : vehicle.direction === "down" || vehicle.direction === "outbound"
+          ? 180
+          : 0;
+  const isTrackedConsist = vehicle.consist === "430M";
+  const outerSize = isTrackedConsist ? 68 : 54;
+  const innerSize = isTrackedConsist ? 34 : 26;
+  const badgeLabel = isTrackedConsist ? "430M" : vehicle.tdn;
+  const destinationLabel = vehicle.destination
+    .replace(/\bStreet\b/gi, "St")
+    .replace(/\bStation\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 18);
 
   return L.divIcon({
     html: `
-      <div style="position:relative;width:54px;height:54px;display:flex;align-items:center;justify-content:center;">
-        <div style="position:absolute;inset:0;border-radius:50%;background:${color};opacity:0.22;animation:ping 2s infinite;"></div>
+      <div style="position:relative;width:${outerSize}px;height:${outerSize}px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;inset:0;border-radius:50%;background:${color};opacity:${isTrackedConsist ? "0.28" : "0.22"};animation:ping 2s infinite;"></div>
+        ${
+          isTrackedConsist
+            ? `<div style="position:absolute;inset:8px;border-radius:9999px;border:1px solid rgba(255,255,255,0.22);"></div>`
+            : ""
+        }
 
         <div style="
-          width:26px;
-          height:26px;
+          width:${innerSize}px;
+          height:${innerSize}px;
           border-radius:9999px;
           background:${color};
-          border:2px solid white;
-          box-shadow:0 4px 14px rgba(0,0,0,0.6);
+          border:${isTrackedConsist ? "3px" : "2px"} solid white;
+          box-shadow:${isTrackedConsist ? "0 6px 18px rgba(0,0,0,0.72)" : "0 4px 14px rgba(0,0,0,0.6)"};
           display:flex;
           align-items:center;
           justify-content:center;
           color:white;
-          font-size:13px;
+          font-size:${isTrackedConsist ? "16px" : "13px"};
           font-weight:700;
-          transform: rotate(${vehicle.heading ?? 0}deg);
+          transform: rotate(${rotation}deg);
         ">
           ${arrow}
         </div>
 
         <div style="
           position:absolute;
-          top:-8px;
-          right:-10px;
+          top:${isTrackedConsist ? "-10px" : "-8px"};
+          left:50%;
+          transform:translateX(-50%);
           background:#0f172a;
           color:white;
-          font-size:9px;
+          font-size:${isTrackedConsist ? "10px" : "9px"};
           font-weight:700;
-          padding:2px 5px;
+          padding:${isTrackedConsist ? "3px 6px" : "2px 5px"};
           border-radius:6px;
           border:1px solid rgba(255,255,255,0.15);
           box-shadow:0 4px 10px rgba(0,0,0,0.4);
           white-space:nowrap;
         ">
-          ${vehicle.tdn}
+          ${badgeLabel}
+        </div>
+        <div style="
+          position:absolute;
+          left:50%;
+          bottom:${isTrackedConsist ? "-18px" : "-16px"};
+          transform:translateX(-50%);
+          background:rgba(15,23,42,0.92);
+          color:white;
+          font-size:${isTrackedConsist ? "10px" : "9px"};
+          font-weight:700;
+          padding:${isTrackedConsist ? "3px 7px" : "2px 6px"};
+          border-radius:9999px;
+          border:1px solid rgba(255,255,255,0.14);
+          box-shadow:0 4px 10px rgba(0,0,0,0.35);
+          white-space:nowrap;
+          max-width:120px;
+          overflow:hidden;
+          text-overflow:ellipsis;
+        ">
+          ${destinationLabel}
         </div>
       </div>
     `,
     className: "bg-transparent border-none",
-    iconSize: [54, 54],
-    iconAnchor: [27, 27],
+    iconSize: [outerSize, outerSize],
+    iconAnchor: [outerSize / 2, outerSize / 2],
     popupAnchor: [0, -22],
   });
 }
@@ -1079,19 +1129,109 @@ function renderStationMarkers(
   ));
 }
 
+function formatRouteWindow(time?: string | null) {
+  if (!time) {
+    return "Unknown";
+  }
+
+  return time.slice(0, 5);
+}
+
+function splitConsistCars(consist: string) {
+  if (consist === "430M") {
+    return ["369M", "1035T", "370M", "429M", "1065T", "430M"];
+  }
+  return consist
+    .split(/[\s-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function inferComengVariant(vehicle: LiveTrain) {
+  const joined = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  if (/(craigieburn|upfield|sunbury|northern|mernda|hurstbridge|clifton hill)/i.test(joined)) {
+    return "North-side Comeng";
+  }
+  return "South-side Comeng";
+}
+
+function getVehicleFormation(vehicle: LiveTrain) {
+  const cars = splitConsistCars(vehicle.consist);
+  const trailerCars = cars.filter((car) => /\d+T$/i.test(car));
+  const inferredCarCount =
+    trailerCars.length > 0
+      ? trailerCars.length * 3
+      : cars.length >= 6
+        ? 6
+        : cars.length >= 3
+          ? 3
+          : Math.max(cars.length, 0);
+
+  const upperTrainType = vehicle.trainType.toUpperCase();
+  const upperConsist = vehicle.consist.toUpperCase();
+  const joinedCars = cars.join(" ").toUpperCase();
+
+  let family: string | null = null;
+
+  if (/HCMT/.test(upperTrainType) || /HCMT/.test(upperConsist) || /HCMT/.test(joinedCars)) {
+    family = "HCMT";
+  } else if (/SIEMENS/.test(upperTrainType) || /25\d{2}T/.test(joinedCars) || /7\d{2}M|8\d{2}M/.test(joinedCars)) {
+    family = "Siemens Nexas";
+  } else if (/X['’]?TRAPOLIS|XTRAPOLIS/.test(upperTrainType) || /13\d{2}T|14\d{2}T|16\d{2}T/.test(joinedCars)) {
+    family = "X’Trapolis 100";
+  } else if (/COMENG/.test(upperTrainType) || /10\d{2}T|11\d{2}T/.test(joinedCars) || /3\d{2}M|4\d{2}M|5\d{2}M|6\d{2}M/.test(joinedCars)) {
+    family = inferComengVariant(vehicle);
+  }
+
+  return {
+    family,
+    cars: inferredCarCount,
+  };
+}
+
+function getVehicleDisplayType(vehicle: LiveTrain) {
+  const formation = getVehicleFormation(vehicle);
+
+  if (formation.family && formation.cars >= 3) {
+    return `${formation.family} (${formation.cars}-car)`;
+  }
+
+  if (formation.family) {
+    return formation.family;
+  }
+
+  return vehicle.trainType;
+}
+
+function getDistanceInKm(a: [number, number], b: [number, number]) {
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const deltaLat = toRadians(b[0] - a[0]);
+  const deltaLng = toRadians(b[1] - a[1]);
+  const lat1 = toRadians(a[0]);
+  const lat2 = toRadians(b[0]);
+
+  const haversine =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
 function createEditorMarkerIcon(isSelected: boolean) {
   return L.divIcon({
     html: `<div style="
-      width:18px;
-      height:18px;
+      width:26px;
+      height:26px;
       border-radius:9999px;
       background:${isSelected ? "#f59e0b" : "#60a5fa"};
-      border:2px solid white;
-      box-shadow:0 4px 14px rgba(0,0,0,0.5);
+      border:3px solid white;
+      box-shadow:0 6px 18px rgba(0,0,0,0.55);
+      outline:${isSelected ? "6px solid rgba(245, 158, 11, 0.18)" : "4px solid rgba(96, 165, 250, 0.14)"};
     "></div>`,
     className: "bg-transparent border-none",
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
   });
 }
 
@@ -1371,7 +1511,7 @@ export function Map({
   isAdmin = false,
 }: MapProps = {}) {
   const mapRef = useRef<L.Map | null>(null);
-  const consistData = undefined as any;
+  const consistData = null as any;
 
   const { data } = useGetReports({
     query: { refetchInterval: 30000 },
@@ -1395,6 +1535,14 @@ export function Map({
     | { type: "report"; report: Report }
     | null
   >(null);
+  const selectedVehicle = selectedDetail?.type === "vehicle" ? selectedDetail.vehicle : null;
+  const { data: selectedVehicleSnapshot } = useQuery({
+    queryKey: ["consist-snapshot", selectedVehicle?.consist],
+    queryFn: () => fetchConsistSnapshot(selectedVehicle!.consist),
+    enabled: Boolean(selectedVehicle?.consist),
+    refetchInterval: 30000,
+    retry: false,
+  });
   const [isMarkerEditMode, setIsMarkerEditMode] = useState(false);
   const [draftMarkerOverrides, setDraftMarkerOverrides] = useState<Record<string, MarkerOverride>>({});
 
@@ -1440,6 +1588,36 @@ const [layers, setLayers] = useState<LayerState>({
   useEffect(() => {
     onLayerStateChange?.(layers);
   }, [layers, onLayerStateChange]);
+
+  useEffect(() => {
+    if (!mapRef.current) {
+      return;
+    }
+
+    if (isMarkerEditMode) {
+      mapRef.current.dragging.disable();
+      mapRef.current.doubleClickZoom.disable();
+      mapRef.current.touchZoom.disable();
+      mapRef.current.scrollWheelZoom.disable();
+      mapRef.current.boxZoom.disable();
+      mapRef.current.keyboard.disable();
+      return () => {
+        mapRef.current?.dragging.enable();
+        mapRef.current?.doubleClickZoom.enable();
+        mapRef.current?.touchZoom.enable();
+        mapRef.current?.scrollWheelZoom.enable();
+        mapRef.current?.boxZoom.enable();
+        mapRef.current?.keyboard.enable();
+      };
+    }
+
+    mapRef.current.dragging.enable();
+    mapRef.current.doubleClickZoom.enable();
+    mapRef.current.touchZoom.enable();
+    mapRef.current.scrollWheelZoom.enable();
+    mapRef.current.boxZoom.enable();
+    mapRef.current.keyboard.enable();
+  }, [isMarkerEditMode]);
 
   useEffect(() => {
     if ("geolocation" in navigator) {
@@ -1618,9 +1796,12 @@ const [layers, setLayers] = useState<LayerState>({
     (station: Station): Station => {
       const override = markerOverrideMap[station.name];
       if (!override) return station;
+      if (!isMarkerEditMode && getDistanceInKm(station.position, [override.lat, override.lng]) > 0.75) {
+        return station;
+      }
       return { ...station, position: [override.lat, override.lng] };
     },
-    [markerOverrideMap],
+    [isMarkerEditMode, markerOverrideMap],
   );
   const editableStations = useMemo(() => {
     const seen = new Set<string>();
@@ -1652,6 +1833,14 @@ const [layers, setLayers] = useState<LayerState>({
 
   const cancelEditedMarkers = () => {
     setDraftMarkerOverrides({});
+    setIsMarkerEditMode(false);
+  };
+
+  const resetSavedMarkers = async () => {
+    await saveMarkerOverrides([]);
+    setDraftMarkerOverrides({});
+    await refetchMarkerOverrides();
+    setSelectedDetail(null);
     setIsMarkerEditMode(false);
   };
 
@@ -1696,6 +1885,12 @@ const [layers, setLayers] = useState<LayerState>({
         center={MELBOURNE_CENTER}
         zoom={13}
         zoomControl={false}
+        dragging={!isMarkerEditMode}
+        doubleClickZoom={!isMarkerEditMode}
+        touchZoom={!isMarkerEditMode}
+        scrollWheelZoom={!isMarkerEditMode}
+        boxZoom={!isMarkerEditMode}
+        keyboard={!isMarkerEditMode}
         className="w-full h-full"
         style={{ background: "#0f172a" }}
         ref={(mapInstance) => {
@@ -2030,17 +2225,12 @@ const [layers, setLayers] = useState<LayerState>({
         {modeIsTrainVisible && layers.metroTunnel && (
           <>
             <Polyline
-              positions={METRO_TUNNEL_LINE}
+              positions={offsetPolylineCoordinates(METRO_TUNNEL_LINE, "left", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
             <Polyline
-              positions={MELBOURNE_CENTRAL_TO_STATE_LIBRARY}
-              pathOptions={{
-                color: "#279FD5",
-                weight: 3,
-                opacity: 0.65,
-                dashArray: "8, 6",
-              }}
+              positions={offsetPolylineCoordinates(METRO_TUNNEL_LINE, "right", 0.6)}
+              pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
             {renderStationMarkers(METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
@@ -2182,105 +2372,18 @@ const [layers, setLayers] = useState<LayerState>({
         {userLoc && <LocationCenterer loc={userLoc} />}
 {modeIsTrainVisible && liveVehicles.map((vehicle) => (
   <Marker
-    key={vehicle.tdn}
+    key={`${vehicle.consist}-${vehicle.tdn}`}
     position={[vehicle.lat, vehicle.lng]}
     icon={createLiveTrainIcon(vehicle)}
+    zIndexOffset={vehicle.consist === "430M" ? 2500 : 1200}
+    riseOnHover
     eventHandlers={{
+      mousedown: () => setSelectedDetail({ type: "vehicle", vehicle }),
+      touchstart: () => setSelectedDetail({ type: "vehicle", vehicle }),
       click: () => setSelectedDetail({ type: "vehicle", vehicle }),
+      popupopen: () => setSelectedDetail({ type: "vehicle", vehicle }),
     }}
-  >
-    <Popup>
-      <div className="p-4 w-72">
-        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-white/10">
-          <span className="text-xl">🚆</span>
-          <div>
-            <p className="font-bold text-white text-sm">
-              {vehicle.line} Line
-            </p>
-            <p className="text-[10px] text-blue-400 font-semibold uppercase tracking-wider">
-              Live Service
-            </p>
-          </div>
-          <div className="ml-auto bg-white/10 text-white text-[10px] px-2 py-1 rounded-lg font-bold">
-            {vehicle.tdn}
-          </div>
-        </div>
-
-        <div className="space-y-2 text-xs">
-          <div>
-            <p className="text-[10px] text-white/30 uppercase tracking-wider">
-              Destination
-            </p>
-            <p className="text-sm text-white/90 font-medium">
-              {vehicle.destination}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <p className="text-[10px] text-white/30 uppercase tracking-wider">
-                Direction
-              </p>
-              <p className="text-white/80">
-                {vehicle.direction}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-[10px] text-white/30 uppercase tracking-wider">
-                Status
-              </p>
-              <p className="text-white/80 capitalize">
-                {vehicle.status ?? "unknown"}
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <p className="text-[10px] text-white/30 uppercase tracking-wider">
-              Train Type
-            </p>
-            <p className="text-white/80">
-              {vehicle.trainType}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-[10px] text-white/30 uppercase tracking-wider">
-              Consist
-            </p>
-            <p className="text-white/80 break-words">
-              {vehicle.consist}
-            </p>
-          </div>
-
-          {vehicle.serviceDescription && (
-            <div>
-              <p className="text-[10px] text-white/30 uppercase tracking-wider">
-                Service
-              </p>
-              <p className="text-white/80">
-                {vehicle.serviceDescription}
-              </p>
-            </div>
-          )}
-
-          {vehicle.timestamp && (
-            <div>
-              <p className="text-[10px] text-white/30 uppercase tracking-wider">
-                Updated
-              </p>
-              <p className="text-white/60">
-                {formatDistanceToNow(new Date(vehicle.timestamp), {
-                  addSuffix: true,
-                })}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </Popup>
-  </Marker>
+  />
 ))}
         {visibleReports.map((report) => {
           if (!report.lat || !report.lng) return null;
@@ -2375,6 +2478,8 @@ const [layers, setLayers] = useState<LayerState>({
                 key={`editor-${station.name}`}
                 position={markerPosition}
                 draggable
+                zIndexOffset={5000}
+                riseOnHover
                 icon={createEditorMarkerIcon(isSelected)}
                 eventHandlers={{
                   click: () => setSelectedDetail({ type: "station", station: { ...station, position: markerPosition } }),
@@ -2415,49 +2520,18 @@ const [layers, setLayers] = useState<LayerState>({
       </div>
       )}
 
-      <div className="absolute bottom-6 right-4 z-[1000] flex max-w-[220px] flex-col gap-2 sm:right-6">
-        <div className="flex flex-col gap-2 self-end">
-          <button
-            type="button"
-            onClick={() => mapRef.current?.zoomIn()}
-            className="rounded-xl border border-white/20 bg-white/10 p-2 backdrop-blur-sm transition-colors hover:bg-white/20"
-            title="Zoom in"
-          >
-            <ZoomIn className="h-4 w-4 text-white" />
-          </button>
-          <button
-            type="button"
-            onClick={() => mapRef.current?.zoomOut()}
-            className="rounded-xl border border-white/20 bg-white/10 p-2 backdrop-blur-sm transition-colors hover:bg-white/20"
-            title="Zoom out"
-          >
-            <ZoomOut className="h-4 w-4 text-white" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (userLoc && mapRef.current) {
-                mapRef.current.setView(userLoc, mapRef.current.getZoom());
-              }
-            }}
-            className="rounded-xl border border-white/20 bg-white/10 p-2 backdrop-blur-sm transition-colors hover:bg-white/20"
-            title="Center on my location"
-          >
-            <Navigation className="h-4 w-4 text-white" />
-          </button>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 shadow-xl backdrop-blur-xl">
+      <div className="absolute right-4 top-36 z-[1000] w-[11.5rem] sm:right-6 sm:top-32">
+        <div className="max-h-[68vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/82 p-3 shadow-xl backdrop-blur-xl">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
             Transport Modes
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2">
             {([
-              { key: "train", label: "Trains" },
-              { key: "tram", label: "Trams" },
-              { key: "bus", label: "Buses" },
-              { key: "vline", label: "V/Line" },
-            ] as Array<{ key: TransportMode; label: string }>).map((mode) => {
+              { key: "train", label: "Trains", icon: "train" },
+              { key: "tram", label: "Trams", icon: "tram" },
+              { key: "bus", label: "Buses", icon: "bus" },
+              { key: "vline", label: "V/Line", icon: "vline" },
+            ] as Array<{ key: TransportMode; label: string; icon: "train" | "tram" | "bus" | "vline" }>).map((mode) => {
               const active = transportModes.includes(mode.key);
               return (
                 <button
@@ -2470,7 +2544,20 @@ const [layers, setLayers] = useState<LayerState>({
                       : "border-white/10 bg-white/5 text-white/65 hover:bg-white/10"
                   }`}
                 >
-                  {mode.label}
+                  <span className="flex items-center gap-2">
+                    {mode.icon === "train" ? (
+                      <img src={trainIcon} alt="" className="h-4 w-4 shrink-0 object-contain opacity-90" />
+                    ) : mode.icon === "bus" ? (
+                      <img src={smartbusIcon} alt="" className="h-4 w-4 shrink-0 object-contain opacity-90" />
+                    ) : mode.icon === "tram" ? (
+                      <img src={tramIcon} alt="" className="h-4 w-4 shrink-0 object-contain opacity-90" />
+                    ) : (
+                      <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-current/25 px-1 text-[9px] font-bold leading-none">
+                        V
+                      </span>
+                    )}
+                    <span>{mode.label}</span>
+                  </span>
                 </button>
               );
             })}
@@ -2490,7 +2577,7 @@ const [layers, setLayers] = useState<LayerState>({
                 {isMarkerEditMode ? "Marker edit mode on" : "Edit markers"}
               </button>
               {isMarkerEditMode && (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => void saveEditedMarkers()}
@@ -2504,6 +2591,13 @@ const [layers, setLayers] = useState<LayerState>({
                     className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void resetSavedMarkers()}
+                    className="rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100"
+                  >
+                    Reset all
                   </button>
                 </div>
               )}
@@ -2565,23 +2659,272 @@ const [layers, setLayers] = useState<LayerState>({
         </div>
       </div>
 
-      {selectedDetail && (
+      <div
+        className={`absolute bottom-24 z-[1001] flex flex-col gap-2 sm:bottom-20 ${
+          selectedDetail?.type === "vehicle" ? "right-[25.5rem] sm:right-[26rem]" : "right-4 sm:right-6"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => mapRef.current?.zoomIn()}
+          className="rounded-xl border border-white/20 bg-slate-950/78 p-2.5 shadow-lg backdrop-blur-md transition-colors hover:bg-white/20"
+          title="Zoom in"
+        >
+          <ZoomIn className="h-4 w-4 text-white" />
+        </button>
+        <button
+          type="button"
+          onClick={() => mapRef.current?.zoomOut()}
+          className="rounded-xl border border-white/20 bg-slate-950/78 p-2.5 shadow-lg backdrop-blur-md transition-colors hover:bg-white/20"
+          title="Zoom out"
+        >
+          <ZoomOut className="h-4 w-4 text-white" />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (userLoc && mapRef.current) {
+              mapRef.current.setView(userLoc, mapRef.current.getZoom());
+            }
+          }}
+          className="rounded-xl border border-white/20 bg-slate-950/78 p-2.5 shadow-lg backdrop-blur-md transition-colors hover:bg-white/20"
+          title="Center on my location"
+        >
+          <Navigation className="h-4 w-4 text-white" />
+        </button>
+      </div>
+
+      {selectedDetail?.type === "vehicle" && (
+        <div className="absolute inset-x-4 bottom-24 z-[1001] mx-auto w-auto max-w-[24rem] rounded-[1.6rem] border border-white/10 bg-slate-950/96 p-3.5 shadow-2xl backdrop-blur-2xl md:inset-x-auto md:bottom-6 md:right-4 md:top-24 md:max-h-[calc(100%-7rem)] md:w-[24rem] md:overflow-y-auto">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-blue-300/75">
+                Train tracker
+              </p>
+              <p className="mt-1.5 text-[1.35rem] font-semibold leading-tight text-white">
+                {selectedVehicleSnapshot?.current_trip
+                  ? `${selectedVehicleSnapshot.current_trip.origin} to ${selectedVehicleSnapshot.current_trip.destination}`
+                  : selectedVehicleSnapshot?.next_trip
+                    ? `${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
+                    : `${selectedDetail.vehicle.line} service`}
+              </p>
+              <p className="mt-1 text-xs text-white/55">
+                TDN {selectedVehicleSnapshot?.current_trip?.id ?? selectedVehicleSnapshot?.next_trip?.id ?? selectedDetail.vehicle.tdn} / Consist {selectedDetail.vehicle.consist}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedDetail(null)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white/70"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="mt-3 rounded-[1.35rem] border border-cyan-400/15 bg-gradient-to-r from-cyan-500/10 to-emerald-500/8 p-3.5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
+              Running service
+            </p>
+            <p className="mt-1.5 text-lg font-semibold leading-tight text-white">
+              {selectedVehicleSnapshot?.current_trip
+                ? `${selectedVehicleSnapshot.current_trip.origin} to ${selectedVehicleSnapshot.current_trip.destination}`
+                : selectedVehicleSnapshot?.next_trip
+                  ? `Next: ${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
+                  : selectedDetail.vehicle.serviceDescription ?? "Waiting for next trip"}
+            </p>
+            <p className="mt-1.5 text-xs text-white/65">
+              {selectedVehicleSnapshot?.current_trip
+                ? `Running now from ${formatRouteWindow(selectedVehicleSnapshot.current_trip.departs)} to ${formatRouteWindow(selectedVehicleSnapshot.current_trip.arrives)}`
+                : selectedVehicleSnapshot?.next_trip
+                  ? `Departs ${formatRouteWindow(selectedVehicleSnapshot.next_trip.departs)} and arrives ${formatRouteWindow(selectedVehicleSnapshot.next_trip.arrives)}`
+                  : "No active trip has been reported right now."}
+            </p>
+          </div>
+
+          <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
+                Trip list
+              </p>
+              <p className="text-[10px] text-white/38">
+                live snapshot
+              </p>
+            </div>
+
+            <div className="mt-2.5 space-y-2.5">
+              {selectedVehicleSnapshot?.current_trip && (
+                <div className="rounded-[1.1rem] border border-emerald-400/15 bg-emerald-500/8 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/70">
+                    Running now
+                  </p>
+                  <p className="mt-1.5 text-[15px] font-semibold leading-tight text-white">
+                    {selectedVehicleSnapshot.current_trip.origin} to {selectedVehicleSnapshot.current_trip.destination}
+                  </p>
+                  <p className="mt-1 text-xs text-white/65">
+                    {formatRouteWindow(selectedVehicleSnapshot.current_trip.departs)} to{" "}
+                    {formatRouteWindow(selectedVehicleSnapshot.current_trip.arrives)}
+                  </p>
+                </div>
+              )}
+
+              {selectedVehicleSnapshot?.next_trip && (
+                <div className="rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">
+                    Up next
+                  </p>
+                  <p className="mt-1.5 text-[15px] font-semibold leading-tight text-white">
+                    {selectedVehicleSnapshot.next_trip.origin} to {selectedVehicleSnapshot.next_trip.destination}
+                  </p>
+                  <p className="mt-1 text-xs text-white/65">
+                    {formatRouteWindow(selectedVehicleSnapshot.next_trip.departs)} to{" "}
+                    {formatRouteWindow(selectedVehicleSnapshot.next_trip.arrives)}
+                  </p>
+                </div>
+              )}
+
+              {!selectedVehicleSnapshot?.current_trip && !selectedVehicleSnapshot?.next_trip && (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-3 text-sm text-white/55">
+                  No active or upcoming trip details are available for this consist right now.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
+                  Origin
+                </p>
+                <p className="mt-1.5 text-[1.9rem] font-semibold leading-none text-white">
+                  {selectedVehicleSnapshot?.current_trip?.origin ?? selectedVehicleSnapshot?.next_trip?.origin ?? "Unknown"}
+                </p>
+              </div>
+              <div className="mt-6 flex items-center gap-2 text-emerald-300/80">
+                <div className="h-px w-5 bg-emerald-400/30" />
+                <ArrowRight className="h-4 w-4" />
+                <div className="h-px w-5 bg-emerald-400/30" />
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
+                  Destination
+                </p>
+                <p className="mt-1.5 text-[1.9rem] font-semibold leading-none text-white">
+                  {selectedVehicleSnapshot?.current_trip?.destination ?? selectedVehicleSnapshot?.next_trip?.destination ?? selectedDetail.vehicle.destination}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-100">
+                {selectedVehicleSnapshot?.position?.vehicle_stop_status === "STOPPED_AT"
+                  ? `Stopped at ${selectedVehicleSnapshot.position.current_stop}`
+                  : selectedDetail.vehicle.serviceDescription ?? "Live tracked service"}
+              </span>
+              {selectedVehicleSnapshot?.current_trip?.url && (
+                <a
+                  href={selectedVehicleSnapshot.current_trip.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold text-white/70"
+                >
+                  Open source
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2.5 border-t border-white/10 pt-3.5 text-sm text-white/70">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Type</p>
+                <p className="mt-1 text-sm font-semibold text-white">{getVehicleDisplayType(selectedDetail.vehicle)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Window</p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {selectedVehicleSnapshot?.current_trip
+                    ? `${formatRouteWindow(selectedVehicleSnapshot.current_trip.departs)}-${formatRouteWindow(selectedVehicleSnapshot.current_trip.arrives)}`
+                    : selectedVehicleSnapshot?.next_trip
+                      ? `${formatRouteWindow(selectedVehicleSnapshot.next_trip.departs)}-${formatRouteWindow(selectedVehicleSnapshot.next_trip.arrives)}`
+                      : "Waiting"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Operator</p>
+                <p className="mt-1 text-sm font-semibold text-white">Metro Trains Melbourne</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Updated</p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {selectedVehicleSnapshot?.as_of
+                    ? formatDistanceToNow(new Date(selectedVehicleSnapshot.as_of), { addSuffix: true })
+                    : selectedDetail.vehicle.timestamp
+                      ? formatDistanceToNow(new Date(selectedDetail.vehicle.timestamp), { addSuffix: true })
+                      : "Unknown"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
+                  Train type & consist
+                </p>
+                <p className="mt-2.5 text-xl font-semibold text-white">
+                  {getVehicleDisplayType(selectedDetail.vehicle)}
+                </p>
+              </div>
+              <div className="text-right text-xs text-white/60">
+                <p>Allocated set</p>
+                <p className="mt-1 font-semibold text-white">{selectedDetail.vehicle.consist}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {splitConsistCars(selectedDetail.vehicle.consist).map((car) => (
+                <span
+                  key={`${selectedDetail.vehicle.consist}-${car}`}
+                  className="rounded-full border border-blue-300/20 bg-blue-400/10 px-2.5 py-1 text-[10px] font-semibold text-blue-100/90"
+                >
+                  {car}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
+                Position estimate
+              </p>
+              <p className="mt-2.5 text-sm text-white/85">
+                {selectedVehicleSnapshot?.position
+                  ? selectedVehicleSnapshot.position.vehicle_stop_status === "STOPPED_AT"
+                    ? `Stopped at ${selectedVehicleSnapshot.position.current_stop} at ${formatRouteWindow(selectedVehicleSnapshot.position.current_stop_time)}`
+                    : `Between ${selectedVehicleSnapshot.position.current_stop} and ${selectedVehicleSnapshot.position.next_stop ?? "the next stop"}`
+                  : "No stop-level estimate available right now."}
+              </p>
+              {selectedVehicleSnapshot?.network_alerts?.length ? (
+                <div className="mt-3 rounded-[1.1rem] border border-amber-400/20 bg-amber-500/10 p-3 text-sm text-amber-50/95">
+                  {selectedVehicleSnapshot.network_alerts[0]}
+                </div>
+              ) : null}
+          </div>
+        </div>
+      )}
+
+      {selectedDetail && selectedDetail.type !== "vehicle" && (
         <div className="absolute inset-x-4 bottom-24 z-[1001] mx-auto max-w-xl rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-2xl sm:bottom-8">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-300/75">
-                {selectedDetail.type === "station"
-                  ? "Station"
-                  : selectedDetail.type === "vehicle"
-                    ? "Live vehicle"
-                    : "Service report"}
+                {selectedDetail.type === "station" ? "Station" : "Service report"}
               </p>
               <p className="mt-2 text-lg font-semibold text-white">
                 {selectedDetail.type === "station"
                   ? selectedDetail.station.name
-                  : selectedDetail.type === "vehicle"
-                    ? `${selectedDetail.vehicle.line} to ${selectedDetail.vehicle.destination}`
-                    : selectedDetail.report.locationName}
+                  : selectedDetail.report.locationName}
               </p>
             </div>
             <button
@@ -2602,20 +2945,6 @@ const [layers, setLayers] = useState<LayerState>({
                   {selectedDetail.station.position[0].toFixed(5)}, {selectedDetail.station.position[1].toFixed(5)}
                 </div>
               </div>
-            </div>
-          )}
-
-          {selectedDetail.type === "vehicle" && (
-            <div className="mt-3 grid gap-2 text-sm text-white/70 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">TDN {selectedDetail.vehicle.tdn}</div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">Operator Metro Trains Melbourne</div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">Vehicle {selectedDetail.vehicle.trainType}</div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">Status {selectedDetail.vehicle.status ?? "unknown"}</div>
-              {selectedDetail.vehicle.serviceDescription && (
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:col-span-2">
-                  {selectedDetail.vehicle.serviceDescription}
-                </div>
-              )}
             </div>
           )}
 
@@ -2660,3 +2989,4 @@ function getFilterChips(filterKey: ServiceFilterKey) {
       return [];
   }
 }
+

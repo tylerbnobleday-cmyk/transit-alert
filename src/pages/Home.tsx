@@ -484,7 +484,9 @@ export default function Home() {
       };
       writeLocalPreferences(next);
       if (isAuthenticated && !isGuest) {
-        void saveAccountPreferences(next);
+        void saveAccountPreferences(next).catch((error) => {
+          console.warn("Unable to save account preferences right now.", error);
+        });
       }
       return next;
     });
@@ -1255,7 +1257,7 @@ export default function Home() {
         </button>
       </div>
 
-      <div className="pointer-events-none absolute bottom-6 right-4 z-30 max-w-xs rounded-2xl border border-white/10 bg-slate-950/72 px-3 py-2 text-[11px] leading-4 text-white/70 shadow-xl backdrop-blur-xl sm:right-6 sm:text-xs">
+      <div className="pointer-events-none absolute bottom-24 left-4 z-30 max-w-xs rounded-2xl border border-white/10 bg-slate-950/72 px-3 py-2 text-[11px] leading-4 text-white/70 shadow-xl backdrop-blur-xl sm:bottom-6 sm:left-6 sm:text-xs">
         TransitAlert is an independent project. We are not operated by, affiliated with, or endorsed by the Department of Transport and Planning, Transport Victoria, PTV, or Metro Trains Melbourne.
       </div>
 

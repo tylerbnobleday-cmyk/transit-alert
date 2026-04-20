@@ -15,6 +15,7 @@ const PTV_BASE_URL = "https://api.opendata.transport.vic.gov.au/opendata/public-
 const TRANSPORTVIC_BASE_URL = "https://transportvic.me";
 const ptvSubscriptionKey =
   process.env.PTV_SUBSCRIPTION_KEY ||
+  process.env.PTV_subscription_key ||
   process.env.OCP_APIM_SUBSCRIPTION_KEY ||
   process.env.PTV_API_KEY;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
@@ -103,6 +104,7 @@ const transportVicStations = [
 ];
 
 type AccountRecord = {
+  id: string;
   username: string;
   email: string;
   password: string;
@@ -111,17 +113,37 @@ type AccountRecord = {
 };
 
 type SessionRecord = {
+  id: string;
   username: string;
   email: string;
   role: AppRole | "Guest";
   isAdmin: boolean;
 };
 
+type UserPreferences = {
+  favouriteStops: string[];
+  favouriteRoutes: string[];
+  selectedMapFilters: Record<string, boolean>;
+  transportModes: string[];
+  appPreferences: Record<string, unknown>;
+};
+
+const defaultPreferences: UserPreferences = {
+  favouriteStops: [],
+  favouriteRoutes: [],
+  selectedMapFilters: {},
+  transportModes: ["train"],
+  appPreferences: {},
+};
+
+const preferencesStore = new Map<string, UserPreferences>();
+
 const sessionStore = new Map<string, SessionRecord>();
 const accountStore = new Map<string, AccountRecord>([
   [
     adminUsername.toLowerCase(),
     {
+      id: adminUsername.toLowerCase(),
       username: adminUsername,
       email: `${adminUsername}@transitalert.local`,
       password: adminPassword,
@@ -169,11 +191,43 @@ function getSessionUser(req: any) {
 
 function sanitizeUser(record: SessionRecord | AccountRecord) {
   return {
+    id: record.id,
     username: record.username,
     email: record.email,
     role: record.role,
     isAdmin: record.isAdmin,
   };
+}
+
+function getUserPreferences(userId: string): UserPreferences {
+  const existing = preferencesStore.get(userId);
+  if (existing) {
+    return existing;
+  }
+  preferencesStore.set(userId, { ...defaultPreferences });
+  return { ...defaultPreferences };
+}
+
+function upsertUserPreferences(userId: string, patch: Partial<UserPreferences>) {
+  const existing = getUserPreferences(userId);
+  const next: UserPreferences = {
+    favouriteStops: Array.isArray(patch.favouriteStops) ? patch.favouriteStops : existing.favouriteStops,
+    favouriteRoutes: Array.isArray(patch.favouriteRoutes) ? patch.favouriteRoutes : existing.favouriteRoutes,
+    selectedMapFilters:
+      patch.selectedMapFilters && typeof patch.selectedMapFilters === "object"
+        ? { ...existing.selectedMapFilters, ...patch.selectedMapFilters }
+        : existing.selectedMapFilters,
+    transportModes:
+      Array.isArray(patch.transportModes) && patch.transportModes.length > 0
+        ? patch.transportModes
+        : existing.transportModes,
+    appPreferences:
+      patch.appPreferences && typeof patch.appPreferences === "object"
+        ? { ...existing.appPreferences, ...patch.appPreferences }
+        : existing.appPreferences,
+  };
+  preferencesStore.set(userId, next);
+  return next;
 }
 
 async function readJsonBody(req: any) {
@@ -471,6 +525,7 @@ async function fetchFeed(feedPath: "/vehicle-positions" | "/service-alerts") {
 
   const response = await fetch(`${PTV_BASE_URL}${feedPath}`, {
     headers: {
+      "KeyID": ptvSubscriptionKey,
       "Ocp-Apim-Subscription-Key": ptvSubscriptionKey,
     },
   });
@@ -500,23 +555,41 @@ async function buildTransportVicLiveTrains(consists = trackedConsists) {
       const currentTrip = snapshot.data.currentTrip;
       if (!currentTrip || !snapshot.gps) return [];
 
-      return [
-        {
-          tdn: snapshot.data.consist,
-          lat: snapshot.gps.lat,
-          lng: snapshot.gps.lng,
-          line: currentTrip.destination,
-          destination: currentTrip.destination,
-          status: snapshot.position?.status === "between" ? "on_time" : "on_time",
-          timestamp: new Date().toISOString(),
-          direction: currentTrip.destination.toLowerCase().includes("flinders") ? "up" : "down",
-          heading: undefined,
-          trainType: "TransportVic tracked consist",
-          consist: snapshot.data.consist,
-          serviceDescription: `${currentTrip.origin} to ${currentTrip.destination}`,
-        },
-      ];
-    });
+        return [
+          {
+            tdn: currentTrip.tripId || snapshot.data.nextTrip?.tripId || snapshot.data.consist,
+            lat: snapshot.gps.lat,
+            lng: snapshot.gps.lng,
+            line: "Metro",
+            destination: currentTrip.destination,
+            status: "on_time",
+            timestamp: new Date().toISOString(),
+            direction: currentTrip.destination.toLowerCase().includes("flinders") ? "up" : "down",
+            heading: undefined,
+            trainType: "TransportVic tracked consist",
+            consist: snapshot.data.consist,
+            serviceDescription: `${currentTrip.origin} to ${currentTrip.destination}`,
+          },
+        ];
+      });
+}
+
+function mergeLiveTrainLists(...lists: Array<Array<Record<string, unknown>>>) {
+  const merged = new Map<string, Record<string, unknown>>();
+  for (const list of lists) {
+    for (const train of list) {
+      const consistKey =
+        typeof train.consist === "string" && train.consist.trim()
+          ? train.consist.trim().toUpperCase()
+          : "";
+      const tdnKey =
+        typeof train.tdn === "string" && train.tdn.trim()
+          ? train.tdn.trim().toUpperCase()
+          : "";
+      merged.set(consistKey || tdnKey || crypto.randomUUID(), train);
+    }
+  }
+  return Array.from(merged.values());
 }
 
 function buildTransportVicMetroAlerts() {
@@ -534,6 +607,30 @@ function buildTransportVicMetroAlerts() {
   );
 }
 
+function normalisePtvRouteId(routeId: string) {
+  const code = routeId.match(/vic-02-([A-Z0-9]+):/i)?.[1]?.toUpperCase() ?? routeId.toUpperCase();
+  const routeMap: Record<string, string> = {
+    ALM: "Alamein",
+    BEG: "Belgrave",
+    CBE: "Cranbourne",
+    CGB: "Craigieburn",
+    FKN: "Frankston",
+    GWY: "Glen Waverley",
+    HBE: "Hurstbridge",
+    LIL: "Lilydale",
+    MDD: "Mernda",
+    PKM: "Pakenham",
+    SHM: "Sandringham",
+    STY: "Stony Point",
+    SUY: "Sunbury",
+    UFD: "Upfield",
+    WER: "Werribee",
+    WIL: "Williamstown",
+  };
+
+  return routeMap[code] ?? routeId;
+}
+
 function buildPtvLiveTrains(feed: Awaited<ReturnType<typeof fetchFeed>>) {
   return (feed.entity ?? [])
     .map((entity) => {
@@ -548,14 +645,15 @@ function buildPtvLiveTrains(feed: Awaited<ReturnType<typeof fetchFeed>>) {
       const directionId = toNumber(vehicle.trip?.directionId);
       const timestamp = toNumber(vehicle.timestamp);
       const routeId = vehicle.trip?.routeId || "Metro";
-      const destination = vehicle.trip?.tripId || routeId;
+      const lineName = normalisePtvRouteId(routeId);
+      const destination = lineName;
       const label = vehicle.vehicle?.label || vehicle.vehicle?.id || entity.id || routeId;
 
       return {
         tdn: label,
         lat: latitude,
         lng: longitude,
-        line: routeId,
+        line: lineName,
         destination,
         status: "on_time",
         timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
@@ -563,7 +661,7 @@ function buildPtvLiveTrains(feed: Awaited<ReturnType<typeof fetchFeed>>) {
         heading: typeof position.bearing === "number" ? position.bearing : undefined,
         trainType: "Metro Train",
         consist: vehicle.vehicle?.id || label,
-        serviceDescription: routeId,
+        serviceDescription: lineName,
       };
     })
     .filter(Boolean);
@@ -634,6 +732,7 @@ function ptvRealtimePlugin(): Plugin {
 
           const sessionId = crypto.randomUUID();
           sessionStore.set(sessionId, {
+            id: account.id,
             username: account.username,
             email: account.email,
             role: account.role,
@@ -692,6 +791,7 @@ function ptvRealtimePlugin(): Plugin {
           }
 
           const account: AccountRecord = {
+            id: normalizedUsername,
             username,
             email,
             password,
@@ -702,6 +802,7 @@ function ptvRealtimePlugin(): Plugin {
 
           const sessionId = crypto.randomUUID();
           sessionStore.set(sessionId, {
+            id: account.id,
             username: account.username,
             email: account.email,
             role: account.role,
@@ -719,6 +820,7 @@ function ptvRealtimePlugin(): Plugin {
         if (req.url === "/api/auth/guest" && req.method === "POST") {
           const sessionId = crypto.randomUUID();
           sessionStore.set(sessionId, {
+            id: "guest",
             username: "Guest",
             email: "guest@transitalert.local",
             role: "Guest",
@@ -728,6 +830,7 @@ function ptvRealtimePlugin(): Plugin {
           sendJson(res, 200, {
             authenticated: true,
             user: sanitizeUser({
+              id: "guest",
               username: "Guest",
               email: "guest@transitalert.local",
               role: "Guest",
@@ -748,6 +851,55 @@ function ptvRealtimePlugin(): Plugin {
           return;
         }
 
+        if (req.url === "/api/preferences") {
+          const user = getSessionUser(req);
+          if (!user || user.role === "Guest") {
+            sendJson(res, 401, { error: "Sign in to access account preferences" });
+            return;
+          }
+
+          if (req.method === "GET") {
+            sendJson(res, 200, { preferences: getUserPreferences(user.id) });
+            return;
+          }
+
+          if (req.method === "PUT" || req.method === "POST") {
+            const body = (await readJsonBody(req)) as Partial<UserPreferences>;
+            sendJson(res, 200, { preferences: upsertUserPreferences(user.id, body) });
+            return;
+          }
+
+          sendJson(res, 405, { error: "Method not allowed" });
+          return;
+        }
+
+        if (req.url === "/api/preferences/merge" && req.method === "POST") {
+          const user = getSessionUser(req);
+          if (!user || user.role === "Guest") {
+            sendJson(res, 401, { error: "Sign in to merge account preferences" });
+            return;
+          }
+
+          const body = (await readJsonBody(req)) as Partial<UserPreferences>;
+          const existing = getUserPreferences(user.id);
+          const uniq = (values: string[]) => [...new Set(values.filter(Boolean))];
+          const merged = upsertUserPreferences(user.id, {
+            favouriteStops: uniq([...(existing.favouriteStops ?? []), ...(body.favouriteStops ?? [])]),
+            favouriteRoutes: uniq([...(existing.favouriteRoutes ?? []), ...(body.favouriteRoutes ?? [])]),
+            transportModes: uniq([...(existing.transportModes ?? []), ...(body.transportModes ?? [])]),
+            selectedMapFilters: {
+              ...(existing.selectedMapFilters ?? {}),
+              ...(body.selectedMapFilters ?? {}),
+            },
+            appPreferences: {
+              ...(existing.appPreferences ?? {}),
+              ...(body.appPreferences ?? {}),
+            },
+          });
+          sendJson(res, 200, { preferences: merged });
+          return;
+        }
+
         if (req.url === "/api/telegram/status") {
           const profile = await fetchTelegramBotProfile();
           sendJson(res, 200, profile);
@@ -755,11 +907,13 @@ function ptvRealtimePlugin(): Plugin {
         }
 
         if (req.url === "/api/ptv/live-trains") {
-          let trains = await buildTransportVicLiveTrains();
-          if (trains.length === 0 && ptvSubscriptionKey) {
+          const trackedTrains = await buildTransportVicLiveTrains();
+          let ptvTrains: Array<Record<string, unknown>> = [];
+          if (ptvSubscriptionKey) {
             const feed = await fetchFeed("/vehicle-positions");
-            trains = buildPtvLiveTrains(feed);
+            ptvTrains = buildPtvLiveTrains(feed);
           }
+          const trains = mergeLiveTrainLists(ptvTrains, trackedTrains);
           sendJson(res, 200, { trains });
           return;
         }
