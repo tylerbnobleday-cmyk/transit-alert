@@ -567,13 +567,19 @@ export default function Home() {
           setIsChatOpen(true);
         }}
         onOpenAlerts={() => setLocation("/alerts/today")}
-        onOpenUserMenu={() => setIsUserMenuOpen((value) => !value)}
+        onOpenUserMenu={() => {
+          if (isGuest) {
+            setLocation("/login");
+            return;
+          }
+          setIsUserMenuOpen((value) => !value);
+        }}
         user={authSession?.user ?? null}
       />
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-      <div className="absolute inset-x-0 top-4 z-[55] flex justify-center px-4 sm:top-5 sm:px-6">
-        <TabsList className="w-full max-w-xl bg-card/80 p-1 shadow-xl backdrop-blur-xl border border-white/10 md:w-auto">
+      <div className="absolute inset-x-0 top-[4.65rem] z-[55] flex justify-center px-3 sm:top-5 sm:px-6">
+        <TabsList className="w-full max-w-xl border border-white/10 bg-card/80 p-1 shadow-xl backdrop-blur-xl md:w-auto">
           <TabsTrigger value="map">Journey Planner</TabsTrigger>
           {!isGuest && <TabsTrigger value="telegram">Telegram</TabsTrigger>}
           {!isGuest && <TabsTrigger value="fleets">Fleets</TabsTrigger>}
@@ -589,7 +595,7 @@ export default function Home() {
             onClick={() => setIsUserMenuOpen(false)}
             className="absolute inset-0 z-[58] bg-transparent"
           />
-          <div className="absolute left-4 top-20 z-[59] w-[280px] rounded-[1.6rem] border border-white/10 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-2xl sm:left-6 sm:top-24">
+          <div className="absolute left-3 right-3 top-[6.2rem] z-[59] w-auto max-w-[19rem] rounded-[1.6rem] border border-white/10 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-2xl sm:left-6 sm:right-auto sm:top-24 sm:w-[280px] sm:max-w-none">
             <div className="rounded-[1.25rem] border border-white/10 bg-white/5 p-3">
               <p className="text-sm font-semibold text-white">{authSession.user?.username}</p>
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">{authSession.user?.role}</p>
@@ -637,7 +643,7 @@ export default function Home() {
             onClick={() => setIsOriginPickerOpen(false)}
             className="absolute inset-0 z-[70] bg-black/55 backdrop-blur-sm"
           />
-          <div className="absolute inset-x-4 top-24 z-[71] mx-auto w-full max-w-4xl overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl sm:top-28">
+          <div className="absolute inset-x-3 top-[6.4rem] z-[71] mx-auto w-auto max-w-4xl overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl sm:inset-x-4 sm:top-28 sm:w-full">
             <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 text-white">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-300/75">Nearest Stations</p>
@@ -895,6 +901,27 @@ export default function Home() {
                       <li>Use <code className="text-white/80">/status</code> in Telegram to get current consist info</li>
                       <li>Add the Telegram bot to a channel if you want push alerts later</li>
                     </ul>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.6rem] border border-cyan-400/15 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-300/80">
+                        Tracked consist
+                      </p>
+                      <p className="mt-2 text-lg font-semibold text-white">430M live tracker</p>
+                      <p className="mt-1 text-sm text-white/65">
+                        Open the dedicated 430M panel for the current trip, next trip, stop estimate, and alerts.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsChatOpen(true)}
+                      className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+                    >
+                      Open 430M tracker
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1238,7 +1265,7 @@ export default function Home() {
       )}
       </Tabs>
 
-      <div className="pointer-events-none absolute bottom-6 left-4 z-30 flex sm:left-6">
+      <div className="pointer-events-none absolute bottom-24 left-3 z-30 flex sm:bottom-10 sm:left-6">
         <button
           onClick={() => {
             if (isGuest) {
@@ -1248,7 +1275,7 @@ export default function Home() {
             }
             setIsAddDrawerOpen(true);
           }}
-          className="pointer-events-auto flex items-center gap-2 rounded-full bg-white px-6 py-3 font-bold text-black shadow-[0_10px_40px_rgba(255,255,255,0.3)] transition-all hover:scale-105 active:scale-95 group"
+          className="pointer-events-auto group flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-bold text-black shadow-[0_10px_40px_rgba(255,255,255,0.3)] transition-all hover:scale-105 active:scale-95 sm:px-6 sm:text-base"
         >
           <div className="rounded-full bg-black p-1 text-white transition-transform duration-300 group-hover:rotate-90">
             <Plus className="h-4 w-4" />
@@ -1257,7 +1284,7 @@ export default function Home() {
         </button>
       </div>
 
-      <div className="pointer-events-none absolute bottom-24 left-4 z-30 max-w-xs rounded-2xl border border-white/10 bg-slate-950/72 px-3 py-2 text-[11px] leading-4 text-white/70 shadow-xl backdrop-blur-xl sm:bottom-6 sm:left-6 sm:text-xs">
+      <div className="pointer-events-none absolute bottom-4 left-3 z-30 max-w-[12rem] rounded-2xl border border-white/10 bg-slate-950/72 px-3 py-2 text-[10px] leading-4 text-white/70 shadow-xl backdrop-blur-xl sm:bottom-6 sm:left-6 sm:max-w-xs sm:text-xs">
         TransitAlert is an independent project. We are not operated by, affiliated with, or endorsed by the Department of Transport and Planning, Transport Victoria, PTV, or Metro Trains Melbourne.
       </div>
 

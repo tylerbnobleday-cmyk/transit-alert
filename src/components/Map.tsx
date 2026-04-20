@@ -2713,7 +2713,7 @@ const [layers, setLayers] = useState<LayerState>({
       <LayerControl layers={layers} onChange={toggleLayer} />
 
       {modeIsTrainVisible && (
-      <div className="pointer-events-none absolute left-4 top-28 z-[1000] max-w-xs">
+      <div className="pointer-events-none absolute left-3 top-[8.25rem] z-[1000] max-w-[10.5rem] sm:left-4 sm:top-28 sm:max-w-xs">
         <div className={`rounded-2xl border px-4 py-3 shadow-xl backdrop-blur-xl ${liveTrainStatusTone}`}>
           <div className="flex items-center gap-2">
             <Train className="h-4 w-4" />
@@ -2725,8 +2725,8 @@ const [layers, setLayers] = useState<LayerState>({
       </div>
       )}
 
-      <div className="absolute right-4 top-36 z-[1000] w-[11.5rem] sm:right-6 sm:top-32">
-        <div className="max-h-[68vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/82 p-3 shadow-xl backdrop-blur-xl">
+      <div className="absolute right-3 top-[8.75rem] z-[1000] w-[9.75rem] sm:right-6 sm:top-32 sm:w-[11.5rem]">
+        <div className="max-h-[54vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/82 p-2.5 shadow-xl backdrop-blur-xl sm:max-h-[68vh] sm:p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
             Transport Modes
           </p>
@@ -2866,7 +2866,7 @@ const [layers, setLayers] = useState<LayerState>({
 
       <div
         className={`absolute bottom-24 z-[1001] flex flex-col gap-2 sm:bottom-20 ${
-          selectedDetail?.type === "vehicle" ? "right-[25.5rem] sm:right-[26rem]" : "right-4 sm:right-6"
+          selectedDetail?.type === "vehicle" ? "left-3 sm:left-auto sm:right-[26rem]" : "right-3 sm:right-6"
         }`}
       >
         <button
@@ -2900,7 +2900,7 @@ const [layers, setLayers] = useState<LayerState>({
       </div>
 
       {selectedDetail?.type === "vehicle" && (
-        <div className="absolute inset-x-4 bottom-24 z-[1001] mx-auto w-auto max-w-[24rem] rounded-[1.6rem] border border-white/10 bg-slate-950/96 p-3.5 shadow-2xl backdrop-blur-2xl md:inset-x-auto md:bottom-6 md:right-4 md:top-24 md:max-h-[calc(100%-7rem)] md:w-[24rem] md:overflow-y-auto">
+        <div className="absolute inset-x-3 bottom-28 z-[1001] mx-auto w-auto max-w-[calc(100%-1.5rem)] rounded-[1.6rem] border border-white/10 bg-slate-950/96 p-3 shadow-2xl backdrop-blur-2xl max-md:max-h-[44vh] max-md:overflow-y-auto md:inset-x-auto md:bottom-6 md:right-4 md:top-24 md:max-h-[calc(100%-7rem)] md:w-[24rem] md:p-3.5 md:overflow-y-auto">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-blue-300/75">
@@ -3120,7 +3120,7 @@ const [layers, setLayers] = useState<LayerState>({
       )}
 
       {selectedDetail && selectedDetail.type !== "vehicle" && (
-        <div className="absolute inset-x-4 bottom-40 z-[1001] mx-auto max-w-xl rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-2xl sm:bottom-24">
+        <div className="absolute inset-x-3 bottom-32 z-[1001] mx-auto max-w-[calc(100%-1.5rem)] rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-3.5 shadow-2xl backdrop-blur-2xl max-md:max-h-[42vh] max-md:overflow-y-auto sm:bottom-24 sm:max-w-xl sm:p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-300/75">
