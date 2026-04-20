@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   MapContainer,
@@ -15,6 +15,7 @@ import { formatDistanceToNow } from "date-fns";
 import { useGetReports } from "@/lib/api-client-react/src/generated/api";
 import type { Report } from "@/lib/api-client-react/src/generated/api.schemas";
 import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
+import { fetchMarkerOverrides, saveMarkerOverrides, type MarkerOverride } from "@/lib/marker-overrides";
 import {
   Train,
   MapPin,
@@ -45,6 +46,11 @@ export type Station = {
 interface MapProps {
   journeyRoute?: Station[];
   splitCrossCityGroup?: boolean;
+  transportModes?: TransportMode[];
+  onTransportModesChange?: (modes: TransportMode[]) => void;
+  persistedLayerState?: Partial<LayerState>;
+  onLayerStateChange?: (layers: LayerState) => void;
+  isAdmin?: boolean;
 }
 
 interface LayerState {
@@ -84,6 +90,8 @@ type ServiceFilterKey =
   | "cliftonHillGroup"
   | "upfieldCraigieburn"
   | "upfieldCraigieburnCityLoop";
+
+type TransportMode = "train" | "tram" | "bus" | "vline";
 
 function getLiveLineColor(line: string): string {
   const colorMap: Record<string, string> = {
@@ -1040,12 +1048,14 @@ function offsetPolylineCoordinates(
 function renderStationMarkers(
   stations: Station[],
   fillColor: string,
-  strokeColor: string
+  strokeColor: string,
+  resolveStation: (station: Station) => Station,
+  onSelectStation: (station: Station) => void,
 ) {
   return stations.map((station) => (
     <CircleMarker
       key={`${station.name}-${station.position[0]}-${station.position[1]}`}
-      center={station.position}
+      center={resolveStation(station).position}
       radius={5}
       pathOptions={{
         color: strokeColor,
@@ -1053,17 +1063,36 @@ function renderStationMarkers(
         fillOpacity: 1,
         weight: 2,
       }}
+      eventHandlers={{
+        click: () => onSelectStation(resolveStation(station)),
+      }}
     >
       <Popup>
         <div className="p-3 w-48">
-          <p className="font-semibold text-white">{station.name}</p>
+          <p className="font-semibold text-white">{resolveStation(station).name}</p>
           <p className="text-xs text-white/60 mt-1">
-            {getStationDetails(station)}
+            {getStationDetails(resolveStation(station))}
           </p>
         </div>
       </Popup>
     </CircleMarker>
   ));
+}
+
+function createEditorMarkerIcon(isSelected: boolean) {
+  return L.divIcon({
+    html: `<div style="
+      width:18px;
+      height:18px;
+      border-radius:9999px;
+      background:${isSelected ? "#f59e0b" : "#60a5fa"};
+      border:2px solid white;
+      box-shadow:0 4px 14px rgba(0,0,0,0.5);
+    "></div>`,
+    className: "bg-transparent border-none",
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
 }
 
 function createCustomIcon(report: Report) {
@@ -1332,7 +1361,15 @@ label: "Werribee / Williamstown / Altona",
 // =========================
 // Main Component
 // =========================
-export function Map({ journeyRoute = [], splitCrossCityGroup = false }: MapProps = {}) {
+export function Map({
+  journeyRoute = [],
+  splitCrossCityGroup = false,
+  transportModes = ["train"],
+  onTransportModesChange,
+  persistedLayerState,
+  onLayerStateChange,
+  isAdmin = false,
+}: MapProps = {}) {
   const mapRef = useRef<L.Map | null>(null);
   const consistData = undefined as any;
 
@@ -1352,6 +1389,14 @@ export function Map({ journeyRoute = [], splitCrossCityGroup = false }: MapProps
   });
 
   const reports = Array.isArray(data) ? data : [];
+  const [selectedDetail, setSelectedDetail] = useState<
+    | { type: "station"; station: Station }
+    | { type: "vehicle"; vehicle: LiveTrain }
+    | { type: "report"; report: Report }
+    | null
+  >(null);
+  const [isMarkerEditMode, setIsMarkerEditMode] = useState(false);
+  const [draftMarkerOverrides, setDraftMarkerOverrides] = useState<Record<string, MarkerOverride>>({});
 
   const [userLoc, setUserLoc] = useState<[number, number] | null>(null);
 const [layers, setLayers] = useState<LayerState>({
@@ -1378,6 +1423,23 @@ const [layers, setLayers] = useState<LayerState>({
   incidents: true,
   heatCircles: true,
 });
+
+  const { data: markerOverrides = [], refetch: refetchMarkerOverrides } = useQuery({
+    queryKey: ["admin-marker-overrides"],
+    queryFn: fetchMarkerOverrides,
+    enabled: isAdmin,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (persistedLayerState) {
+      setLayers((prev) => ({ ...prev, ...persistedLayerState }));
+    }
+  }, [persistedLayerState]);
+
+  useEffect(() => {
+    onLayerStateChange?.(layers);
+  }, [layers, onLayerStateChange]);
 
   useEffect(() => {
     if ("geolocation" in navigator) {
@@ -1498,6 +1560,9 @@ const [layers, setLayers] = useState<LayerState>({
     if (report.reportType === "inspector" && !layers.inspectors) return false;
     if (report.reportType === "delay" && !layers.delays) return false;
     if (report.reportType === "incident" && !layers.incidents) return false;
+    if (report.transportType === "train" && !transportModes.includes("train")) return false;
+    if (report.transportType === "tram" && !transportModes.includes("tram")) return false;
+    if (report.transportType === "bus" && !transportModes.includes("bus")) return false;
     return true;
   });
 
@@ -1538,6 +1603,57 @@ const [layers, setLayers] = useState<LayerState>({
     }
     return true;
   });
+  const modeIsTrainVisible = transportModes.includes("train");
+  const modeIsBusVisible = transportModes.includes("bus");
+  const modeIsTramVisible = transportModes.includes("tram");
+  const modeIsVlineVisible = transportModes.includes("vline");
+  const markerOverrideMap = useMemo(
+    () =>
+      Object.fromEntries(
+        [...markerOverrides, ...Object.values(draftMarkerOverrides)].map((override) => [override.markerName, override]),
+      ),
+    [draftMarkerOverrides, markerOverrides],
+  );
+  const resolveStation = useCallback(
+    (station: Station): Station => {
+      const override = markerOverrideMap[station.name];
+      if (!override) return station;
+      return { ...station, position: [override.lat, override.lng] };
+    },
+    [markerOverrideMap],
+  );
+  const editableStations = useMemo(() => {
+    const seen = new Set<string>();
+    return ALL_STATIONS.filter((station) => {
+      if (seen.has(station.name)) return false;
+      seen.add(station.name);
+      return true;
+    }).map(resolveStation);
+  }, [resolveStation]);
+
+  const toggleTransportMode = (mode: TransportMode) => {
+    const nextModes = transportModes.includes(mode)
+      ? transportModes.filter((item) => item !== mode)
+      : [...transportModes, mode];
+    onTransportModesChange?.(nextModes.length > 0 ? nextModes : ["train"]);
+  };
+
+  const saveEditedMarkers = async () => {
+    const overrides = Object.values(draftMarkerOverrides);
+    if (overrides.length === 0) {
+      setIsMarkerEditMode(false);
+      return;
+    }
+    await saveMarkerOverrides(overrides);
+    setDraftMarkerOverrides({});
+    await refetchMarkerOverrides();
+    setIsMarkerEditMode(false);
+  };
+
+  const cancelEditedMarkers = () => {
+    setDraftMarkerOverrides({});
+    setIsMarkerEditMode(false);
+  };
 
   return (
     <div className="absolute inset-0 z-0">
@@ -1671,7 +1787,7 @@ const [layers, setLayers] = useState<LayerState>({
           maxZoom={19}
         />
 
-{layers.frankstonLine && (
+{modeIsTrainVisible && layers.frankstonLine && (
   <>
   <Polyline positions={CAUFIELD_LOOP}
       pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
@@ -1680,20 +1796,20 @@ const [layers, setLayers] = useState<LayerState>({
       positions={FRANKSTON_TRACK}
       pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
     />
-    {renderStationMarkers(FRANKSTON_STATIONS, "#22c55e", "#16a34a")}
+    {renderStationMarkers(FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
-{layers.merndaLine && (
+{modeIsTrainVisible && layers.merndaLine && (
   <>
     <Polyline
       positions={MERNDA_LINE}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(MERNDA_STATIONS, "#BE1014", "#BE1014")}
+    {renderStationMarkers(MERNDA_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
-{layers.hurstbridgeLine && (
+{modeIsTrainVisible && layers.hurstbridgeLine && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(HURSTBRIDGE_LINE, "left", 0.45)}
@@ -1703,39 +1819,39 @@ const [layers, setLayers] = useState<LayerState>({
       positions={offsetPolylineCoordinates(HURSTBRIDGE_LINE, "right", 0.45)}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(HURSTBRIDGE_STATIONS, "#BE1014", "#BE1014")}
+    {renderStationMarkers(HURSTBRIDGE_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
-{layers.cliftonHillLoop && (
+{modeIsTrainVisible && layers.cliftonHillLoop && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(CLIFTONHILL_LOOP, "left", 0.4)}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(CLIFTONHILLGROUPLOOP_STATIONS, "#BE1014", "#BE1014")}
+    {renderStationMarkers(CLIFTONHILLGROUPLOOP_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
-{(layers.sunburyLine || layers.craigieburnLine || layers.upfieldLine || layers.northernLoop) && (
+{modeIsTrainVisible && (layers.sunburyLine || layers.craigieburnLine || layers.upfieldLine || layers.northernLoop) && (
   <>
     <Polyline
       positions={NORTHERN_LOOP}
       pathOptions={{ color: "#FFD200", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(NORTHERNGROUPLOOP_STATIONS, "#FFD200", "#cca700")}
+    {renderStationMarkers(NORTHERNGROUPLOOP_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
-        {(layers.lilydaleLine || layers.belgraveLine || layers.alameinLine || layers.glenWaverleyLine || layers.burnleyLoop) && (
+{modeIsTrainVisible && (layers.lilydaleLine || layers.belgraveLine || layers.alameinLine || layers.glenWaverleyLine || layers.burnleyLoop) && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(BURNLEY_LOOP, "left", 0.45)}
   pathOptions={{ color: "#003A8F", weight: 3, opacity: 0.6 }}
     />
-    {renderStationMarkers(BURNLEYGROUPLOOP_STATIONS, "#003A8F", "#003A8F")}
+    {renderStationMarkers(BURNLEYGROUPLOOP_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
-{layers.lilydaleLine && (
+{modeIsTrainVisible && layers.lilydaleLine && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(LILYDALE_LINE, "left", 0.5)}
@@ -1753,11 +1869,11 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(LILYDALE_STATIONS, "#003A8F", "#003A8F")}
+    {renderStationMarkers(LILYDALE_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
-{layers.belgraveLine && (
+{modeIsTrainVisible && layers.belgraveLine && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(BELGRAVE_LINE, "left", 0.45)}
@@ -1775,11 +1891,11 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(BELGRAVE_STATIONS, "#003A8F", "#003A8F")}
+    {renderStationMarkers(BELGRAVE_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
-{layers.alameinLine && (
+{modeIsTrainVisible && layers.alameinLine && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(ALAMEIN_LINE, "left", 0.3)}
@@ -1797,11 +1913,11 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(ALAMEIN_STATIONS, "#003A8F", "#003A8F")}
+    {renderStationMarkers(ALAMEIN_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
-{layers.glenWaverleyLine && (
+{modeIsTrainVisible && layers.glenWaverleyLine && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(GLEN_WAVERLEY_LINE, "left", 0.35)}
@@ -1819,10 +1935,10 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(GLEN_WAVERLEY_STATIONS, "#003A8F", "#003A8F")}
+    {renderStationMarkers(GLEN_WAVERLEY_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
-{layers.craigieburnLine && (
+{modeIsTrainVisible && layers.craigieburnLine && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "left", 0.55)}
@@ -1840,11 +1956,11 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(CRAIGIEBURN_STATIONS, "#FFD200", "#cca700")}
+    {renderStationMarkers(CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
-{layers.upfieldLine && (
+{modeIsTrainVisible && layers.upfieldLine && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(UPFIELD_LINE, "left", 0.45)}
@@ -1862,10 +1978,10 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(UPFIELD_STATIONS, "#FFD200", "#cca700")}
+    {renderStationMarkers(UPFIELD_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
-        {layers.cranbourneLine && (
+        {modeIsTrainVisible && layers.cranbourneLine && (
           <>
             <Polyline
               positions={offsetPolylineCoordinates(CRANBOURNE_LINE, "left", 0.6)}
@@ -1879,11 +1995,11 @@ const [layers, setLayers] = useState<LayerState>({
               )}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8")}
+            {renderStationMarkers(CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
 
-        {layers.pakenhamLine && (
+        {modeIsTrainVisible && layers.pakenhamLine && (
           <>
             <Polyline
               positions={offsetPolylineCoordinates(PAKENHAM_LINE, "left", 0.6)}
@@ -1893,11 +2009,11 @@ const [layers, setLayers] = useState<LayerState>({
               positions={offsetPolylineCoordinates(PAKENHAM_LINE, "right", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(PAKENHAM_STATIONS, "#279FD5", "#1e7ba8")}
+            {renderStationMarkers(PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
 
-        {layers.sunburyLine && (
+        {modeIsTrainVisible && layers.sunburyLine && (
           <>
             <Polyline
               positions={offsetPolylineCoordinates(SUNBURY_LINE, "left", 0.6)}
@@ -1907,11 +2023,11 @@ const [layers, setLayers] = useState<LayerState>({
               positions={offsetPolylineCoordinates(SUNBURY_LINE, "right", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(SUNBURY_STATIONS, "#279FD5", "#1e7ba8")}
+            {renderStationMarkers(SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
 
-        {layers.metroTunnel && (
+        {modeIsTrainVisible && layers.metroTunnel && (
           <>
             <Polyline
               positions={METRO_TUNNEL_LINE}
@@ -1926,10 +2042,10 @@ const [layers, setLayers] = useState<LayerState>({
                 dashArray: "8, 6",
               }}
             />
-            {renderStationMarkers(METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8")}
+            {renderStationMarkers(METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
-{layers.werribeeLine && (
+{modeIsTrainVisible && layers.werribeeLine && (
   <>
     {/* Werribee main line */}
     <Polyline
@@ -1978,12 +2094,12 @@ const [layers, setLayers] = useState<LayerState>({
       }}
     />
 
-    {renderStationMarkers(WERRIBEE_STATIONS, "#F178AF", "#9f5d7c")}
-    {renderStationMarkers(WILLIAMSTOWN_STATIONS, "#F178AF", "#9f5d7c")}
-    {renderStationMarkers(ALTONA_LOOP_STATIONS, "#F178AF", "#9f5d7c")}
+    {renderStationMarkers(WERRIBEE_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(WILLIAMSTOWN_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(ALTONA_LOOP_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
-        {layers.sandringhamLine && (
+        {modeIsTrainVisible && layers.sandringhamLine && (
           <>
             <Polyline
               positions={offsetPolylineCoordinates(
@@ -1993,7 +2109,7 @@ const [layers, setLayers] = useState<LayerState>({
               )}
               pathOptions={{ color: "#F178AF", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(SANDRINGHAM_STATIONS, "#F178AF", "#9f5d7c")}
+            {renderStationMarkers(SANDRINGHAM_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
 
@@ -2064,11 +2180,14 @@ const [layers, setLayers] = useState<LayerState>({
         )}
 
         {userLoc && <LocationCenterer loc={userLoc} />}
-{liveVehicles.map((vehicle) => (
+{modeIsTrainVisible && liveVehicles.map((vehicle) => (
   <Marker
     key={vehicle.tdn}
     position={[vehicle.lat, vehicle.lng]}
     icon={createLiveTrainIcon(vehicle)}
+    eventHandlers={{
+      click: () => setSelectedDetail({ type: "vehicle", vehicle }),
+    }}
   >
     <Popup>
       <div className="p-4 w-72">
@@ -2171,6 +2290,9 @@ const [layers, setLayers] = useState<LayerState>({
               key={report.id}
               position={[report.lat, report.lng]}
               icon={createCustomIcon(report)}
+              eventHandlers={{
+                click: () => setSelectedDetail({ type: "report", report }),
+              }}
             >
               <Popup>
                 <div className="p-4 w-64">
@@ -2240,10 +2362,47 @@ const [layers, setLayers] = useState<LayerState>({
             </Marker>
           );
         })}
+
+        {isAdmin &&
+          isMarkerEditMode &&
+          editableStations.map((station) => {
+            const override = draftMarkerOverrides[station.name];
+            const markerPosition: [number, number] = override ? [override.lat, override.lng] : station.position;
+            const isSelected = selectedDetail?.type === "station" && selectedDetail.station.name === station.name;
+
+            return (
+              <Marker
+                key={`editor-${station.name}`}
+                position={markerPosition}
+                draggable
+                icon={createEditorMarkerIcon(isSelected)}
+                eventHandlers={{
+                  click: () => setSelectedDetail({ type: "station", station: { ...station, position: markerPosition } }),
+                  dragend: (event) => {
+                    const latlng = event.target.getLatLng();
+                    setDraftMarkerOverrides((prev) => ({
+                      ...prev,
+                      [station.name]: {
+                        markerName: station.name,
+                        markerType: "station",
+                        lat: latlng.lat,
+                        lng: latlng.lng,
+                      },
+                    }));
+                    setSelectedDetail({
+                      type: "station",
+                      station: { ...station, position: [latlng.lat, latlng.lng] },
+                    });
+                  },
+                }}
+              />
+            );
+          })}
       </MapContainer>
 
       <LayerControl layers={layers} onChange={toggleLayer} />
 
+      {modeIsTrainVisible && (
       <div className="pointer-events-none absolute left-4 top-28 z-[1000] max-w-xs">
         <div className={`rounded-2xl border px-4 py-3 shadow-xl backdrop-blur-xl ${liveTrainStatusTone}`}>
           <div className="flex items-center gap-2">
@@ -2254,6 +2413,7 @@ const [layers, setLayers] = useState<LayerState>({
           <p className="mt-1 text-xs opacity-80">{liveTrainStatusDetail}</p>
         </div>
       </div>
+      )}
 
       <div className="absolute bottom-6 right-4 z-[1000] flex max-w-[220px] flex-col gap-2 sm:right-6">
         <div className="flex flex-col gap-2 self-end">
@@ -2288,6 +2448,68 @@ const [layers, setLayers] = useState<LayerState>({
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 shadow-xl backdrop-blur-xl">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
+            Transport Modes
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {([
+              { key: "train", label: "Trains" },
+              { key: "tram", label: "Trams" },
+              { key: "bus", label: "Buses" },
+              { key: "vline", label: "V/Line" },
+            ] as Array<{ key: TransportMode; label: string }>).map((mode) => {
+              const active = transportModes.includes(mode.key);
+              return (
+                <button
+                  key={mode.key}
+                  type="button"
+                  onClick={() => toggleTransportMode(mode.key)}
+                  className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                    active
+                      ? "border-blue-400/40 bg-blue-500/12 text-blue-100"
+                      : "border-white/10 bg-white/5 text-white/65 hover:bg-white/10"
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {isAdmin && (
+            <div className="mt-3 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setIsMarkerEditMode((value) => !value)}
+                className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                  isMarkerEditMode
+                    ? "border-amber-400/40 bg-amber-500/12 text-amber-100"
+                    : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                }`}
+              >
+                {isMarkerEditMode ? "Marker edit mode on" : "Edit markers"}
+              </button>
+              {isMarkerEditMode && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void saveEditedMarkers()}
+                    className="rounded-xl border border-emerald-400/30 bg-emerald-500/12 px-3 py-2 text-xs font-semibold text-emerald-100"
+                  >
+                    Save edits
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelEditedMarkers}
+                    className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
             Service Filters
           </p>
@@ -2342,6 +2564,78 @@ const [layers, setLayers] = useState<LayerState>({
           </div>
         </div>
       </div>
+
+      {selectedDetail && (
+        <div className="absolute inset-x-4 bottom-24 z-[1001] mx-auto max-w-xl rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-2xl sm:bottom-8">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-300/75">
+                {selectedDetail.type === "station"
+                  ? "Station"
+                  : selectedDetail.type === "vehicle"
+                    ? "Live vehicle"
+                    : "Service report"}
+              </p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {selectedDetail.type === "station"
+                  ? selectedDetail.station.name
+                  : selectedDetail.type === "vehicle"
+                    ? `${selectedDetail.vehicle.line} to ${selectedDetail.vehicle.destination}`
+                    : selectedDetail.report.locationName}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedDetail(null)}
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70"
+            >
+              Close
+            </button>
+          </div>
+
+          {selectedDetail.type === "station" && (
+            <div className="mt-3 grid gap-2 text-sm text-white/70 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">{getStationDetails(selectedDetail.station)}</div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                Marker position
+                <div className="mt-1 text-white/90">
+                  {selectedDetail.station.position[0].toFixed(5)}, {selectedDetail.station.position[1].toFixed(5)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedDetail.type === "vehicle" && (
+            <div className="mt-3 grid gap-2 text-sm text-white/70 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">TDN {selectedDetail.vehicle.tdn}</div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">Operator Metro Trains Melbourne</div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">Vehicle {selectedDetail.vehicle.trainType}</div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">Status {selectedDetail.vehicle.status ?? "unknown"}</div>
+              {selectedDetail.vehicle.serviceDescription && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:col-span-2">
+                  {selectedDetail.vehicle.serviceDescription}
+                </div>
+              )}
+            </div>
+          )}
+
+          {selectedDetail.type === "report" && (
+            <div className="mt-3 grid gap-2 text-sm text-white/70 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">Mode {selectedDetail.report.transportType}</div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">Type {selectedDetail.report.reportType}</div>
+              {selectedDetail.report.lineNumber && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3">Route {selectedDetail.report.lineNumber}</div>
+              )}
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">By {selectedDetail.report.username}</div>
+              {selectedDetail.report.notes && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:col-span-2">
+                  {selectedDetail.report.notes}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_120px_rgba(10,10,20,0.7)] z-[500]" />
     </div>

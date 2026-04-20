@@ -10,6 +10,16 @@ import { ChatPanel } from "@/components/ChatPanel";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useGetTelegramStatus } from "@/lib/api-client-react/src/generated/api";
 import { fetchAuthSession, logoutSession } from "@/lib/auth";
+import { fetchAdminConfig, saveAdminConfig, type AdminRuntimeConfig } from "@/lib/admin-config";
+import {
+  defaultPreferences,
+  fetchAccountPreferences,
+  mergeLocalPreferences,
+  readLocalPreferences,
+  saveAccountPreferences,
+  type UserPreferences,
+  writeLocalPreferences,
+} from "@/lib/preferences";
 
 type PlannerSheetProps = {
   isOpen: boolean;
@@ -215,8 +225,27 @@ export default function Home() {
   const [adminLng, setAdminLng] = useState("144.9664779");
   const [adminSelectedLine, setAdminSelectedLine] = useState("metroTunnel");
   const [splitCrossCityGroup, setSplitCrossCityGroup] = useState(true);
+  const [preferences, setPreferences] = useState<UserPreferences>(defaultPreferences);
+  const [hasMergedLocalPreferences, setHasMergedLocalPreferences] = useState(false);
+  const [adminConfigDraft, setAdminConfigDraft] = useState<AdminRuntimeConfig>({});
   const isAdmin = authSession?.user?.isAdmin ?? false;
   const isGuest = authSession?.user?.role === "Guest";
+
+  const { data: accountPreferences } = useQuery({
+    queryKey: ["account-preferences", authSession?.user?.id],
+    queryFn: fetchAccountPreferences,
+    enabled: isAuthenticated && !isGuest,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  const { data: adminConfig } = useQuery({
+    queryKey: ["admin-runtime-config"],
+    queryFn: fetchAdminConfig,
+    enabled: isAdmin,
+    retry: false,
+    staleTime: 60_000,
+  });
 
   const signOutMutation = useMutation({
     mutationFn: logoutSession,
@@ -297,6 +326,49 @@ export default function Home() {
       setActiveTab("map");
     }
   }, [activeTab, isAdmin]);
+
+  useEffect(() => {
+    setPreferences(readLocalPreferences());
+  }, []);
+
+  useEffect(() => {
+    if (accountPreferences && !isGuest) {
+      setPreferences({
+        ...defaultPreferences,
+        ...accountPreferences,
+      });
+    }
+  }, [accountPreferences, isGuest]);
+
+  useEffect(() => {
+    if (!isAuthenticated || isGuest || hasMergedLocalPreferences || !authSession?.user?.id) return;
+
+    const localPreferences = readLocalPreferences();
+    const hasLocalData =
+      localPreferences.favouriteStops.length > 0 ||
+      localPreferences.favouriteRoutes.length > 0 ||
+      Object.keys(localPreferences.selectedMapFilters).length > 0 ||
+      localPreferences.transportModes.length > 0 ||
+      Object.keys(localPreferences.appPreferences).length > 0;
+
+    if (!hasLocalData) {
+      setHasMergedLocalPreferences(true);
+      return;
+    }
+
+    void mergeLocalPreferences(localPreferences)
+      .then((merged) => {
+        setPreferences(merged);
+        writeLocalPreferences(merged);
+      })
+      .finally(() => setHasMergedLocalPreferences(true));
+  }, [authSession?.user?.id, hasMergedLocalPreferences, isAuthenticated, isGuest]);
+
+  useEffect(() => {
+    if (adminConfig) {
+      setAdminConfigDraft(adminConfig);
+    }
+  }, [adminConfig]);
 
   useEffect(() => {
     if (isGuest && activeTab !== "map") {
@@ -402,6 +474,29 @@ export default function Home() {
     setAdminMessage(
       `Draft saved for ${adminSelectedStation}: ${adminLat}, ${adminLng} on ${adminSelectedLine}. Persist this next.`,
     );
+  };
+
+  const updatePreferences = (patch: Partial<UserPreferences>) => {
+    setPreferences((current) => {
+      const next = {
+        ...current,
+        ...patch,
+      };
+      writeLocalPreferences(next);
+      if (isAuthenticated && !isGuest) {
+        void saveAccountPreferences(next);
+      }
+      return next;
+    });
+  };
+
+  const toggleFavouriteStop = (stationName: string) => {
+    const exists = preferences.favouriteStops.includes(stationName);
+    updatePreferences({
+      favouriteStops: exists
+        ? preferences.favouriteStops.filter((item) => item !== stationName)
+        : [...preferences.favouriteStops, stationName],
+    });
   };
 
   const utilitySheetCopy = useMemo(() => {
@@ -579,9 +674,16 @@ export default function Home() {
                           </p>
                         </div>
                       </div>
-                      <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
-                        {index === 0 ? "Recommended" : `${(1.1 + index * 0.3).toFixed(2)} km`}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {preferences.favouriteStops.includes(station.name) && (
+                          <span className="rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-200">
+                            Favourite
+                          </span>
+                        )}
+                        <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
+                          {index === 0 ? "Recommended" : `${(1.1 + index * 0.3).toFixed(2)} km`}
+                        </span>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -632,7 +734,15 @@ export default function Home() {
         </>
       )}
 
-      <TransitMap journeyRoute={journeyRoute} splitCrossCityGroup={splitCrossCityGroup} />
+      <TransitMap
+        journeyRoute={journeyRoute}
+        splitCrossCityGroup={splitCrossCityGroup}
+        transportModes={preferences.transportModes as Array<"train" | "tram" | "bus" | "vline">}
+        onTransportModesChange={(transportModes) => updatePreferences({ transportModes })}
+        persistedLayerState={preferences.selectedMapFilters}
+        onLayerStateChange={(selectedMapFilters) => updatePreferences({ selectedMapFilters })}
+        isAdmin={isAdmin}
+      />
 
       {activeTab === "map" && <RiskyRoutes />}
 
@@ -1022,6 +1132,74 @@ export default function Home() {
                           className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
                         >
                           {splitCrossCityGroup ? "Change back to combined Bayside filter" : "Split Sandringham and Werribee / Williamstown"}
+                        </button>
+                      </div>
+
+                      <div className="mt-4 rounded-[1.4rem] border border-white/10 bg-slate-950/60 p-4">
+                        <p className="text-sm font-semibold text-white">Runtime API Sources</p>
+                        <p className="mt-1 text-xs text-white/60">
+                          Choose which live source each part of the app should point at in production.
+                        </p>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                          {[
+                            ["trains", "Trains API"],
+                            ["buses", "Buses API"],
+                            ["trams", "Trams API"],
+                            ["alerts", "Alerts API"],
+                            ["shapes", "Shapes / routes API"],
+                          ].map(([key, label]) => (
+                            <div key={key} className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                              <p className="text-xs font-medium uppercase tracking-[0.18em] text-white/45">{label}</p>
+                              <select
+                                value={adminConfigDraft[key]?.environment ?? "production"}
+                                onChange={(event) =>
+                                  setAdminConfigDraft((current) => ({
+                                    ...current,
+                                    [key]: {
+                                      environment: event.target.value as "production" | "staging" | "local" | "custom",
+                                      url: current[key]?.url ?? "",
+                                    },
+                                  }))
+                                }
+                                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none"
+                              >
+                                <option value="production">Production</option>
+                                <option value="staging">Staging</option>
+                                <option value="local">Local / dev</option>
+                                <option value="custom">Custom URL</option>
+                              </select>
+                              <input
+                                value={adminConfigDraft[key]?.url ?? ""}
+                                onChange={(event) =>
+                                  setAdminConfigDraft((current) => ({
+                                    ...current,
+                                    [key]: {
+                                      environment: current[key]?.environment ?? "production",
+                                      url: event.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="https://api.example.com"
+                                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void saveAdminConfig(adminConfigDraft)
+                              .then((saved) => {
+                                setAdminConfigDraft(saved);
+                                setAdminMessage("Runtime API source settings saved.");
+                              })
+                              .catch((error) => {
+                                setAdminMessage(error instanceof Error ? error.message : "Failed to save runtime API settings.");
+                              });
+                          }}
+                          className="mt-4 rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white transition hover:bg-blue-500"
+                        >
+                          Save API source settings
                         </button>
                       </div>
                     </div>

@@ -1,4 +1,5 @@
 export type AuthUser = {
+  id?: string;
   username: string;
   email: string;
   role: string;
@@ -10,6 +11,21 @@ export type AuthSession = {
   user: AuthUser | null;
   roles?: string[];
 };
+
+async function readAuthPayload(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    return (await response.json()) as AuthSession & { error?: string };
+  }
+
+  const text = await response.text();
+  const compact = text.replace(/\s+/g, " ").trim();
+  throw new Error(
+    compact.startsWith("<!DOCTYPE") || compact.startsWith("<html")
+      ? "Auth endpoint returned HTML instead of JSON. Restart the dev server so the new auth routes load."
+      : compact || "Auth endpoint returned an unexpected response.",
+  );
+}
 
 export async function fetchAuthSession(): Promise<AuthSession> {
   const response = await fetch("/api/auth/session");
@@ -26,7 +42,7 @@ export async function loginWithPassword(username: string, password: string): Pro
     body: JSON.stringify({ username, password }),
   });
 
-  const payload = (await response.json()) as AuthSession & { error?: string };
+  const payload = await readAuthPayload(response);
   if (!response.ok) {
     throw new Error(payload.error || "Login failed");
   }
@@ -46,7 +62,7 @@ export async function registerAccount(
     body: JSON.stringify({ username, email, password, role }),
   });
 
-  const payload = (await response.json()) as AuthSession & { error?: string };
+  const payload = await readAuthPayload(response);
   if (!response.ok) {
     throw new Error(payload.error || "Registration failed");
   }
@@ -59,7 +75,7 @@ export async function continueAsGuest(): Promise<AuthSession> {
     method: "POST",
   });
 
-  const payload = (await response.json()) as AuthSession & { error?: string };
+  const payload = await readAuthPayload(response);
   if (!response.ok) {
     throw new Error(payload.error || "Guest access failed");
   }
