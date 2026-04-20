@@ -22,7 +22,7 @@ export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBa
   const isHighAlert = alertsToday > 100;
 
   return (
-    <div className="absolute left-0 right-0 top-0 z-50 flex flex-col gap-3 p-3 pointer-events-none sm:flex-row sm:items-start sm:justify-between sm:gap-0 sm:p-6">
+    <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex items-start justify-between gap-2 p-3 sm:p-6">
       {/* Left controls */}
       <div className="pointer-events-auto flex min-w-0 items-center gap-2 sm:gap-3">
         {user && (
@@ -34,7 +34,7 @@ export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBa
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-sm font-bold text-white sm:h-11 sm:w-11">
               {user.username.slice(0, 1).toUpperCase()}
             </div>
-            <div className="min-w-0 max-w-[5.2rem] sm:max-w-none">
+            <div className="min-w-0 max-w-[4.8rem] sm:max-w-none">
               <p className="truncate text-sm font-semibold text-white">{user.username}</p>
               <p className="truncate text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 {user.role}
@@ -50,24 +50,24 @@ export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBa
             className="h-10 w-10 shrink-0 rounded-xl"
           />
           <div className="min-w-0">
-            <h1 className="truncate font-display text-base font-bold leading-none tracking-tight text-white sm:text-lg">TransitAlert</h1>
+            <h1 className="truncate font-display text-[15px] font-bold leading-none tracking-tight text-white sm:text-lg">TransitAlert</h1>
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Melbourne</p>
           </div>
         </div>
       </div>
 
       {/* Right controls */}
-      <div className="pointer-events-auto flex items-center justify-end gap-3 sm:flex-col sm:items-end sm:gap-4">
+      <div className="pointer-events-auto flex items-center justify-end gap-2 sm:flex-col sm:items-end sm:gap-4">
         <button
           type="button"
           onClick={onOpenAlerts}
-          className="flex items-center gap-3 rounded-2xl border border-white/10 bg-card/90 p-3 text-left shadow-xl transition hover:bg-card"
+          className="flex items-center gap-2 rounded-2xl border border-white/10 bg-card/90 px-2.5 py-2 text-left shadow-xl transition hover:bg-card sm:gap-3 sm:p-3"
         >
           <div className="flex flex-col items-end">
-            <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Today&apos;s Alerts</span>
-            <span className="font-display font-bold text-xl text-white leading-none mt-1">{alertsToday}</span>
+            <span className="hidden text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:block">Today&apos;s Alerts</span>
+            <span className="mt-0 text-lg leading-none text-white font-display font-bold sm:mt-1 sm:text-xl">{alertsToday}</span>
           </div>
-          <Badge variant={isHighAlert ? "destructive" : "default"} className="animate-pulse-slow">
+          <Badge variant={isHighAlert ? "destructive" : "default"} className="animate-pulse-slow text-[10px] sm:text-xs">
             {isHighAlert ? "High" : "Normal"}
           </Badge>
         </button>

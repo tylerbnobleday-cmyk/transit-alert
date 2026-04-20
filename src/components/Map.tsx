@@ -2713,7 +2713,7 @@ const [layers, setLayers] = useState<LayerState>({
       <LayerControl layers={layers} onChange={toggleLayer} />
 
       {modeIsTrainVisible && (
-      <div className="pointer-events-none absolute left-3 top-[8.25rem] z-[1000] max-w-[10.5rem] sm:left-4 sm:top-28 sm:max-w-xs">
+      <div className="pointer-events-none absolute left-3 top-[7rem] z-[1000] max-w-[8.6rem] sm:left-4 sm:top-28 sm:max-w-xs">
         <div className={`rounded-2xl border px-4 py-3 shadow-xl backdrop-blur-xl ${liveTrainStatusTone}`}>
           <div className="flex items-center gap-2">
             <Train className="h-4 w-4" />
@@ -2725,7 +2725,7 @@ const [layers, setLayers] = useState<LayerState>({
       </div>
       )}
 
-      <div className="absolute right-3 top-[8.75rem] z-[1000] w-[9.75rem] sm:right-6 sm:top-32 sm:w-[11.5rem]">
+      <div className="absolute right-3 top-[7.35rem] z-[1000] w-[9.1rem] sm:right-6 sm:top-32 sm:w-[11.5rem]">
         <div className="max-h-[54vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/82 p-2.5 shadow-xl backdrop-blur-xl sm:max-h-[68vh] sm:p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
             Transport Modes

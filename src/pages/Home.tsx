@@ -578,8 +578,8 @@ export default function Home() {
       />
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-      <div className="absolute inset-x-0 top-[4.65rem] z-[55] flex justify-center px-3 sm:top-5 sm:px-6">
-        <TabsList className="w-full max-w-xl border border-white/10 bg-card/80 p-1 shadow-xl backdrop-blur-xl md:w-auto">
+      <div className="pointer-events-none absolute inset-x-0 top-[4.2rem] z-[55] flex justify-center px-3 sm:top-5 sm:px-6">
+        <TabsList className="pointer-events-auto w-auto max-w-[calc(100%-5.5rem)] border border-white/10 bg-card/80 p-1 shadow-xl backdrop-blur-xl md:max-w-xl md:w-auto">
           <TabsTrigger value="map">Journey Planner</TabsTrigger>
           {!isGuest && <TabsTrigger value="telegram">Telegram</TabsTrigger>}
           {!isGuest && <TabsTrigger value="fleets">Fleets</TabsTrigger>}
