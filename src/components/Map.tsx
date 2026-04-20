@@ -1024,6 +1024,167 @@ export const LINES = {
   williamstown: WILLIAMSTOWN_STATIONS,
   altonaLoop: ALTONA_LOOP_STATIONS,
 };
+
+const PLATFORM_PRESET_PRIORITY = [
+  "metroTunnel",
+  "frankston",
+  "sandringham",
+  "werribee",
+  "williamstown",
+  "mernda",
+  "hurstbridge",
+  "sunbury",
+  "cranbourne",
+  "pakenham",
+  "craigieburn",
+  "upfield",
+  "belgrave",
+  "lilydale",
+  "glenWaverley",
+  "alamein",
+  "altonaLoop",
+] as const;
+
+type PlatformBoardEntry = {
+  platform: string;
+  label: string;
+  tone: string;
+  services: Array<{
+    destination: string;
+    etaLabel: string;
+  }>;
+};
+
+const LINE_PLATFORM_PRESETS: Record<
+  (typeof PLATFORM_PRESET_PRIORITY)[number],
+  {
+    inboundLabel: string;
+    inboundServices: string[];
+    outboundLabel: string;
+    outboundServices: string[];
+    tone: string;
+  }
+> = {
+  metroTunnel: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["Town Hall", "State Library"],
+    outboundLabel: "Platform 2 · Tunnel outbound",
+    outboundServices: ["Sunbury", "Cranbourne"],
+    tone: "bg-cyan-500/12 border-cyan-400/20 text-cyan-100",
+  },
+  frankston: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["City Loop", "Flinders Street"],
+    outboundLabel: "Platform 2 · Frankston bound",
+    outboundServices: ["Frankston", "Mordialloc"],
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
+  },
+  sandringham: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["Flinders Street", "City Loop"],
+    outboundLabel: "Platform 2 · Sandringham bound",
+    outboundServices: ["Sandringham", "Brighton Beach"],
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+  },
+  werribee: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["Flinders Street", "City Loop"],
+    outboundLabel: "Platform 2 · Werribee bound",
+    outboundServices: ["Werribee", "Laverton"],
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+  },
+  williamstown: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["Flinders Street", "Southern Cross"],
+    outboundLabel: "Platform 2 · Williamstown bound",
+    outboundServices: ["Williamstown", "Newport"],
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+  },
+  mernda: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["City Loop", "Flinders Street"],
+    outboundLabel: "Platform 2 · Mernda bound",
+    outboundServices: ["Mernda", "South Morang"],
+    tone: "bg-[#BE1014]/12 border-[#BE1014]/25 text-[#ffd6d8]",
+  },
+  hurstbridge: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["City Loop", "Flinders Street"],
+    outboundLabel: "Platform 2 · Hurstbridge bound",
+    outboundServices: ["Hurstbridge", "Greensborough"],
+    tone: "bg-[#BE1014]/12 border-[#BE1014]/25 text-[#ffd6d8]",
+  },
+  sunbury: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["City Loop", "Flinders Street"],
+    outboundLabel: "Platform 2 · Sunbury bound",
+    outboundServices: ["Sunbury", "Watergardens"],
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+  },
+  cranbourne: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["Town Hall", "State Library"],
+    outboundLabel: "Platform 2 · Cranbourne bound",
+    outboundServices: ["Cranbourne", "Dandenong"],
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+  },
+  pakenham: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["Town Hall", "State Library"],
+    outboundLabel: "Platform 2 · Pakenham bound",
+    outboundServices: ["Pakenham", "Westall"],
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+  },
+  craigieburn: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["City Loop", "Flinders Street"],
+    outboundLabel: "Platform 2 · Craigieburn bound",
+    outboundServices: ["Craigieburn", "Broadmeadows"],
+    tone: "bg-yellow-500/12 border-yellow-400/25 text-yellow-100",
+  },
+  upfield: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["City Loop", "Flinders Street"],
+    outboundLabel: "Platform 2 · Upfield bound",
+    outboundServices: ["Upfield", "Coburg"],
+    tone: "bg-yellow-500/12 border-yellow-400/25 text-yellow-100",
+  },
+  belgrave: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["City Loop", "Flinders Street"],
+    outboundLabel: "Platform 2 · Belgrave bound",
+    outboundServices: ["Belgrave", "Ringwood"],
+    tone: "bg-blue-500/12 border-blue-400/25 text-blue-100",
+  },
+  lilydale: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["City Loop", "Flinders Street"],
+    outboundLabel: "Platform 2 · Lilydale bound",
+    outboundServices: ["Lilydale", "Ringwood"],
+    tone: "bg-blue-500/12 border-blue-400/25 text-blue-100",
+  },
+  glenWaverley: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["City Loop", "Flinders Street"],
+    outboundLabel: "Platform 2 · Glen Waverley bound",
+    outboundServices: ["Glen Waverley", "Mount Waverley"],
+    tone: "bg-blue-500/12 border-blue-400/25 text-blue-100",
+  },
+  alamein: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["City Loop", "Flinders Street"],
+    outboundLabel: "Platform 2 · Alamein bound",
+    outboundServices: ["Alamein", "Camberwell"],
+    tone: "bg-blue-500/12 border-blue-400/25 text-blue-100",
+  },
+  altonaLoop: {
+    inboundLabel: "Platform 1 · City bound",
+    inboundServices: ["Flinders Street", "Southern Cross"],
+    outboundLabel: "Platform 2 · Altona Loop",
+    outboundServices: ["Laverton", "Altona"],
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+  },
+};
 // =========================
 // Helpers
 // =========================
@@ -1041,6 +1202,50 @@ function getStationDetails(station: Station): string {
   if (station.zone) details.push(`Zone ${station.zone}`);
 
   return details.length ? details.join(" · ") : "Metro station";
+}
+
+function getStationLineMemberships(stationName: string) {
+  return PLATFORM_PRESET_PRIORITY.filter((lineKey) =>
+    LINES[lineKey].some((station) => station.name === stationName),
+  );
+}
+
+function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
+  const memberships = getStationLineMemberships(station.name);
+  const primaryLine = memberships[0] ?? "frankston";
+  const preset = LINE_PLATFORM_PRESETS[primaryLine];
+  const now = new Date();
+  const minuteOffsets = [4, 11, 7, 16];
+
+  const formatEta = (offsetMinutes: number) => {
+    const nextTime = new Date(now.getTime() + offsetMinutes * 60_000);
+    return nextTime.toLocaleTimeString("en-AU", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  };
+
+  return [
+    {
+      platform: "1",
+      label: preset.inboundLabel,
+      tone: preset.tone,
+      services: preset.inboundServices.slice(0, 2).map((destination, index) => ({
+        destination,
+        etaLabel: formatEta(minuteOffsets[index] ?? 5 + index * 6),
+      })),
+    },
+    {
+      platform: "2",
+      label: preset.outboundLabel,
+      tone: preset.tone,
+      services: preset.outboundServices.slice(0, 2).map((destination, index) => ({
+        destination,
+        etaLabel: formatEta(minuteOffsets[index + 2] ?? 10 + index * 7),
+      })),
+    },
+  ];
 }
 
 function offsetPolylineCoordinates(
@@ -2937,12 +3142,52 @@ const [layers, setLayers] = useState<LayerState>({
           </div>
 
           {selectedDetail.type === "station" && (
-            <div className="mt-3 grid gap-2 text-sm text-white/70 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">{getStationDetails(selectedDetail.station)}</div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                Marker position
-                <div className="mt-1 text-white/90">
-                  {selectedDetail.station.position[0].toFixed(5)}, {selectedDetail.station.position[1].toFixed(5)}
+            <div className="mt-3 space-y-3 text-sm text-white/70">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3">{getStationDetails(selectedDetail.station)}</div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                  Marker position
+                  <div className="mt-1 text-white/90">
+                    {selectedDetail.station.position[0].toFixed(5)}, {selectedDetail.station.position[1].toFixed(5)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-300/75">
+                  Next services
+                </p>
+                <p className="mt-1 text-sm text-white/60">
+                  The next two services showing on each platform at {selectedDetail.station.name}.
+                </p>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {buildPlatformBoard(selectedDetail.station).map((platform) => (
+                    <div
+                      key={`${selectedDetail.station.name}-platform-${platform.platform}`}
+                      className={`rounded-[1.15rem] border p-3 ${platform.tone}`}
+                    >
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/55">
+                        {platform.label}
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {platform.services.map((service, index) => (
+                          <div
+                            key={`${platform.platform}-${service.destination}-${index}`}
+                            className="flex items-center justify-between rounded-xl border border-white/10 bg-black/15 px-3 py-2"
+                          >
+                            <div>
+                              <p className="text-sm font-semibold text-white">{service.destination}</p>
+                              <p className="text-[11px] text-white/50">Next service</p>
+                            </div>
+                            <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/85">
+                              {service.etaLabel}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
