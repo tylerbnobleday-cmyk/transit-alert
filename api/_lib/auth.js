@@ -1,11 +1,4 @@
 import crypto from "node:crypto";
-import { db } from "../../src/lib/db/src/index.js";
-import {
-  appUsersTable,
-  userPreferencesTable,
-  appConfigTable,
-  markerOverridesTable,
-} from "../../src/lib/db/src/schema/auth.js";
 
 export const ROLE_OPTIONS = [
   "Admin",
@@ -27,6 +20,34 @@ const SESSION_SECRET = process.env.AUTH_SESSION_SECRET || process.env.SESSION_SE
 const adminUsername = process.env.ADMIN_USERNAME || "tyler";
 const adminPassword = process.env.ADMIN_PASSWORD || "AppleJuice";
 const adminEmail = `${adminUsername}@transitalert.local`;
+let cachedDbContext = undefined;
+
+async function loadDbContext() {
+  if (cachedDbContext !== undefined) {
+    return cachedDbContext;
+  }
+
+  try {
+    const [{ db }, schema] = await Promise.all([
+      import("../../src/lib/db/src/index.js"),
+      import("../../src/lib/db/src/schema/auth.js"),
+    ]);
+
+    cachedDbContext = db
+      ? {
+          db,
+          appUsersTable: schema.appUsersTable,
+          userPreferencesTable: schema.userPreferencesTable,
+          appConfigTable: schema.appConfigTable,
+          markerOverridesTable: schema.markerOverridesTable,
+        }
+      : null;
+  } catch {
+    cachedDbContext = null;
+  }
+
+  return cachedDbContext;
+}
 const defaultPreferences = {
   favouriteStops: [],
   favouriteRoutes: [],
@@ -155,6 +176,9 @@ export function sanitizeUser(user) {
 }
 
 export async function ensureAdminAccount() {
+  const context = await loadDbContext();
+  if (!context) return;
+  const { db, appUsersTable } = context;
   if (!db) return;
   const existing = await db.query.appUsersTable.findFirst({
     where: (fields, operators) => operators.eq(fields.username, adminUsername),
@@ -177,6 +201,8 @@ export async function getSessionUser(req) {
   const parsed = readSignedSession(cookies[SESSION_COOKIE] || "");
   if (!parsed?.id) return null;
 
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
   if (!db) {
     if (parsed.id === "guest-session" || parsed.role === "Guest") {
       return {
@@ -206,6 +232,8 @@ export async function getSessionUser(req) {
 
 export async function authenticateUser(username, password) {
   await ensureAdminAccount();
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
   if (!db) {
     if (username.trim().toLowerCase() === adminUsername.toLowerCase() && password === adminPassword) {
       return getFallbackAdminUser();
@@ -220,6 +248,10 @@ export async function authenticateUser(username, password) {
 }
 
 export async function registerUser(input) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
+  const userPreferencesTable = context?.userPreferencesTable;
+  const appUsersTable = context?.appUsersTable;
   if (!db) {
     throw new Error("Registration is unavailable until DATABASE_URL is configured.");
   }
@@ -242,6 +274,8 @@ export async function registerUser(input) {
 }
 
 export async function getUserByUsernameOrEmail(username, email) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
   if (!db) {
     const matchesAdmin =
       username.trim().toLowerCase() === adminUsername.toLowerCase() ||
@@ -259,9 +293,12 @@ export async function getUserByUsernameOrEmail(username, email) {
 }
 
 export async function getUserPreferences(userId) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
   if (!db) {
     return { ...defaultPreferences, userId };
   }
+  const { userPreferencesTable } = context;
   const existing = await db.query.userPreferencesTable.findFirst({
     where: (fields, operators) => operators.eq(fields.userId, userId),
   });
@@ -273,6 +310,8 @@ export async function getUserPreferences(userId) {
 }
 
 export async function upsertUserPreferences(userId, patch) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
   if (!db) {
     return {
       userId,
@@ -284,6 +323,7 @@ export async function upsertUserPreferences(userId, patch) {
       updatedAt: new Date(),
     };
   }
+  const { userPreferencesTable } = context;
   const existing = await getUserPreferences(userId);
   const [updated] = await db
     .insert(userPreferencesTable)
@@ -313,15 +353,21 @@ export async function upsertUserPreferences(userId, patch) {
 }
 
 export async function getAppConfig() {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
   if (!db) return {};
+  const { appConfigTable } = context;
   const rows = await db.select().from(appConfigTable);
   return Object.fromEntries(rows.map((row) => [row.key, row.value]));
 }
 
 export async function setAppConfigValue(key, value, updatedBy) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
   if (!db) {
     return { key, value, updatedBy, updatedAt: new Date() };
   }
+  const { appConfigTable } = context;
   const [row] = await db
     .insert(appConfigTable)
     .values({ key, value, updatedBy, updatedAt: new Date() })
@@ -334,11 +380,16 @@ export async function setAppConfigValue(key, value, updatedBy) {
 }
 
 export async function listMarkerOverrides() {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
   if (!db) return [];
+  const { markerOverridesTable } = context;
   return db.select().from(markerOverridesTable);
 }
 
 export async function saveMarkerOverrides(overrides, updatedBy) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
   if (!db) {
     return overrides.map((override, index) => ({
       id: index + 1,
@@ -351,6 +402,7 @@ export async function saveMarkerOverrides(overrides, updatedBy) {
       updatedAt: new Date(),
     }));
   }
+  const { markerOverridesTable } = context;
   const saved = [];
   for (const override of overrides) {
     const [row] = await db
