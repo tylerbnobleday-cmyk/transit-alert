@@ -135,7 +135,15 @@ export default async function handler(req, res) {
       return;
     }
 
-    const user = await registerUser({ username, email, password, role });
+    let user;
+    try {
+      user = await registerUser({ username, email, password, role });
+    } catch (error) {
+      sendJson(res, 503, {
+        error: error instanceof Error ? error.message : "Registration is unavailable right now",
+      });
+      return;
+    }
     setSessionCookie(res, user);
     sendJson(res, 201, {
       authenticated: true,

@@ -27,6 +27,24 @@ const SESSION_SECRET = process.env.AUTH_SESSION_SECRET || process.env.SESSION_SE
 const adminUsername = process.env.ADMIN_USERNAME || "tyler";
 const adminPassword = process.env.ADMIN_PASSWORD || "AppleJuice";
 const adminEmail = `${adminUsername}@transitalert.local`;
+const defaultPreferences = {
+  favouriteStops: [],
+  favouriteRoutes: [],
+  selectedMapFilters: {},
+  transportModes: ["train"],
+  appPreferences: {},
+  updatedAt: new Date(),
+};
+
+function getFallbackAdminUser() {
+  return {
+    id: adminUsername.toLowerCase(),
+    username: adminUsername,
+    email: adminEmail,
+    role: "Admin",
+    isAdmin: true,
+  };
+}
 
 function base64url(value) {
   return Buffer.from(value).toString("base64url");
@@ -137,6 +155,7 @@ export function sanitizeUser(user) {
 }
 
 export async function ensureAdminAccount() {
+  if (!db) return;
   const existing = await db.query.appUsersTable.findFirst({
     where: (fields, operators) => operators.eq(fields.username, adminUsername),
   });
@@ -158,6 +177,25 @@ export async function getSessionUser(req) {
   const parsed = readSignedSession(cookies[SESSION_COOKIE] || "");
   if (!parsed?.id) return null;
 
+  if (!db) {
+    if (parsed.id === "guest-session" || parsed.role === "Guest") {
+      return {
+        id: "guest-session",
+        username: "Guest",
+        email: "guest@transitalert.local",
+        role: "Guest",
+        isAdmin: false,
+      };
+    }
+    if (
+      String(parsed.username || "").toLowerCase() === adminUsername.toLowerCase() ||
+      String(parsed.id || "").toLowerCase() === adminUsername.toLowerCase()
+    ) {
+      return getFallbackAdminUser();
+    }
+    return null;
+  }
+
   const user = await db.query.appUsersTable.findFirst({
     where: (fields, operators) => operators.eq(fields.id, parsed.id),
   });
@@ -168,6 +206,12 @@ export async function getSessionUser(req) {
 
 export async function authenticateUser(username, password) {
   await ensureAdminAccount();
+  if (!db) {
+    if (username.trim().toLowerCase() === adminUsername.toLowerCase() && password === adminPassword) {
+      return getFallbackAdminUser();
+    }
+    return null;
+  }
   const user = await db.query.appUsersTable.findFirst({
     where: (fields, operators) => operators.eq(fields.username, username),
   });
@@ -176,6 +220,9 @@ export async function authenticateUser(username, password) {
 }
 
 export async function registerUser(input) {
+  if (!db) {
+    throw new Error("Registration is unavailable until DATABASE_URL is configured.");
+  }
   const [user] = await db
     .insert(appUsersTable)
     .values({
@@ -195,6 +242,12 @@ export async function registerUser(input) {
 }
 
 export async function getUserByUsernameOrEmail(username, email) {
+  if (!db) {
+    const matchesAdmin =
+      username.trim().toLowerCase() === adminUsername.toLowerCase() ||
+      email.trim().toLowerCase() === adminEmail.toLowerCase();
+    return matchesAdmin ? getFallbackAdminUser() : null;
+  }
   const existingByUsername = await db.query.appUsersTable.findFirst({
     where: (fields, operators) => operators.eq(fields.username, username),
   });
@@ -206,6 +259,9 @@ export async function getUserByUsernameOrEmail(username, email) {
 }
 
 export async function getUserPreferences(userId) {
+  if (!db) {
+    return { ...defaultPreferences, userId };
+  }
   const existing = await db.query.userPreferencesTable.findFirst({
     where: (fields, operators) => operators.eq(fields.userId, userId),
   });
@@ -217,6 +273,17 @@ export async function getUserPreferences(userId) {
 }
 
 export async function upsertUserPreferences(userId, patch) {
+  if (!db) {
+    return {
+      userId,
+      favouriteStops: patch.favouriteStops ?? defaultPreferences.favouriteStops,
+      favouriteRoutes: patch.favouriteRoutes ?? defaultPreferences.favouriteRoutes,
+      selectedMapFilters: patch.selectedMapFilters ?? defaultPreferences.selectedMapFilters,
+      transportModes: patch.transportModes ?? defaultPreferences.transportModes,
+      appPreferences: patch.appPreferences ?? defaultPreferences.appPreferences,
+      updatedAt: new Date(),
+    };
+  }
   const existing = await getUserPreferences(userId);
   const [updated] = await db
     .insert(userPreferencesTable)
@@ -246,11 +313,15 @@ export async function upsertUserPreferences(userId, patch) {
 }
 
 export async function getAppConfig() {
+  if (!db) return {};
   const rows = await db.select().from(appConfigTable);
   return Object.fromEntries(rows.map((row) => [row.key, row.value]));
 }
 
 export async function setAppConfigValue(key, value, updatedBy) {
+  if (!db) {
+    return { key, value, updatedBy, updatedAt: new Date() };
+  }
   const [row] = await db
     .insert(appConfigTable)
     .values({ key, value, updatedBy, updatedAt: new Date() })
@@ -263,10 +334,23 @@ export async function setAppConfigValue(key, value, updatedBy) {
 }
 
 export async function listMarkerOverrides() {
+  if (!db) return [];
   return db.select().from(markerOverridesTable);
 }
 
 export async function saveMarkerOverrides(overrides, updatedBy) {
+  if (!db) {
+    return overrides.map((override, index) => ({
+      id: index + 1,
+      markerName: override.markerName,
+      markerType: override.markerType ?? "station",
+      lat: override.lat,
+      lng: override.lng,
+      metadata: override.metadata ?? {},
+      updatedBy,
+      updatedAt: new Date(),
+    }));
+  }
   const saved = [];
   for (const override of overrides) {
     const [row] = await db
