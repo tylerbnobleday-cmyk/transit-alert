@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import { eq } from "../../src/lib/db/node_modules/drizzle-orm/index.js";
 import { db } from "../../src/lib/db/src/index.js";
 import {
   appUsersTable,
@@ -152,7 +151,7 @@ export function clearSessionCookie(res: CookieResponse) {
 
 export async function ensureAdminAccount() {
   const existing = await db.query.appUsersTable.findFirst({
-    where: eq(appUsersTable.username, adminUsername),
+    where: (fields, operators) => operators.eq(fields.username, adminUsername),
   });
 
   if (!existing) {
@@ -173,7 +172,7 @@ export async function getSessionUser(req: CookieRequest) {
   if (!parsed?.id) return null;
 
   const user = await db.query.appUsersTable.findFirst({
-    where: eq(appUsersTable.id, parsed.id),
+    where: (fields, operators) => operators.eq(fields.id, parsed.id),
   });
   if (!user) return null;
 
@@ -199,7 +198,7 @@ export function sanitizeUser(user: {
 export async function authenticateUser(username: string, password: string) {
   await ensureAdminAccount();
   const user = await db.query.appUsersTable.findFirst({
-    where: eq(appUsersTable.username, username),
+    where: (fields, operators) => operators.eq(fields.username, username),
   });
   if (!user) return null;
   return verifyPassword(password, user.passwordHash) ? sanitizeUser(user) : null;
@@ -226,18 +225,18 @@ export async function registerUser(input: { username: string; email: string; pas
 
 export async function getUserByUsernameOrEmail(username: string, email: string) {
   return db.query.appUsersTable.findFirst({
-    where: eq(appUsersTable.username, username),
+    where: (fields, operators) => operators.eq(fields.username, username),
   }).then(async (existingByUsername: Awaited<ReturnType<typeof db.query.appUsersTable.findFirst>>) => {
     if (existingByUsername) return existingByUsername;
     return db.query.appUsersTable.findFirst({
-      where: eq(appUsersTable.email, email),
+      where: (fields, operators) => operators.eq(fields.email, email),
     });
   });
 }
 
 export async function getUserPreferences(userId: string) {
   const existing = await db.query.userPreferencesTable.findFirst({
-    where: eq(userPreferencesTable.userId, userId),
+    where: (fields, operators) => operators.eq(fields.userId, userId),
   });
 
   if (existing) return existing;
