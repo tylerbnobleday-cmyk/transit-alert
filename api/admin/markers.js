@@ -1,4 +1,4 @@
-import { getSessionUser, listMarkerOverrides, readJsonBody, saveMarkerOverrides, sendJson } from "../_lib/auth";
+import { getSessionUser, listMarkerOverrides, readJsonBody, saveMarkerOverrides, sendJson } from "../_lib/auth.js";
 
 export default async function handler(req, res) {
   const user = await getSessionUser(req);

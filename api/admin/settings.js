@@ -1,4 +1,4 @@
-import { getAppConfig, getSessionUser, readJsonBody, sendJson, setAppConfigValue } from "../_lib/auth";
+import { getAppConfig, getSessionUser, readJsonBody, sendJson, setAppConfigValue } from "../_lib/auth.js";
 
 function isValidUrl(value) {
   if (!value) return true;

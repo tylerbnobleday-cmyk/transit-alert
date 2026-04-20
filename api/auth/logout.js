@@ -1,4 +1,4 @@
-import { clearSessionCookie, sendJson } from "../_lib/auth";
+import { clearSessionCookie, sendJson } from "../_lib/auth.js";
 
 export default function handler(req, res) {
   if (req.method !== "POST") {

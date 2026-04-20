@@ -1,4 +1,4 @@
-import { ROLE_OPTIONS, sendJson, setSessionCookie } from "../_lib/auth";
+import { ROLE_OPTIONS, sendJson, setSessionCookie } from "../_lib/auth.js";
 
 export default function handler(req, res) {
   if (req.method !== "POST") {

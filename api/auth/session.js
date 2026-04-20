@@ -1,4 +1,4 @@
-import { ROLE_OPTIONS, getSessionUser, sendJson } from "../_lib/auth";
+import { ROLE_OPTIONS, getSessionUser, sendJson } from "../_lib/auth.js";
 
 export default async function handler(req, res) {
   const user = await getSessionUser(req);

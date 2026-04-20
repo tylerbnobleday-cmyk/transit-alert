@@ -1,4 +1,4 @@
-import { getSessionUser, getUserPreferences, readJsonBody, sendJson, upsertUserPreferences } from "../_lib/auth";
+import { getSessionUser, getUserPreferences, readJsonBody, sendJson, upsertUserPreferences } from "../_lib/auth.js";
 
 function uniq(values) {
   return [...new Set(values.filter(Boolean))];

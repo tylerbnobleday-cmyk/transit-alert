@@ -20,7 +20,7 @@ export const ROLE_OPTIONS = [
   "Friend",
   "Debug",
   "Bug Tester",
-] as const;
+];
 
 const SESSION_COOKIE = "transitalert_session";
 const SESSION_SECRET = process.env.AUTH_SESSION_SECRET || process.env.SESSION_SECRET || "transitalert-dev-secret";
@@ -28,51 +28,28 @@ const adminUsername = process.env.ADMIN_USERNAME || "tyler";
 const adminPassword = process.env.ADMIN_PASSWORD || "AppleJuice";
 const adminEmail = `${adminUsername}@transitalert.local`;
 
-export type SessionUser = {
-  id: string;
-  username: string;
-  email: string;
-  role: string;
-  isAdmin: boolean;
-};
-
-type CookieRequest = {
-  headers?: {
-    cookie?: string;
-  };
-  body?: unknown;
-  method?: string;
-};
-
-type CookieResponse = {
-  status: (code: number) => CookieResponse;
-  setHeader: (name: string, value: string) => void;
-  send: (body: unknown) => void;
-  json?: (body: unknown) => void;
-};
-
-function base64url(value: string) {
+function base64url(value) {
   return Buffer.from(value).toString("base64url");
 }
 
-function sign(value: string) {
+function sign(value) {
   return crypto.createHmac("sha256", SESSION_SECRET).update(value).digest("base64url");
 }
 
-function createPasswordHash(password: string) {
+function createPasswordHash(password) {
   const salt = crypto.randomBytes(16).toString("hex");
   const derived = crypto.scryptSync(password, salt, 64).toString("hex");
   return `${salt}:${derived}`;
 }
 
-function verifyPassword(password: string, passwordHash: string) {
-  const [salt, existingHash] = passwordHash.split(":");
+function verifyPassword(password, passwordHash) {
+  const [salt, existingHash] = String(passwordHash || "").split(":");
   if (!salt || !existingHash) return false;
   const derived = crypto.scryptSync(password, salt, 64).toString("hex");
   return crypto.timingSafeEqual(Buffer.from(existingHash, "hex"), Buffer.from(derived, "hex"));
 }
 
-function createSignedSession(user: SessionUser) {
+function createSignedSession(user) {
   const payload = {
     id: user.id,
     username: user.username,
@@ -85,7 +62,7 @@ function createSignedSession(user: SessionUser) {
   return `${encoded}.${sign(encoded)}`;
 }
 
-function readSignedSession(rawCookie: string) {
+function readSignedSession(rawCookie) {
   if (!rawCookie || typeof rawCookie !== "string") return null;
   const [encoded, signature] = rawCookie.split(".");
   if (!encoded || !signature) return null;
@@ -94,14 +71,14 @@ function readSignedSession(rawCookie: string) {
   try {
     const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
     if (!payload?.id) return null;
-    return payload as SessionUser & { iat?: number };
+    return payload;
   } catch {
     return null;
   }
 }
 
-export function parseCookies(req: CookieRequest) {
-  const cookies: Record<string, string> = {};
+export function parseCookies(req) {
+  const cookies = {};
   const header = req.headers?.cookie;
   if (!header) return cookies;
 
@@ -113,19 +90,19 @@ export function parseCookies(req: CookieRequest) {
   return cookies;
 }
 
-export async function readJsonBody<T>(req: AsyncIterable<Uint8Array> & CookieRequest): Promise<T> {
+export async function readJsonBody(req) {
   if (req.body && typeof req.body === "object") {
-    return req.body as T;
+    return req.body;
   }
-  const chunks: Uint8Array[] = [];
+  const chunks = [];
   for await (const chunk of req) {
     chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
   }
   const raw = Buffer.concat(chunks).toString("utf8").trim();
-  return (raw ? JSON.parse(raw) : {}) as T;
+  return raw ? JSON.parse(raw) : {};
 }
 
-export function sendJson(res: CookieResponse, status: number, payload: unknown) {
+export function sendJson(res, status, payload) {
   res.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
   if (typeof res.json === "function") {
     res.json(payload);
@@ -134,7 +111,7 @@ export function sendJson(res: CookieResponse, status: number, payload: unknown) 
   res.send(payload);
 }
 
-export function setSessionCookie(res: CookieResponse, user: SessionUser, maxAgeSeconds = 60 * 60 * 24 * 7) {
+export function setSessionCookie(res, user, maxAgeSeconds = 60 * 60 * 24 * 7) {
   const token = createSignedSession(user);
   res.setHeader(
     "Set-Cookie",
@@ -142,11 +119,21 @@ export function setSessionCookie(res: CookieResponse, user: SessionUser, maxAgeS
   );
 }
 
-export function clearSessionCookie(res: CookieResponse) {
+export function clearSessionCookie(res) {
   res.setHeader(
     "Set-Cookie",
     `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`,
   );
+}
+
+export function sanitizeUser(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    isAdmin: Boolean(user.isAdmin),
+  };
 }
 
 export async function ensureAdminAccount() {
@@ -165,7 +152,7 @@ export async function ensureAdminAccount() {
   }
 }
 
-export async function getSessionUser(req: CookieRequest) {
+export async function getSessionUser(req) {
   await ensureAdminAccount();
   const cookies = parseCookies(req);
   const parsed = readSignedSession(cookies[SESSION_COOKIE] || "");
@@ -179,23 +166,7 @@ export async function getSessionUser(req: CookieRequest) {
   return sanitizeUser(user);
 }
 
-export function sanitizeUser(user: {
-  id: string;
-  username: string;
-  email: string;
-  role: string;
-  isAdmin: boolean;
-}) {
-  return {
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    role: user.role,
-    isAdmin: Boolean(user.isAdmin),
-  };
-}
-
-export async function authenticateUser(username: string, password: string) {
+export async function authenticateUser(username, password) {
   await ensureAdminAccount();
   const user = await db.query.appUsersTable.findFirst({
     where: (fields, operators) => operators.eq(fields.username, username),
@@ -204,7 +175,7 @@ export async function authenticateUser(username: string, password: string) {
   return verifyPassword(password, user.passwordHash) ? sanitizeUser(user) : null;
 }
 
-export async function registerUser(input: { username: string; email: string; password: string; role: string }) {
+export async function registerUser(input) {
   const [user] = await db
     .insert(appUsersTable)
     .values({
@@ -223,18 +194,18 @@ export async function registerUser(input: { username: string; email: string; pas
   return sanitizeUser(user);
 }
 
-export async function getUserByUsernameOrEmail(username: string, email: string) {
-  return db.query.appUsersTable.findFirst({
+export async function getUserByUsernameOrEmail(username, email) {
+  const existingByUsername = await db.query.appUsersTable.findFirst({
     where: (fields, operators) => operators.eq(fields.username, username),
-  }).then(async (existingByUsername: Awaited<ReturnType<typeof db.query.appUsersTable.findFirst>>) => {
-    if (existingByUsername) return existingByUsername;
-    return db.query.appUsersTable.findFirst({
-      where: (fields, operators) => operators.eq(fields.email, email),
-    });
+  });
+  if (existingByUsername) return existingByUsername;
+
+  return db.query.appUsersTable.findFirst({
+    where: (fields, operators) => operators.eq(fields.email, email),
   });
 }
 
-export async function getUserPreferences(userId: string) {
+export async function getUserPreferences(userId) {
   const existing = await db.query.userPreferencesTable.findFirst({
     where: (fields, operators) => operators.eq(fields.userId, userId),
   });
@@ -245,16 +216,7 @@ export async function getUserPreferences(userId: string) {
   return created;
 }
 
-export async function upsertUserPreferences(
-  userId: string,
-  patch: Partial<{
-    favouriteStops: string[];
-    favouriteRoutes: string[];
-    selectedMapFilters: Record<string, boolean>;
-    transportModes: string[];
-    appPreferences: Record<string, unknown>;
-  }>,
-) {
+export async function upsertUserPreferences(userId, patch) {
   const existing = await getUserPreferences(userId);
   const [updated] = await db
     .insert(userPreferencesTable)
@@ -285,12 +247,10 @@ export async function upsertUserPreferences(
 
 export async function getAppConfig() {
   const rows = await db.select().from(appConfigTable);
-  return Object.fromEntries(
-    rows.map((row: { key: string; value: Record<string, unknown> }) => [row.key, row.value]),
-  );
+  return Object.fromEntries(rows.map((row) => [row.key, row.value]));
 }
 
-export async function setAppConfigValue(key: string, value: Record<string, unknown>, updatedBy?: string) {
+export async function setAppConfigValue(key, value, updatedBy) {
   const [row] = await db
     .insert(appConfigTable)
     .values({ key, value, updatedBy, updatedAt: new Date() })
@@ -306,10 +266,7 @@ export async function listMarkerOverrides() {
   return db.select().from(markerOverridesTable);
 }
 
-export async function saveMarkerOverrides(
-  overrides: Array<{ markerName: string; markerType?: string; lat: number; lng: number; metadata?: Record<string, unknown> }>,
-  updatedBy?: string,
-) {
+export async function saveMarkerOverrides(overrides, updatedBy) {
   const saved = [];
   for (const override of overrides) {
     const [row] = await db

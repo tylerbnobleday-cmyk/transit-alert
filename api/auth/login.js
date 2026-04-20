@@ -4,7 +4,7 @@ import {
   readJsonBody,
   sendJson,
   setSessionCookie,
-} from "../_lib/auth";
+} from "../_lib/auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
