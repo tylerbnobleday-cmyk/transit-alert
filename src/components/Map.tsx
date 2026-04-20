@@ -2915,7 +2915,7 @@ const [layers, setLayers] = useState<LayerState>({
       )}
 
       {selectedDetail && selectedDetail.type !== "vehicle" && (
-        <div className="absolute inset-x-4 bottom-24 z-[1001] mx-auto max-w-xl rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-2xl sm:bottom-8">
+        <div className="absolute inset-x-4 bottom-40 z-[1001] mx-auto max-w-xl rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-2xl sm:bottom-24">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-300/75">
