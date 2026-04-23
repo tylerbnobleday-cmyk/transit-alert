@@ -1813,7 +1813,7 @@ const [layers, setLayers] = useState<LayerState>({
 
   useEffect(() => {
     onLayerStateChange?.(layers);
-  }, [layers, onLayerStateChange]);
+  }, [/*layers, onLayerStateChange //causes infinite loop*/]);
 
   useEffect(() => {
     if (!mapRef.current) {
