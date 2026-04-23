@@ -2,7 +2,17 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, MapPin, Plus, Search, Send, TrainFront } from "lucide-react";
-import { Map as TransitMap, Station, ALL_STATIONS, LINES } from "@/components/Map";
+import {
+  Map as TransitMap,
+  Station,
+  ALL_STATIONS,
+  LINES,
+  SERVICE_FILTERS,
+  getFilterChips,
+  type LayerState,
+  type ServiceFilterKey,
+  type TransportMode,
+} from "@/components/Map";
 import { TopBar } from "@/components/TopBar";
 import { RiskyRoutes } from "@/components/RiskyRoutes";
 import { AddReportDrawer } from "@/components/AddReportDrawer";
@@ -11,6 +21,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useGetTelegramStatus } from "@/lib/api-client-react/src/generated/api";
 import { fetchAuthSession, logoutSession } from "@/lib/auth";
 import { fetchAdminConfig, saveAdminConfig, type AdminRuntimeConfig } from "@/lib/admin-config";
+import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
 import {
   defaultPreferences,
   fetchAccountPreferences,
@@ -55,15 +66,16 @@ type FleetTypeConfig = {
 };
 
 type FleetTrip = {
-  id: number;
+  id: string;
   tdn: string;
   line: string;
   route: string;
   fleet: FleetTypeKey;
-  departs: string;
-  arrives: string;
   status: FleetTripStatus;
   lineColor: string;
+  statusLabel: string;
+  updatedAt: string;
+  consist: string;
 };
 
 type StationDeparture = {
@@ -87,26 +99,73 @@ const FLEET_TYPES: FleetTypeConfig[] = [
   { key: "vlocity", label: "VLocity", emoji: "Train", total: 25 },
 ];
 
-const FLEET_TRIPS: FleetTrip[] = [
-  { id: 1, tdn: "TDN C128", line: "Pakenham", route: "EPH to THL", fleet: "hcmt", departs: "20:51", arrives: "22:03", status: "running", lineColor: "bg-sky-500 text-sky-950" },
-  { id: 2, tdn: "TDN 1887", line: "Hurstbridge", route: "FSS to HBE", fleet: "xtrapolis", departs: "20:42", arrives: "21:50", status: "running", lineColor: "bg-red-600 text-white" },
-  { id: 3, tdn: "TDN 4449", line: "Frankston", route: "FSS to FKN", fleet: "siemens", departs: "20:48", arrives: "21:52", status: "running", lineColor: "bg-green-600 text-white" },
-  { id: 4, tdn: "TDN 4954", line: "Frankston", route: "FKN to FSS", fleet: "ss-comeng", departs: "20:46", arrives: "21:59", status: "running", lineColor: "bg-green-600 text-white" },
-  { id: 5, tdn: "TDN 5091", line: "Upfield", route: "FSS to UFD", fleet: "ns-comeng", departs: "21:22", arrives: "21:57", status: "running", lineColor: "bg-yellow-400 text-yellow-950" },
-  { id: 6, tdn: "TDN 8089", line: "Swan Hill", route: "SSS to SWH", fleet: "n-class", departs: "18:40", arrives: "23:19", status: "running", lineColor: "bg-violet-500 text-white" },
-  { id: 7, tdn: "TDN 8469", line: "Bairnsdale", route: "SSS to BDE", fleet: "vlocity", departs: "18:21", arrives: "22:22", status: "running", lineColor: "bg-violet-500 text-white" },
-  { id: 8, tdn: "TDN 8814", line: "Geelong", route: "SSS to GEL", fleet: "vlocity", departs: "21:22", arrives: "22:00", status: "upcoming", lineColor: "bg-violet-500 text-white" },
-];
-
 const STATUS_STYLES: Record<FleetTripStatus, string> = {
   running: "bg-emerald-500/15 text-emerald-300",
-  upcoming: "bg-amber-500/15 text-amber-300",
+  upcoming: "bg-slate-500/15 text-slate-300",
 };
 
 const STATUS_LABELS: Record<FleetTripStatus, string> = {
   running: "Running",
-  upcoming: "Upcoming",
+  upcoming: "Recent",
 };
+
+function getFleetLineTone(line: string) {
+  const joined = line.toLowerCase();
+  if (/(sunbury|cranbourne|pakenham|metro tunnel)/i.test(joined)) return "bg-sky-500 text-sky-950";
+  if (/(mernda|hurstbridge)/i.test(joined)) return "bg-red-600 text-white";
+  if (/(frankston|stony point)/i.test(joined)) return "bg-green-600 text-white";
+  if (/(werribee|williamstown|sandringham|altona)/i.test(joined)) return "bg-pink-500 text-white";
+  if (/(upfield|craigieburn)/i.test(joined)) return "bg-yellow-400 text-yellow-950";
+  if (/(belgrave|lilydale|glen waverley|alamein)/i.test(joined)) return "bg-blue-600 text-white";
+  return "bg-slate-500 text-white";
+}
+
+function inferFleetTypeKey(vehicle: LiveTrain): FleetTypeKey {
+  const searchable = `${vehicle.trainType} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  if (/(hcmt)/i.test(searchable)) return "hcmt";
+  if (/(x'?trapolis)/i.test(searchable)) return "xtrapolis";
+  if (/(siemens)/i.test(searchable)) return "siemens";
+  if (/(vlocity)/i.test(searchable)) return "vlocity";
+  if (/(n class|swan hill|bairnsdale|geelong|ballarat|traralgon)/i.test(searchable)) return "n-class";
+  if (/(comeng)/i.test(searchable)) {
+    return /(craigieburn|upfield|sunbury|mernda|hurstbridge)/i.test(searchable) ? "ns-comeng" : "ss-comeng";
+  }
+  if (/(craigieburn|upfield|sunbury|mernda|hurstbridge)/i.test(searchable)) return "ns-comeng";
+  if (/(frankston|werribee|williamstown|sandringham|altona)/i.test(searchable)) return "ss-comeng";
+  return "siemens";
+}
+
+function buildFleetRoute(vehicle: LiveTrain) {
+  const cleaned = vehicle.serviceDescription?.trim();
+  if (cleaned && cleaned.length > 0) return cleaned;
+  return `${vehicle.line} to ${vehicle.destination}`;
+}
+
+function formatFleetUpdatedAt(timestamp?: string) {
+  if (!timestamp) return "Live now";
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) return "Live now";
+  return `Seen ${parsed.toLocaleTimeString("en-AU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })}`;
+}
+
+function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
+  return vehicles.map((vehicle, index) => ({
+    id: `${vehicle.consist}-${vehicle.tdn}-${index}`,
+    tdn: vehicle.tdn.startsWith("TDN") ? vehicle.tdn : `TDN ${vehicle.tdn}`,
+    line: vehicle.line,
+    route: buildFleetRoute(vehicle),
+    fleet: inferFleetTypeKey(vehicle),
+    status: vehicle.timestamp ? "running" : "upcoming",
+    lineColor: getFleetLineTone(vehicle.line),
+    statusLabel: formatFleetUpdatedAt(vehicle.timestamp),
+    updatedAt: vehicle.timestamp ?? "",
+    consist: vehicle.consist,
+  }));
+}
 
 const STATION_SERVICE_LOOKUP: Record<string, string[]> = {
   "Town Hall": ["Sunbury", "Cranbourne", "Pakenham", "Metro Tunnel"],
@@ -140,13 +199,13 @@ function getStationDepartureBoard(stationName: string) {
 function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
   return (
     <div
-      className={`overflow-hidden rounded-t-[2rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[2rem] ${
+      className={`pointer-events-none overflow-hidden rounded-t-[2rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[2rem] ${
         isOpen ? "translate-y-0" : "translate-y-[calc(100%-78px)]"
       }`}
     >
       <button
         onClick={onToggle}
-        className="flex w-full flex-col items-center justify-center px-4 pb-3 pt-3 text-white"
+        className="pointer-events-auto flex w-full flex-col items-center justify-center px-4 pb-3 pt-3 text-white"
         aria-expanded={isOpen}
         aria-label={isOpen ? "Hide planner" : "Show planner"}
       >
@@ -157,7 +216,7 @@ function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
         </span>
       </button>
 
-      <div className="max-h-[70vh] overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-5">
+      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[70vh] overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-5`}>
         {children}
       </div>
     </div>
@@ -167,14 +226,14 @@ function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
 function DockedPanelSheet({ isOpen, onToggle, eyebrow, title, summary, children }: DockedPanelSheetProps) {
   return (
     <div
-      className={`overflow-hidden rounded-t-[2rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[2rem] ${
+      className={`pointer-events-none overflow-hidden rounded-t-[2rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[2rem] ${
         isOpen ? "translate-y-0" : "translate-y-[calc(100%-92px)]"
       }`}
     >
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-start justify-between gap-4 px-5 pb-4 pt-4 text-left text-white"
+        className="pointer-events-auto flex w-full items-start justify-between gap-4 px-5 pb-4 pt-4 text-left text-white"
       >
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-blue-300/80">{eyebrow}</p>
@@ -187,7 +246,7 @@ function DockedPanelSheet({ isOpen, onToggle, eyebrow, title, summary, children 
         </span>
       </button>
 
-      <div className="max-h-[68vh] overflow-y-auto px-5 pb-5">
+      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[68vh] overflow-y-auto px-5 pb-5`}>
         {children}
       </div>
     </div>
@@ -198,6 +257,13 @@ export default function Home() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { data: botStatus } = useGetTelegramStatus();
+  const { data: liveFleetVehicles = [], isFetching: isFleetRefreshing } = useQuery({
+    queryKey: ["live-fleet-board"],
+    queryFn: fetchLiveTrains,
+    retry: false,
+    refetchInterval: 15_000,
+    staleTime: 10_000,
+  });
   const { data: authSession } = useQuery({
     queryKey: ["auth-session"],
     queryFn: fetchAuthSession,
@@ -271,18 +337,38 @@ export default function Home() {
     () => FLEET_TYPES.find((fleet) => fleet.key === selectedFleetType) ?? null,
     [selectedFleetType],
   );
+  const liveFleetTrips = useMemo(() => buildFleetTripsFromLive(liveFleetVehicles), [liveFleetVehicles]);
+  const fleetCountByType = useMemo(
+    () =>
+      liveFleetTrips.reduce<Record<FleetTypeKey, number>>(
+        (counts, trip) => {
+          counts[trip.fleet] += 1;
+          return counts;
+        },
+        {
+          hcmt: 0,
+          xtrapolis: 0,
+          siemens: 0,
+          "ss-comeng": 0,
+          "ns-comeng": 0,
+          "n-class": 0,
+          vlocity: 0,
+        },
+      ),
+    [liveFleetTrips],
+  );
   const fleetTripsForSelection = useMemo(
-    () => (selectedFleetType ? FLEET_TRIPS.filter((trip) => trip.fleet === selectedFleetType) : []),
-    [selectedFleetType],
+    () => (selectedFleetType ? liveFleetTrips.filter((trip) => trip.fleet === selectedFleetType) : []),
+    [liveFleetTrips, selectedFleetType],
   );
   const fleetStats = useMemo(() => {
-    const trips = selectedFleetType ? fleetTripsForSelection : FLEET_TRIPS;
+    const trips = selectedFleetType ? fleetTripsForSelection : liveFleetTrips;
     return {
       liveTrips: trips.length,
       runningNow: trips.filter((trip) => trip.status === "running").length,
       upcomingSoon: trips.filter((trip) => trip.status === "upcoming").length,
     };
-  }, [fleetTripsForSelection, selectedFleetType]);
+  }, [fleetTripsForSelection, liveFleetTrips, selectedFleetType]);
   const serviceDayLabel = useMemo(
     () =>
       new Intl.DateTimeFormat("en-AU", {
@@ -292,19 +378,24 @@ export default function Home() {
       }).format(new Date()),
     [],
   );
-  const lastUpdatedLabel = useMemo(
-    () =>
-      new Intl.DateTimeFormat("en-AU", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      }).format(new Date()),
-    [],
-  );
+  const lastUpdatedLabel = useMemo(() => {
+    const latestTimestamp = liveFleetTrips
+      .map((trip) => (trip.updatedAt ? new Date(trip.updatedAt).getTime() : 0))
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .sort((a, b) => b - a)[0];
+
+    const baseDate = latestTimestamp ? new Date(latestTimestamp) : new Date();
+
+    return new Intl.DateTimeFormat("en-AU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(baseDate);
+  }, [liveFleetTrips]);
   const stationDraftPreview = useMemo(
     () => uniqueStations.find((station) => station.name === adminSelectedStation) ?? uniqueStations[0],
     [adminSelectedStation, uniqueStations],
@@ -492,6 +583,149 @@ export default function Home() {
     });
   };
 
+  const layerState = preferences.selectedMapFilters as Partial<LayerState>;
+
+  const visiblePlannerFilters = useMemo(() => {
+    return SERVICE_FILTERS.filter((filter) => {
+      if (filter.key === "crossCityPink") {
+        return !splitCrossCityGroup;
+      }
+      if (filter.key === "werribeeWilliamstownGroup" || filter.key === "sandringhamGroup") {
+        return splitCrossCityGroup;
+      }
+      if (filter.key === "frankstonGroup") {
+        return false;
+      }
+      if (filter.key === "upfieldCraigieburnCityLoop") {
+        return false;
+      }
+      return true;
+    });
+  }, [splitCrossCityGroup]);
+
+  const isPlannerFilterActive = (filter: ServiceFilterKey) => {
+    switch (filter) {
+      case "vline":
+        return false;
+      case "metroTunnelServices":
+        return Boolean(layerState.metroTunnel || layerState.sunburyLine || layerState.cranbourneLine || layerState.pakenhamLine);
+      case "crossCityPink":
+        return Boolean(layerState.werribeeLine || layerState.sandringhamLine);
+      case "werribeeWilliamstownGroup":
+        return Boolean(layerState.werribeeLine);
+      case "sandringhamGroup":
+        return Boolean(layerState.sandringhamLine);
+      case "burnleyGroup":
+        return Boolean(layerState.belgraveLine || layerState.lilydaleLine || layerState.glenWaverleyLine || layerState.alameinLine || layerState.burnleyLoop);
+      case "cliftonHillGroup":
+        return Boolean(layerState.merndaLine || layerState.hurstbridgeLine || layerState.cliftonHillLoop);
+      case "caulfieldGroup":
+      case "frankstonGroup":
+        return Boolean(layerState.frankstonLine);
+      case "upfieldCraigieburn":
+        return Boolean(layerState.upfieldLine || layerState.craigieburnLine);
+      case "upfieldCraigieburnCityLoop":
+        return Boolean(layerState.northernLoop);
+      default:
+        return false;
+    }
+  };
+
+  const togglePlannerTransportMode = (mode: TransportMode) => {
+    const currentModes = (preferences.transportModes as TransportMode[]) || ["train"];
+    const nextModes = currentModes.includes(mode)
+      ? currentModes.filter((item) => item !== mode)
+      : [...currentModes, mode];
+    updatePreferences({ transportModes: nextModes.length > 0 ? nextModes : ["train"] });
+  };
+
+  const togglePlannerServiceFilter = (filter: ServiceFilterKey) => {
+    if (filter === "vline") return;
+    const prev = layerState;
+    let next: Partial<LayerState> = { ...prev };
+
+    switch (filter) {
+      case "metroTunnelServices": {
+        const nextValue = !Boolean(prev.metroTunnel);
+        next = {
+          ...prev,
+          metroTunnel: nextValue,
+          sunburyLine: nextValue,
+          cranbourneLine: nextValue,
+          pakenhamLine: nextValue,
+        };
+        break;
+      }
+      case "crossCityPink":
+        next = {
+          ...prev,
+          werribeeLine: !Boolean(prev.werribeeLine),
+          sandringhamLine: !Boolean(prev.sandringhamLine),
+        };
+        break;
+      case "werribeeWilliamstownGroup":
+        next = {
+          ...prev,
+          werribeeLine: !Boolean(prev.werribeeLine),
+        };
+        break;
+      case "sandringhamGroup":
+        next = {
+          ...prev,
+          sandringhamLine: !Boolean(prev.sandringhamLine),
+        };
+        break;
+      case "burnleyGroup": {
+        const nextValue = !(prev.belgraveLine || prev.lilydaleLine || prev.glenWaverleyLine || prev.alameinLine || prev.burnleyLoop);
+        next = {
+          ...prev,
+          belgraveLine: nextValue,
+          lilydaleLine: nextValue,
+          glenWaverleyLine: nextValue,
+          alameinLine: nextValue,
+          burnleyLoop: nextValue,
+        };
+        break;
+      }
+      case "cliftonHillGroup": {
+        const nextValue = !(prev.merndaLine || prev.hurstbridgeLine || prev.cliftonHillLoop);
+        next = {
+          ...prev,
+          merndaLine: nextValue,
+          hurstbridgeLine: nextValue,
+          cliftonHillLoop: nextValue,
+        };
+        break;
+      }
+      case "caulfieldGroup":
+      case "frankstonGroup": {
+        const nextValue = !Boolean(prev.frankstonLine);
+        next = {
+          ...prev,
+          frankstonLine: nextValue,
+        };
+        break;
+      }
+      case "upfieldCraigieburn":
+        next = {
+          ...prev,
+          upfieldLine: !Boolean(prev.upfieldLine),
+          craigieburnLine: !Boolean(prev.craigieburnLine),
+        };
+        break;
+      case "upfieldCraigieburnCityLoop":
+        next = {
+          ...prev,
+          northernLoop: !Boolean(prev.northernLoop),
+        };
+        break;
+      default:
+        break;
+    }
+
+    updatePreferences({ selectedMapFilters: next as Record<string, boolean> });
+  };
+
   const toggleFavouriteStop = (stationName: string) => {
     const exists = preferences.favouriteStops.includes(stationName);
     updatePreferences({
@@ -578,12 +812,12 @@ export default function Home() {
       />
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-      <div className="pointer-events-none absolute inset-x-0 top-[4.2rem] z-[55] flex justify-center px-3 sm:top-5 sm:px-6">
-        <TabsList className="pointer-events-auto w-auto max-w-[calc(100%-5.5rem)] border border-white/10 bg-card/80 p-1 shadow-xl backdrop-blur-xl md:max-w-xl md:w-auto">
-          <TabsTrigger value="map">Journey Planner</TabsTrigger>
-          {!isGuest && <TabsTrigger value="telegram">Telegram</TabsTrigger>}
-          {!isGuest && <TabsTrigger value="fleets">Fleets</TabsTrigger>}
-          {isAdmin && <TabsTrigger value="admin">Admin</TabsTrigger>}
+      <div className="pointer-events-none absolute inset-x-0 top-[4.85rem] z-[55] flex justify-center px-2.5 sm:top-5 sm:px-6">
+        <TabsList className="pointer-events-auto flex w-full max-w-[calc(100%-0.75rem)] justify-start gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-card/80 p-1 shadow-xl backdrop-blur-xl sm:w-auto sm:max-w-xl sm:justify-center">
+          <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="map">Journey Planner</TabsTrigger>
+          {!isGuest && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="telegram">Telegram</TabsTrigger>}
+          {!isGuest && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="fleets">Fleets</TabsTrigger>}
+          {isAdmin && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="admin">Admin</TabsTrigger>}
         </TabsList>
       </div>
 
@@ -750,13 +984,14 @@ export default function Home() {
         persistedLayerState={preferences.selectedMapFilters}
         onLayerStateChange={(selectedMapFilters) => updatePreferences({ selectedMapFilters })}
         isAdmin={isAdmin}
+        showFilterRail={false}
       />
 
       {activeTab === "map" && <RiskyRoutes />}
 
       {activeTab === "map" && (
         <div className="absolute inset-x-0 bottom-0 z-40 pointer-events-none">
-          <div className="mx-auto w-full max-w-3xl px-3 pb-3 pointer-events-auto sm:px-4 sm:pb-4">
+          <div className="mx-auto w-full max-w-3xl px-3 pb-3 pointer-events-none sm:px-4 sm:pb-4">
             <PlannerSheet isOpen={isPlannerOpen} onToggle={() => setIsPlannerOpen((value) => !value)}>
               <div className="space-y-4">
                 <div className="px-1">
@@ -798,6 +1033,106 @@ export default function Home() {
                       className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-base text-white outline-none transition focus:border-primary"
                     />
                   </label>
+                </div>
+
+                <div className="rounded-[1.75rem] border border-white/10 bg-slate-900/75 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Map filters</p>
+                      <p className="mt-1 text-xs text-white/60">
+                        Toggle transport modes and line groups without leaving the planner.
+                      </p>
+                    </div>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("admin")}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-white/70 transition hover:bg-white/10"
+                      >
+                        Admin tools
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="mt-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">Transport modes</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {([
+                        { key: "train", label: "Trains" },
+                        { key: "tram", label: "Trams" },
+                        { key: "bus", label: "Buses" },
+                        { key: "vline", label: "V/Line" },
+                      ] as Array<{ key: TransportMode; label: string }>).map((mode) => {
+                        const active = (preferences.transportModes as TransportMode[]).includes(mode.key);
+                        const disabled = mode.key === "vline";
+                        return (
+                          <button
+                            key={mode.key}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => !disabled && togglePlannerTransportMode(mode.key)}
+                            className={`rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition ${
+                              disabled
+                                ? "cursor-not-allowed border-purple-400/20 bg-purple-500/8 text-purple-200/50 opacity-70"
+                                : active
+                                  ? "border-blue-400/40 bg-blue-500/12 text-blue-100"
+                                  : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                            }`}
+                          >
+                            {mode.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">Service filters</p>
+                    <div className="mt-2 grid grid-cols-1 gap-2">
+                      {visiblePlannerFilters.map((filter) => {
+                        const active = isPlannerFilterActive(filter.key);
+                        const disabled = filter.key === "vline";
+                        const chips = getFilterChips(filter.key);
+                        return (
+                          <button
+                            key={filter.key}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => !disabled && togglePlannerServiceFilter(filter.key)}
+                            className={`rounded-2xl border px-3 py-2.5 text-left transition ${
+                              disabled
+                                ? "cursor-not-allowed border-purple-400/20 bg-purple-500/8 text-purple-200/55 opacity-70"
+                                : active
+                                  ? filter.tone
+                                  : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                            }`}
+                          >
+                            <div className="text-sm font-semibold">{filter.label}</div>
+                            {filter.description && (
+                              <div className="mt-0.5 text-xs leading-4 text-current/75">{filter.description}</div>
+                            )}
+                            {chips.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {chips.map((chip) => (
+                                  <span
+                                    key={`${filter.key}-${chip}`}
+                                    className="rounded-full border border-current/20 bg-black/15 px-2 py-0.5 text-[10px] font-semibold text-current/85"
+                                  >
+                                    {chip}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {disabled && (
+                              <div className="mt-1 text-[10px] leading-4 text-current/65">
+                                Unavailable right now while live V/Line is still being debugged.
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
 
                 <datalist id="station-options">
@@ -852,7 +1187,7 @@ export default function Home() {
 
       {activeTab !== "map" && (
         <div className="absolute inset-x-0 bottom-0 z-40 pointer-events-none">
-          <div className="mx-auto w-full max-w-6xl px-3 pb-3 pointer-events-auto sm:px-4 sm:pb-4">
+          <div className="mx-auto w-full max-w-6xl px-3 pb-3 pointer-events-none sm:px-4 sm:pb-4">
             <DockedPanelSheet
               isOpen={isUtilityPanelOpen}
               onToggle={() => setIsUtilityPanelOpen((value) => !value)}
@@ -936,8 +1271,8 @@ export default function Home() {
                       <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">See what each fleet type is running right now</h2>
                       <p className="mt-2 text-sm text-white/60">
                         {selectedFleetConfig
-                          ? `Showing currently running services plus imminent departures for ${selectedFleetConfig.label}.`
-                          : "Choose a fleet type to load live trips. This keeps the page lighter than pulling every live service at once."}
+                          ? `Showing live tracked ${selectedFleetConfig.label} services from the current train feed.`
+                          : "Choose a fleet type to load live services from the current feed."}
                       </p>
                     </div>
 
@@ -948,7 +1283,7 @@ export default function Home() {
                       </div>
                       <div className="rounded-[1.4rem] border border-white/10 bg-black/20 px-5 py-4">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/45">Last Updated</p>
-                        <p className="mt-2 text-2xl font-semibold text-blue-300">{lastUpdatedLabel}</p>
+                        <p className="mt-2 text-2xl font-semibold text-blue-300">{isFleetRefreshing ? "Refreshing..." : lastUpdatedLabel}</p>
                       </div>
                     </div>
                   </div>
@@ -986,13 +1321,14 @@ export default function Home() {
                           }`}
                         >
                           <span className="text-base font-semibold text-white">{fleet.label}</span>
-                          <span className="text-2xl font-semibold text-white/80">{fleet.total}</span>
+                          <span className="text-2xl font-semibold text-white/80">{fleetCountByType[fleet.key]}</span>
                         </button>
                       );
                     })}
                   </div>
 
                   {selectedFleetConfig ? (
+                    fleetTripsForSelection.length > 0 ? (
                     <div className="space-y-3">
                       {fleetTripsForSelection.map((trip, index) => (
                         <article
@@ -1018,6 +1354,7 @@ export default function Home() {
                                   </span>
                                 </div>
                                 <p className="mt-3 text-xl font-semibold tracking-tight text-white">{trip.route}</p>
+                                <p className="mt-1 text-sm text-white/55">Consist {trip.consist}</p>
                               </div>
                             </div>
 
@@ -1026,16 +1363,12 @@ export default function Home() {
                                 <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${STATUS_STYLES[trip.status]}`}>
                                   {STATUS_LABELS[trip.status]}
                                 </span>
-                                <span className="text-lg font-semibold text-white">
-                                  {trip.departs}
-                                  <span className="mx-2 text-white/35">→</span>
-                                  {trip.arrives}
-                                </span>
+                                <span className="text-sm font-semibold text-white/85">{trip.statusLabel}</span>
                                 <button
                                   type="button"
                                   className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
                                 >
-                                  Open Trip
+                                  Live track
                                 </button>
                               </div>
                             </div>
@@ -1044,12 +1377,17 @@ export default function Home() {
                       ))}
 
                       <p className="pt-1 text-sm text-white/60">
-                        Showing {fleetTripsForSelection.length} of {selectedFleetConfig.total} live trips for {selectedFleetConfig.label}.
+                        Showing {fleetTripsForSelection.length} live trips for {selectedFleetConfig.label}.
                       </p>
                     </div>
+                    ) : (
+                      <div className="rounded-[1.6rem] border border-dashed border-white/15 bg-black/15 px-6 py-12 text-center text-white/60">
+                        No live {selectedFleetConfig.label} services are in the current feed right now.
+                      </div>
+                    )
                   ) : (
                     <div className="rounded-[1.8rem] border border-dashed border-white/15 bg-black/15 px-6 py-16 text-center text-lg text-white/55">
-                      Choose a fleet type above to load live trips for that type.
+                      Choose a fleet type above to load live services from the current feed.
                     </div>
                   )}
                 </div>
@@ -1265,7 +1603,7 @@ export default function Home() {
       )}
       </Tabs>
 
-      <div className="pointer-events-none absolute bottom-24 left-3 z-30 flex sm:bottom-10 sm:left-6">
+      <div className="pointer-events-none absolute bottom-28 right-3 z-30 flex sm:bottom-10 sm:right-6">
         <button
           onClick={() => {
             if (isGuest) {
@@ -1280,11 +1618,11 @@ export default function Home() {
           <div className="rounded-full bg-black p-1 text-white transition-transform duration-300 group-hover:rotate-90">
             <Plus className="h-4 w-4" />
           </div>
-          <span className="text-base tracking-tight">Add a Report</span>
+          <span className="text-sm tracking-tight sm:text-base">Add a Report</span>
         </button>
       </div>
 
-      <div className="pointer-events-none absolute bottom-4 left-3 z-30 max-w-[12rem] rounded-2xl border border-white/10 bg-slate-950/72 px-3 py-2 text-[10px] leading-4 text-white/70 shadow-xl backdrop-blur-xl sm:bottom-6 sm:left-6 sm:max-w-xs sm:text-xs">
+      <div className="pointer-events-none absolute bottom-20 left-3 z-30 max-w-[12.5rem] rounded-2xl border border-white/10 bg-slate-950/78 px-3 py-2.5 text-[10px] leading-4 text-white/75 shadow-xl backdrop-blur-xl sm:bottom-6 sm:left-6 sm:max-w-xs sm:text-xs sm:leading-4">
         TransitAlert is an independent project. We are not operated by, affiliated with, or endorsed by the Department of Transport and Planning, Transport Victoria, PTV, or Metro Trains Melbourne.
       </div>
 
@@ -1293,3 +1631,4 @@ export default function Home() {
     </main>
   );
 }
+

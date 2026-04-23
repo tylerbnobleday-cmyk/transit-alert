@@ -1,6 +1,48 @@
-import { MessageSquare } from "lucide-react";
-import { Badge } from "./ui/badge";
-import { useGetReportStats } from "@/lib/api-client-react/src/generated/api";
+import { AlertTriangle, CheckCircle2, MessageSquare } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { fetchMetroNotifyAlerts, type MetroNotifyAlert } from "@/lib/todays-alerts";
+
+const KNOWN_ALERT_LINES = [
+  "Metro Tunnel",
+  "Werribee Line",
+  "Williamstown Line",
+  "Sandringham Line",
+  "Frankston Line",
+  "Mernda Line",
+  "Hurstbridge Line",
+  "Sunbury Line",
+  "Cranbourne Line",
+  "Pakenham Line",
+  "Craigieburn Line",
+  "Upfield Line",
+  "Belgrave Line",
+  "Lilydale Line",
+  "Glen Waverley Line",
+  "Alamein Line",
+  "Stony Point Line",
+  "City Loop",
+  "Altona Loop",
+] as const;
+
+function extractAlertLineLabel(alert: MetroNotifyAlert) {
+  const explicitLine = alert.lines.find((line) => typeof line === "string" && line.trim().length > 0)?.trim();
+  if (explicitLine) return explicitLine;
+
+  const searchable = `${alert.title} ${alert.summary}`;
+  const knownMatch = KNOWN_ALERT_LINES.find((line) => searchable.toLowerCase().includes(line.toLowerCase()));
+  if (knownMatch) return knownMatch;
+
+  const titledLineMatch = searchable.match(/\b([A-Z][A-Za-z']+(?:\s+[A-Z][A-Za-z']+)*)\s+Line\b/);
+  if (titledLineMatch) {
+    return `${titledLineMatch[1].trim()} Line`;
+  }
+
+  if (/multiple lines?|several lines?|various lines?/i.test(searchable)) {
+    return "Multiple lines affected";
+  }
+
+  return "Service update";
+}
 
 interface TopBarProps {
   onOpenChat: () => void;
@@ -13,71 +55,161 @@ interface TopBarProps {
   } | null;
 }
 
+function getAlertCategory(alert?: MetroNotifyAlert | null) {
+  if (!alert) {
+    return {
+      typeLabel: "Good service",
+      detailLabel: "No active alerts",
+      tone: "border-emerald-400/20 bg-emerald-500/12 text-emerald-100 shadow-[0_10px_30px_rgba(16,185,129,0.18)]",
+      dotTone: "bg-emerald-400",
+    };
+  }
+
+  const searchable = `${alert.title} ${alert.summary}`.toLowerCase();
+  const lineLabel = extractAlertLineLabel(alert);
+
+  if (searchable.includes("bus replacement") || searchable.includes("coach replacement")) {
+    return {
+      typeLabel: "Bus Replacement",
+      detailLabel: lineLabel,
+      tone: "border-orange-400/25 bg-orange-500/12 text-orange-100 shadow-[0_10px_30px_rgba(249,115,22,0.18)]",
+      dotTone: "bg-orange-400",
+    };
+  }
+
+  if (searchable.includes("major") || searchable.includes("suspended") || searchable.includes("closed")) {
+    return {
+      typeLabel: "Major delays",
+      detailLabel: lineLabel,
+      tone: "border-red-400/25 bg-red-500/12 text-red-100 shadow-[0_10px_30px_rgba(239,68,68,0.18)]",
+      dotTone: "bg-red-400",
+    };
+  }
+
+  if (searchable.includes("delay")) {
+    return {
+      typeLabel: "Minor delays",
+      detailLabel: lineLabel,
+      tone: "border-yellow-400/25 bg-yellow-500/12 text-yellow-100 shadow-[0_10px_30px_rgba(234,179,8,0.18)]",
+      dotTone: "bg-yellow-300",
+    };
+  }
+
+  if (searchable.includes("work") || searchable.includes("maintenance")) {
+    return {
+      typeLabel: "Works",
+      detailLabel: lineLabel,
+      tone: "border-blue-400/20 bg-blue-500/12 text-blue-100 shadow-[0_10px_30px_rgba(59,130,246,0.18)]",
+      dotTone: "bg-blue-300",
+    };
+  }
+
+  return {
+    typeLabel: "Service alert",
+    detailLabel: lineLabel,
+    tone: "border-blue-400/20 bg-blue-500/12 text-blue-100 shadow-[0_10px_30px_rgba(59,130,246,0.18)]",
+    dotTone: "bg-blue-300",
+  };
+}
+
+function isRecentAlert(updatedAt?: string) {
+  if (!updatedAt) return false;
+  const parsed = new Date(updatedAt).getTime();
+  if (Number.isNaN(parsed)) return false;
+  return Date.now() - parsed < 1000 * 60 * 60 * 2;
+}
+
 export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBarProps) {
-  const { data: stats } = useGetReportStats({
-    query: { refetchInterval: 60000 }
+  const { data: metroAlerts = [] } = useQuery({
+    queryKey: ["/api/metro-notify/alerts", "topbar"],
+    queryFn: fetchMetroNotifyAlerts,
+    refetchInterval: 60000,
+    retry: false,
   });
 
-  const alertsToday = stats?.alertsToday || 0;
-  const isHighAlert = alertsToday > 100;
+  const alertsToday = metroAlerts.length;
+  const leadAlert = metroAlerts[0];
+  const alertSummary = getAlertCategory(leadAlert);
+  const alertLabel = `${alertsToday} ${alertsToday === 1 ? "Alert" : "Alerts"}`;
+  const alertSubtitle =
+    alertsToday > 1 ? "Multiple lines affected" : `${alertSummary.typeLabel} • ${alertSummary.detailLabel}`;
+  const alertIsRecent = leadAlert ? isRecentAlert(leadAlert.updatedAt) : false;
 
   return (
-    <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex items-start justify-between gap-2 p-3 sm:p-6">
+    <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex items-start justify-between gap-2 px-2.5 pt-2.5 sm:px-6 sm:pt-5">
       {/* Left controls */}
-      <div className="pointer-events-auto flex min-w-0 items-center gap-2 sm:gap-3">
+      <div className="pointer-events-auto flex min-w-0 max-w-[calc(100%-4.6rem)] items-center gap-1.5 sm:max-w-none sm:gap-3">
         {user && (
           <button
             type="button"
             onClick={onOpenUserMenu}
-            className="flex min-w-0 items-center gap-2 rounded-2xl border border-white/10 bg-card/80 p-2 pr-3 shadow-xl shadow-black/50 backdrop-blur-xl transition hover:bg-card sm:gap-3 sm:pr-4"
+            className="flex min-w-0 items-center gap-1.5 rounded-2xl border border-white/10 bg-card/80 p-1.5 pr-2.5 shadow-xl shadow-black/50 backdrop-blur-xl transition hover:bg-card sm:gap-3 sm:p-2 sm:pr-4"
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-sm font-bold text-white sm:h-11 sm:w-11">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-xs font-bold text-white sm:h-11 sm:w-11 sm:text-sm">
               {user.username.slice(0, 1).toUpperCase()}
             </div>
-            <div className="min-w-0 max-w-[4.8rem] sm:max-w-none">
-              <p className="truncate text-sm font-semibold text-white">{user.username}</p>
-              <p className="truncate text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+            <div className="min-w-0 max-w-[3.25rem] sm:max-w-none">
+              <p className="truncate text-xs font-semibold text-white sm:text-sm">{user.username}</p>
+              <p className="truncate text-[9px] uppercase tracking-[0.16em] text-muted-foreground sm:text-[11px]">
                 {user.role}
               </p>
             </div>
           </button>
         )}
 
-        <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-white/10 bg-card/80 p-2 pr-3 shadow-xl shadow-black/50 backdrop-blur-xl sm:gap-3 sm:pr-4">
+        <div className="flex min-w-0 items-center gap-1.5 rounded-2xl border border-white/10 bg-card/80 p-1.5 pr-2.5 shadow-xl shadow-black/50 backdrop-blur-xl sm:gap-3 sm:p-2 sm:pr-4">
           <img 
             src={`${import.meta.env.BASE_URL}images/app-logo.png`} 
             alt="Transit Alert" 
-            className="h-10 w-10 shrink-0 rounded-xl"
+            className="h-8 w-8 shrink-0 rounded-xl sm:h-10 sm:w-10"
           />
           <div className="min-w-0">
-            <h1 className="truncate font-display text-[15px] font-bold leading-none tracking-tight text-white sm:text-lg">TransitAlert</h1>
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Melbourne</p>
+            <h1 className="truncate font-display text-[13px] font-bold leading-none tracking-tight text-white sm:text-lg">TransitAlert</h1>
+            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider sm:text-xs">Melbourne</p>
           </div>
         </div>
       </div>
 
       {/* Right controls */}
-      <div className="pointer-events-auto flex items-center justify-end gap-2 sm:flex-col sm:items-end sm:gap-4">
+      <div className="pointer-events-auto mr-0.5 mt-0.5 flex flex-col items-end justify-start gap-1.5 sm:mr-3 sm:mt-3 sm:gap-3">
         <button
           type="button"
           onClick={onOpenAlerts}
-          className="flex items-center gap-2 rounded-2xl border border-white/10 bg-card/90 px-2.5 py-2 text-left shadow-xl transition hover:bg-card sm:gap-3 sm:p-3"
+          className={`group relative flex items-center gap-2 rounded-full border px-3 py-2 text-left backdrop-blur-xl transition hover:scale-[1.02] hover:bg-white/15 sm:gap-3 sm:px-4 sm:py-2.5 ${alertSummary.tone}`}
         >
-          <div className="flex flex-col items-end">
-            <span className="hidden text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:block">Today&apos;s Alerts</span>
-            <span className="mt-0 text-lg leading-none text-white font-display font-bold sm:mt-1 sm:text-xl">{alertsToday}</span>
+          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/20 sm:h-10 sm:w-10">
+            {alertsToday > 0 ? (
+              <AlertTriangle className="h-4 w-4 sm:h-4.5 sm:w-4.5" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 sm:h-4.5 sm:w-4.5" />
+            )}
+            {alertIsRecent && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center">
+                <span className={`absolute inline-flex h-3 w-3 animate-ping rounded-full opacity-75 ${alertSummary.dotTone}`} />
+                <span className={`relative inline-flex h-2 w-2 rounded-full ${alertSummary.dotTone}`} />
+              </span>
+            )}
           </div>
-          <Badge variant={isHighAlert ? "destructive" : "default"} className="animate-pulse-slow text-[10px] sm:text-xs">
-            {isHighAlert ? "High" : "Normal"}
-          </Badge>
+
+          <div className="min-w-0">
+            <span className="block text-[9px] font-semibold uppercase tracking-[0.22em] text-white/55 sm:text-[10px]">
+              Today&apos;s Alerts
+            </span>
+            <span className="mt-0.5 block text-sm font-display font-bold leading-none text-white sm:text-base">
+              {alertLabel}
+            </span>
+            <span className="mt-1 block max-w-[7.75rem] truncate text-[10px] text-white/70 sm:max-w-[9.5rem] sm:text-[11px]">
+              {alertSubtitle}
+            </span>
+          </div>
         </button>
 
         <button 
           type="button"
           onClick={onOpenChat}
-          className="group relative z-[60] flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-primary shadow-[0_0_20px_rgba(37,99,235,0.4)] transition-all active:scale-95 hover:scale-105 hover:shadow-[0_0_30px_rgba(37,99,235,0.6)] sm:h-14 sm:w-14"
+          className="group relative z-[60] mt-5 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-primary shadow-[0_0_20px_rgba(37,99,235,0.4)] transition-all active:scale-95 hover:scale-105 hover:shadow-[0_0_30px_rgba(37,99,235,0.6)] sm:mt-2 sm:h-14 sm:w-14"
         >
-          <MessageSquare className="relative z-10 h-5 w-5 text-primary-foreground sm:h-6 sm:w-6" />
+          <MessageSquare className="relative z-10 h-4.5 w-4.5 text-primary-foreground sm:h-6 sm:w-6" />
           <div className="absolute inset-0 rounded-full bg-white opacity-0 group-hover:opacity-20 transition-opacity"></div>
           
           {/* Unread dot */}

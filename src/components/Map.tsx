@@ -57,9 +57,10 @@ interface MapProps {
   persistedLayerState?: Partial<LayerState>;
   onLayerStateChange?: (layers: LayerState) => void;
   isAdmin?: boolean;
+  showFilterRail?: boolean;
 }
 
-interface LayerState {
+export interface LayerState {
   merndaLine: boolean;
   hurstbridgeLine: boolean;
   cliftonHillLoop: boolean;
@@ -84,7 +85,7 @@ interface LayerState {
   heatCircles: boolean;
 }
 
-type ServiceFilterKey =
+export type ServiceFilterKey =
   | "vline"
   | "metroTunnelServices"
   | "crossCityPink"
@@ -97,7 +98,7 @@ type ServiceFilterKey =
   | "upfieldCraigieburn"
   | "upfieldCraigieburnCityLoop";
 
-type TransportMode = "train" | "tram" | "bus" | "vline";
+export type TransportMode = "train" | "tram" | "bus" | "vline";
 
 function getLiveLineColor(line: string): string {
   const colorMap: Record<string, string> = {
@@ -260,7 +261,7 @@ const DIRECTION_LABEL: Record<string, string> = {
   unknown: "",
 };
 
-const SERVICE_FILTERS: Array<{
+export const SERVICE_FILTERS: Array<{
   key: ServiceFilterKey;
   category: "regional" | "metro" | "special";
   label: string;
@@ -1052,6 +1053,7 @@ type PlatformBoardEntry = {
   services: Array<{
     destination: string;
     etaLabel: string;
+    tdnLabel: string;
   }>;
 };
 
@@ -1226,6 +1228,22 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
     });
   };
 
+  const buildTdnLabel = (destination: string, platform: string, index: number) => {
+    const destCode = destination
+      .split(/\s+/)
+      .map((part) => part[0] ?? "")
+      .join("")
+      .toUpperCase()
+      .slice(0, 3);
+
+    const lineCode = primaryLine
+      .replace(/[^a-z]/gi, "")
+      .slice(0, 1)
+      .toUpperCase();
+
+    return `TDN ${lineCode}${destCode}${platform}${index + 1}`;
+  };
+
   return [
     {
       platform: "1",
@@ -1234,6 +1252,7 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
       services: preset.inboundServices.slice(0, 2).map((destination, index) => ({
         destination,
         etaLabel: formatEta(minuteOffsets[index] ?? 5 + index * 6),
+        tdnLabel: buildTdnLabel(destination, "1", index),
       })),
     },
     {
@@ -1243,6 +1262,7 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
       services: preset.outboundServices.slice(0, 2).map((destination, index) => ({
         destination,
         etaLabel: formatEta(minuteOffsets[index + 2] ?? 10 + index * 7),
+        tdnLabel: buildTdnLabel(destination, "2", index),
       })),
     },
   ];
@@ -1714,6 +1734,7 @@ export function Map({
   persistedLayerState,
   onLayerStateChange,
   isAdmin = false,
+  showFilterRail = true,
 }: MapProps = {}) {
   const mapRef = useRef<L.Map | null>(null);
   const consistData = null as any;
@@ -1835,6 +1856,41 @@ const [layers, setLayers] = useState<LayerState>({
       setUserLoc(MELBOURNE_CENTER);
     }
   }, []);
+
+  const centerOnUserLocation = useCallback(() => {
+    if (!mapRef.current) return;
+
+    const moveToLocation = (location: [number, number]) => {
+      setUserLoc(location);
+      mapRef.current?.flyTo(location, Math.max(mapRef.current.getZoom(), 14), {
+        animate: true,
+        duration: 0.75,
+      });
+    };
+
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          moveToLocation([position.coords.latitude, position.coords.longitude]);
+        },
+        () => {
+          if (userLoc) {
+            moveToLocation(userLoc);
+            return;
+          }
+          moveToLocation(MELBOURNE_CENTER);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 10000,
+          timeout: 12000,
+        },
+      );
+      return;
+    }
+
+    moveToLocation(userLoc ?? MELBOURNE_CENTER);
+  }, [userLoc]);
 
   const toggleLayer = useCallback((key: keyof LayerState) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -2713,24 +2769,25 @@ const [layers, setLayers] = useState<LayerState>({
       <LayerControl layers={layers} onChange={toggleLayer} />
 
       {modeIsTrainVisible && (
-      <div className="pointer-events-none absolute left-3 top-[7rem] z-[1000] max-w-[8.6rem] sm:left-4 sm:top-28 sm:max-w-xs">
-        <div className={`rounded-2xl border px-4 py-3 shadow-xl backdrop-blur-xl ${liveTrainStatusTone}`}>
+      <div className="pointer-events-none absolute left-3 top-[8.6rem] z-[1000] max-w-[7.2rem] sm:left-4 sm:top-28 sm:max-w-xs">
+        <div className={`rounded-2xl border px-3 py-2.5 shadow-xl backdrop-blur-xl ${liveTrainStatusTone}`}>
           <div className="flex items-center gap-2">
-            <Train className="h-4 w-4" />
-            <p className="text-sm font-semibold">Live train tracking</p>
+            <Train className="h-3.5 w-3.5" />
+            <p className="text-xs font-semibold leading-tight sm:text-sm">Live train tracking</p>
           </div>
-          <p className="mt-2 text-sm">{liveTrainStatusLabel}</p>
-          <p className="mt-1 text-xs opacity-80">{liveTrainStatusDetail}</p>
+          <p className="mt-1.5 text-xs leading-tight sm:text-sm">{liveTrainStatusLabel}</p>
+          <p className="mt-1 text-[11px] leading-4 opacity-80 sm:text-xs">{liveTrainStatusDetail}</p>
         </div>
       </div>
       )}
 
-      <div className="absolute right-3 top-[7.35rem] z-[1000] w-[9.1rem] sm:right-6 sm:top-32 sm:w-[11.5rem]">
-        <div className="max-h-[54vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/82 p-2.5 shadow-xl backdrop-blur-xl sm:max-h-[68vh] sm:p-3">
+      {showFilterRail && (
+      <div className="absolute right-3 top-[8.55rem] z-[1000] w-[7.3rem] sm:right-6 sm:top-32 sm:w-[11.5rem]">
+        <div className="max-h-[44vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/82 p-2 shadow-xl backdrop-blur-xl sm:max-h-[68vh] sm:p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
             Transport Modes
           </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:mt-3 sm:gap-2">
             {([
               { key: "train", label: "Trains", icon: "train" },
               { key: "tram", label: "Trams", icon: "tram" },
@@ -2743,25 +2800,25 @@ const [layers, setLayers] = useState<LayerState>({
                   key={mode.key}
                   type="button"
                   onClick={() => toggleTransportMode(mode.key)}
-                  className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                  className={`rounded-xl border px-2 py-1.5 text-left text-[11px] font-semibold leading-tight transition sm:px-3 sm:py-2 sm:text-xs ${
                     active
                       ? "border-blue-400/40 bg-blue-500/12 text-blue-100"
                       : "border-white/10 bg-white/5 text-white/65 hover:bg-white/10"
                   }`}
                 >
-                  <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 sm:gap-2">
                     {mode.icon === "train" ? (
-                      <img src={trainIcon} alt="" className="h-4 w-4 shrink-0 object-contain opacity-90" />
+                      <img src={trainIcon} alt="" className="h-3.5 w-3.5 shrink-0 object-contain opacity-90 sm:h-4 sm:w-4" />
                     ) : mode.icon === "bus" ? (
-                      <img src={smartbusIcon} alt="" className="h-4 w-4 shrink-0 object-contain opacity-90" />
+                      <img src={smartbusIcon} alt="" className="h-3.5 w-3.5 shrink-0 object-contain opacity-90 sm:h-4 sm:w-4" />
                     ) : mode.icon === "tram" ? (
-                      <img src={tramIcon} alt="" className="h-4 w-4 shrink-0 object-contain opacity-90" />
+                      <img src={tramIcon} alt="" className="h-3.5 w-3.5 shrink-0 object-contain opacity-90 sm:h-4 sm:w-4" />
                     ) : (
-                      <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-current/25 px-1 text-[9px] font-bold leading-none">
+                      <span className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-current/25 px-1 text-[8px] font-bold leading-none sm:h-4 sm:min-w-4 sm:text-[9px]">
                         V
                       </span>
                     )}
-                    <span>{mode.label}</span>
+                    <span className="truncate">{mode.label}</span>
                   </span>
                 </button>
               );
@@ -2773,7 +2830,7 @@ const [layers, setLayers] = useState<LayerState>({
               <button
                 type="button"
                 onClick={() => setIsMarkerEditMode((value) => !value)}
-                className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                className={`rounded-xl border px-2 py-1.5 text-left text-[11px] font-semibold transition sm:px-3 sm:py-2 sm:text-xs ${
                   isMarkerEditMode
                     ? "border-amber-400/40 bg-amber-500/12 text-amber-100"
                     : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
@@ -2786,21 +2843,21 @@ const [layers, setLayers] = useState<LayerState>({
                   <button
                     type="button"
                     onClick={() => void saveEditedMarkers()}
-                    className="rounded-xl border border-emerald-400/30 bg-emerald-500/12 px-3 py-2 text-xs font-semibold text-emerald-100"
+                  className="rounded-xl border border-emerald-400/30 bg-emerald-500/12 px-2 py-1.5 text-[11px] font-semibold text-emerald-100 sm:px-3 sm:py-2 sm:text-xs"
                   >
                     Save edits
                   </button>
                   <button
                     type="button"
                     onClick={cancelEditedMarkers}
-                    className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70"
+                  className="rounded-xl border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] font-semibold text-white/70 sm:px-3 sm:py-2 sm:text-xs"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={() => void resetSavedMarkers()}
-                    className="rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100"
+                  className="rounded-xl border border-red-400/25 bg-red-500/10 px-2 py-1.5 text-[11px] font-semibold text-red-100 sm:px-3 sm:py-2 sm:text-xs"
                   >
                     Reset all
                   </button>
@@ -2812,7 +2869,7 @@ const [layers, setLayers] = useState<LayerState>({
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
             Service Filters
           </p>
-          <div className="mt-3 flex flex-col gap-2">
+          <div className="mt-2.5 flex flex-col gap-1.5 sm:mt-3 sm:gap-2">
             {visibleServiceFilters.map((filter) => {
               const active = isServiceFilterActive(filter.key);
               const isDisabled = filter.key === "vline";
@@ -2825,7 +2882,7 @@ const [layers, setLayers] = useState<LayerState>({
                       if (!isDisabled) toggleServiceFilter(filter.key);
                     }}
                     disabled={isDisabled}
-                    className={`rounded-xl border px-3 py-2 text-left transition ${
+                    className={`rounded-xl border px-2 py-1.5 text-left transition sm:px-3 sm:py-2 ${
                       isDisabled
                         ? "cursor-not-allowed border-purple-400/20 bg-purple-500/8 text-purple-200/55 opacity-70"
                         : active
@@ -2833,18 +2890,18 @@ const [layers, setLayers] = useState<LayerState>({
                           : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
                     }`}
                   >
-                    <div className="text-xs font-semibold">{filter.label}</div>
+                    <div className="text-[11px] font-semibold leading-tight sm:text-xs">{filter.label}</div>
                     {filter.description && (
-                      <div className="mt-0.5 text-[10px] font-medium leading-4 text-current/75">
+                      <div className="mt-0.5 text-[9px] font-medium leading-3.5 text-current/75 sm:text-[10px] sm:leading-4">
                         {filter.description}
                       </div>
                     )}
                     {chips.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
+                      <div className="mt-1.5 flex flex-wrap gap-1">
                         {chips.map((chip) => (
                           <span
                             key={`${filter.key}-${chip}`}
-                            className="rounded-full border border-current/20 bg-black/15 px-2 py-0.5 text-[10px] font-semibold text-current/85"
+                            className="rounded-full border border-current/20 bg-black/15 px-1.5 py-0.5 text-[9px] font-semibold text-current/85 sm:px-2 sm:text-[10px]"
                           >
                             {chip}
                           </span>
@@ -2852,7 +2909,7 @@ const [layers, setLayers] = useState<LayerState>({
                       </div>
                     )}
                     {isDisabled && (
-                      <div className="mt-0.5 text-[10px] font-medium leading-4 text-current/65">
+                      <div className="mt-1 text-[9px] font-medium leading-3.5 text-current/65 sm:text-[10px] sm:leading-4">
                         Unavailable right now while live V/Line is still being debugged.
                       </div>
                     )}
@@ -2863,10 +2920,11 @@ const [layers, setLayers] = useState<LayerState>({
           </div>
         </div>
       </div>
+      )}
 
       <div
-        className={`absolute bottom-24 z-[1001] flex flex-col gap-2 sm:bottom-20 ${
-          selectedDetail?.type === "vehicle" ? "left-3 sm:left-auto sm:right-[26rem]" : "right-3 sm:right-6"
+        className={`absolute bottom-[12.75rem] right-5 z-[1001] flex flex-col gap-2 sm:bottom-20 sm:right-6 ${
+          selectedDetail?.type === "vehicle" ? "md:left-auto md:right-[26rem]" : "md:left-auto md:right-6"
         }`}
       >
         <button
@@ -2887,11 +2945,7 @@ const [layers, setLayers] = useState<LayerState>({
         </button>
         <button
           type="button"
-          onClick={() => {
-            if (userLoc && mapRef.current) {
-              mapRef.current.setView(userLoc, mapRef.current.getZoom());
-            }
-          }}
+          onClick={centerOnUserLocation}
           className="rounded-xl border border-white/20 bg-slate-950/78 p-2.5 shadow-lg backdrop-blur-md transition-colors hover:bg-white/20"
           title="Center on my location"
         >
@@ -3171,19 +3225,24 @@ const [layers, setLayers] = useState<LayerState>({
                         {platform.label}
                       </p>
                       <div className="mt-3 space-y-2">
-                        {platform.services.map((service, index) => (
-                          <div
-                            key={`${platform.platform}-${service.destination}-${index}`}
-                            className="flex items-center justify-between rounded-xl border border-white/10 bg-black/15 px-3 py-2"
-                          >
-                            <div>
-                              <p className="text-sm font-semibold text-white">{service.destination}</p>
-                              <p className="text-[11px] text-white/50">Next service</p>
+                          {platform.services.map((service, index) => (
+                            <div
+                              key={`${platform.platform}-${service.destination}-${index}`}
+                              className="flex items-center justify-between rounded-xl border border-white/10 bg-black/15 px-3 py-2"
+                            >
+                              <div>
+                                <p className="text-sm font-semibold text-white">{service.destination}</p>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <p className="text-[11px] text-white/50">Next service</p>
+                                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/80">
+                                    {service.tdnLabel}
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/85">
+                                {service.etaLabel}
+                              </span>
                             </div>
-                            <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/85">
-                              {service.etaLabel}
-                            </span>
-                          </div>
                         ))}
                       </div>
                     </div>
@@ -3216,7 +3275,7 @@ const [layers, setLayers] = useState<LayerState>({
   );
 }
 
-function getFilterChips(filterKey: ServiceFilterKey) {
+export function getFilterChips(filterKey: ServiceFilterKey) {
   switch (filterKey) {
     case "metroTunnelServices":
       return [new Date().getMinutes() % 4 === 0 ? "Munnel" : "Metro Tunnel"];

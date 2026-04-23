@@ -4,14 +4,9 @@ export const ROLE_OPTIONS = [
   "Admin",
   "Traveller",
   "Train Driver",
-  "DAO",
-  "Fleet Controller",
-  "Signaller",
   "Station Staff",
-  "Authorised Officer",
   "Special",
   "Friend",
-  "Debug",
   "Bug Tester",
 ];
 
