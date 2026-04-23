@@ -2922,11 +2922,11 @@ const [layers, setLayers] = useState<LayerState>({
       </div>
       )}
 
-      <div
-        className={`absolute bottom-[12.75rem] right-5 z-[1001] flex flex-col gap-2 sm:bottom-20 sm:right-6 ${
-          selectedDetail?.type === "vehicle" ? "md:left-auto md:right-[26rem]" : "md:left-auto md:right-6"
-        }`}
-      >
+        <div
+          className={`absolute bottom-[8.5rem] right-4 z-[1001] flex flex-col gap-2 sm:bottom-20 sm:right-6 ${
+            selectedDetail?.type === "vehicle" ? "md:left-auto md:right-[26rem]" : "md:left-auto md:right-6"
+          }`}
+        >
         <button
           type="button"
           onClick={() => mapRef.current?.zoomIn()}

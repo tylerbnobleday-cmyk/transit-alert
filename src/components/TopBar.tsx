@@ -136,7 +136,7 @@ export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBa
   const alertIsRecent = leadAlert ? isRecentAlert(leadAlert.updatedAt) : false;
 
   return (
-    <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex items-start justify-between gap-2 px-2.5 pt-2.5 sm:px-6 sm:pt-5">
+    <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex items-start gap-2 px-2.5 pt-2.5 sm:px-6 sm:pt-5">
       {/* Left controls */}
       <div className="pointer-events-auto flex min-w-0 max-w-[calc(100%-4.6rem)] items-center gap-1.5 sm:max-w-none sm:gap-3">
         {user && (
@@ -171,11 +171,11 @@ export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBa
       </div>
 
       {/* Right controls */}
-      <div className="pointer-events-auto mr-0.5 mt-0.5 flex flex-col items-end justify-start gap-1.5 sm:mr-3 sm:mt-3 sm:gap-3">
+      <div className="pointer-events-none absolute right-2.5 top-2.5 z-[70] flex flex-col items-end gap-2 sm:right-6 sm:top-5 sm:gap-3">
         <button
           type="button"
           onClick={onOpenAlerts}
-          className={`group relative flex items-center gap-2 rounded-full border px-3 py-2 text-left backdrop-blur-xl transition hover:scale-[1.02] hover:bg-white/15 sm:gap-3 sm:px-4 sm:py-2.5 ${alertSummary.tone}`}
+          className={`pointer-events-auto group relative flex max-w-[10.5rem] items-center gap-2 rounded-full border px-3 py-1.5 text-left backdrop-blur-xl transition hover:scale-[1.02] hover:bg-white/15 sm:max-w-none sm:gap-3 sm:px-4 sm:py-2.5 ${alertSummary.tone}`}
         >
           <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/20 sm:h-10 sm:w-10">
             {alertsToday > 0 ? (
@@ -204,10 +204,10 @@ export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBa
           </div>
         </button>
 
-        <button 
+        <button
           type="button"
           onClick={onOpenChat}
-          className="group relative z-[60] mt-5 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-primary shadow-[0_0_20px_rgba(37,99,235,0.4)] transition-all active:scale-95 hover:scale-105 hover:shadow-[0_0_30px_rgba(37,99,235,0.6)] sm:mt-2 sm:h-14 sm:w-14"
+          className="pointer-events-auto group relative z-[60] mt-1 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-primary shadow-[0_0_20px_rgba(37,99,235,0.4)] transition-all active:scale-95 hover:scale-105 hover:shadow-[0_0_30px_rgba(37,99,235,0.6)] sm:mt-1 sm:h-14 sm:w-14"
         >
           <MessageSquare className="relative z-10 h-4.5 w-4.5 text-primary-foreground sm:h-6 sm:w-6" />
           <div className="absolute inset-0 rounded-full bg-white opacity-0 group-hover:opacity-20 transition-opacity"></div>

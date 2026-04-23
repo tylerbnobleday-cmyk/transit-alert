@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, MapPin, Plus, Search, Send, TrainFront } from "lucide-react";
@@ -567,7 +567,8 @@ export default function Home() {
     );
   };
 
-  const updatePreferences = (patch: Partial<UserPreferences>) => {
+
+  const updatePreferences = useCallback((patch: Partial<UserPreferences>) => {
     setPreferences((current) => {
       const next = {
         ...current,
@@ -581,7 +582,7 @@ export default function Home() {
       }
       return next;
     });
-  };
+  },[]);
 
   const layerState = preferences.selectedMapFilters as Partial<LayerState>;
 
@@ -631,15 +632,15 @@ export default function Home() {
     }
   };
 
-  const togglePlannerTransportMode = (mode: TransportMode) => {
+  const togglePlannerTransportMode = useCallback((mode: TransportMode) => {
     const currentModes = (preferences.transportModes as TransportMode[]) || ["train"];
     const nextModes = currentModes.includes(mode)
       ? currentModes.filter((item) => item !== mode)
       : [...currentModes, mode];
     updatePreferences({ transportModes: nextModes.length > 0 ? nextModes : ["train"] });
-  };
+  },[]);
 
-  const togglePlannerServiceFilter = (filter: ServiceFilterKey) => {
+  const togglePlannerServiceFilter = useCallback((filter: ServiceFilterKey) => {
     if (filter === "vline") return;
     const prev = layerState;
     let next: Partial<LayerState> = { ...prev };
@@ -724,7 +725,7 @@ export default function Home() {
     }
 
     updatePreferences({ selectedMapFilters: next as Record<string, boolean> });
-  };
+  },[]);
 
   const toggleFavouriteStop = (stationName: string) => {
     const exists = preferences.favouriteStops.includes(stationName);
