@@ -35,6 +35,71 @@ import {
 } from "lucide-react";
 
 const MELBOURNE_CENTER: [number, number] = [-37.8136, 144.9631];
+const SOUTHERN_CROSS_POSITION: [number, number] = [-37.818313906129944, 144.95218];
+const MELBOURNE_CENTRAL_STATE_LIBRARY_INTERCHANGE: [number, number] = [-37.80995575690716, 144.96286];
+const STATE_LIBRARY_POSITION: [number, number] = [-37.80941962893699, 144.96324300865265];
+const TOWN_HALL_POSITION: [number, number] = [-37.816897881552016, 144.96717135795797];
+const CITY_LOOP_PILL_STATIONS = new Set([
+  "Flinders Street",
+  "Southern Cross",
+  "Flagstaff",
+  "Melbourne Central",
+  "Parliament",
+  "State Library",
+  "Town Hall",
+]);
+const SINGLE_RENDER_STATIONS = new Set([
+  "Flinders Street",
+  "Southern Cross",
+  "Flagstaff",
+  "Melbourne Central",
+  "Parliament",
+  "State Library",
+  "Town Hall",
+]);
+const COMBINED_LOOP_INTERCHANGES = new Set(["Melbourne Central", "State Library"]);
+
+function createCityLoopPillIcon(strokeColor: string, stationName: string) {
+  const isHorizontalPill =
+    stationName === "Parliament" ||
+    stationName === "Southern Cross" ||
+    stationName === "State Library" ||
+    stationName === "Town Hall";
+  const isCompactHorizontalPill = stationName === "State Library";
+  const isCombinedCentralLibrary = stationName === "Melbourne Central / State Library";
+
+  if (isCombinedCentralLibrary) {
+    return L.divIcon({
+      html: `
+        <div style="display:flex;align-items:center;justify-content:center;width:40px;height:76px;position:relative;">
+          <div style="position:absolute;top:10px;left:2px;width:13px;height:5px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 10px rgba(0,0,0,0.42);"></div>
+          <div style="position:absolute;top:10px;right:2px;width:13px;height:5px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 10px rgba(0,0,0,0.42);"></div>
+          <div style="width:18px;height:58px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 10px rgba(0,0,0,0.42);position:relative;overflow:hidden;">
+            <div style="position:absolute;top:4px;bottom:4px;left:3px;width:3px;border-radius:9999px;background:${strokeColor};opacity:0.95;"></div>
+          </div>
+        </div>
+      `,
+      className: "bg-transparent border-none",
+      iconSize: [40, 76],
+      iconAnchor: [20, 38],
+      popupAnchor: [0, -18],
+    });
+  }
+
+  return L.divIcon({
+    html: `
+      <div style="display:flex;align-items:center;justify-content:center;width:${isHorizontalPill ? (isCompactHorizontalPill ? "34px" : "42px") : "18px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "16px" : "18px") : "42px"};">
+        <div style="width:${isHorizontalPill ? (isCompactHorizontalPill ? "28px" : "34px") : "10px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "8px" : "10px") : "34px"};border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 10px rgba(0,0,0,0.42);position:relative;overflow:hidden;">
+          <div style="position:absolute;${isHorizontalPill ? `left:${isCompactHorizontalPill ? "2px" : "3px"};right:${isCompactHorizontalPill ? "2px" : "3px"};top:2px;height:2px;` : "top:3px;bottom:3px;left:2px;width:2px;"}border-radius:9999px;background:${strokeColor};opacity:0.95;"></div>
+        </div>
+      </div>
+    `,
+    className: "bg-transparent border-none",
+    iconSize: isHorizontalPill ? (isCompactHorizontalPill ? [34, 16] : [42, 18]) : [18, 42],
+    iconAnchor: isHorizontalPill ? (isCompactHorizontalPill ? [17, 8] : [21, 9]) : [9, 21],
+    popupAnchor: isHorizontalPill ? [0, -10] : [0, -18],
+  });
+}
 
 // =========================
 // Types
@@ -99,6 +164,21 @@ export type ServiceFilterKey =
   | "upfieldCraigieburnCityLoop";
 
 export type TransportMode = "train" | "tram" | "bus" | "vline";
+
+function areLayerStatesEqual(
+  left?: Partial<LayerState> | null,
+  right?: Partial<LayerState> | null,
+) {
+  const leftEntries = Object.entries(left ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  const rightEntries = Object.entries(right ?? {}).sort(([a], [b]) => a.localeCompare(b));
+
+  if (leftEntries.length !== rightEntries.length) return false;
+
+  return leftEntries.every(([key, value], index) => {
+    const [otherKey, otherValue] = rightEntries[index] ?? [];
+    return key === otherKey && value === otherValue;
+  });
+}
 
 function getLiveLineColor(line: string): string {
   const colorMap: Record<string, string> = {
@@ -345,12 +425,12 @@ export const SERVICE_FILTERS: Array<{
 const MERNDA_STATIONS: Station[] = [
   { name: "Flinders Street", position: [-37.8184161, 144.9664779] },
   { name: "Jolimont", position: [-37.8163, 144.9840] },
-  { name: "West Richmond", position: [-37.8122, 144.9889] },
-  { name: "North Richmond", position: [-37.8071, 144.9920] },
-  { name: "Collingwood", position: [-37.8028, 144.9975] },
-  { name: "Victoria Park", position: [-37.7991, 145.0042] },
-  { name: "Clifton Hill", position: [-37.7881, 145.0015] },
-  { name: "Rushall", position: [-37.7839, 145.0175] },
+  { name: "West Richmond", position: [-37.814925027573054, 144.991454748502189] },
+  { name: "North Richmond", position: [-37.8103479913108, 144.99248203456145] },
+  { name: "Collingwood", position: [-37.80446558539445, 144.99373364780257] },
+  { name: "Victoria Park", position: [-37.79910783339788, 144.9944465452046] },
+  { name: "Clifton Hill", position: [-37.78831003762462, 144.9955664605472] },
+  { name: "Rushall", position: [-37.78282063669237, 144.99170449547316] },
   { name: "Merri", position: [-37.7774, 145.0218] },
   { name: "Northcote", position: [-37.7698, 145.0248] },
   { name: "Croxton", position: [-37.7646, 145.0357] },
@@ -371,34 +451,26 @@ const MERNDA_STATIONS: Station[] = [
 ];
 
 const HURSTBRIDGE_STATIONS: Station[] = [
-  { name: "Flinders Street", position: [-37.8184161, 144.9664779] },
-  { name: "Jolimont", position: [-37.8163, 144.9840] },
-  { name: "West Richmond", position: [-37.8122, 144.9889] },
-  { name: "North Richmond", position: [-37.8071, 144.9920] },
-  { name: "Collingwood", position: [-37.8028, 144.9975] },
-  { name: "Victoria Park", position: [-37.7991, 145.0042] },
-  { name: "Clifton Hill", position: [-37.7881, 145.0015] },
-  { name: "Westgarth", position: [-37.7809, 145.0028] },
-  { name: "Dennis", position: [-37.7699, 145.0050] },
-  { name: "Fairfield", position: [-37.7788, 145.0176] },
-  { name: "Alphington", position: [-37.7780, 145.0314] },
-  { name: "Darebin", position: [-37.7749, 145.0385] },
-  { name: "Ivanhoe", position: [-37.7698, 145.0457] },
-  { name: "Eaglemont", position: [-37.7634, 145.0634] },
-  { name: "Heidelberg", position: [-37.7570, 145.0705] },
-  { name: "Rosanna", position: [-37.7429, 145.0673] },
-  { name: "Macleod", position: [-37.7265, 145.0690] },
-  { name: "Watsonia", position: [-37.7112, 145.0826] },
-  { name: "Greensborough", position: [-37.7049, 145.1038] },
-  { name: "Montmorency", position: [-37.7162, 145.1210] },
-  { name: "Eltham", position: [-37.7149, 145.1482] },
-  { name: "Diamond Creek", position: [-37.6718, 145.1570] },
-  { name: "Wattle Glen", position: [-37.6644, 145.1872] },
-  { name: "Hurstbridge", position: [-37.6404, 145.1925] },
+  { name: "Westgarth", position: [-37.780435356377716, 144.99914123026358] },
+  { name: "Dennis", position: [-37.779172853272264, 145.00829366121818] },
+  { name: "Fairfield", position: [-37.779149281616895, 145.0169411256442] },
+  { name: "Alphington", position: [-37.77831232032454, 145.03110400902273] },
+  { name: "Darebin", position: [-37.77471056691468, 145.03864348039912] },
+  { name: "Ivanhoe", position: [-37.76889144629401, 145.04539541149356] },
+  { name: "Eaglemont", position: [-37.763774817116406, 145.05361850109273] },
+  { name: "Heidelberg", position: [-37.75712552748012, 145.06075329719897] },
+  { name: "Rosanna", position: [-37.742727897658824, 145.06624322896707] },
+  { name: "Macleod", position: [-37.725937461490375, 145.06921622194628] },
+  { name: "Watsonia", position: [-37.710982647475866, 145.0837557852137] },
+  { name: "Greensborough", position: [-37.70381979075029, 145.10791799219962] },
+  { name: "Montmorency", position: [-37.71524351441112, 145.1209352506941] },
+  { name: "Eltham", position: [-37.71344678805767, 145.1478333806195] },
+  { name: "Diamond Creek", position: [-37.67339874337512, 145.15845112766686] },
+  { name: "Wattle Glen", position: [-37.66398633478114, 145.18168038197572] },
+  { name: "Hurstbridge", position: [-37.63940767064736, 145.19213890280744] },
 ];
 
 const CLIFTONHILLGROUPLOOP_STATIONS: Station[] = [
-  { name: "Clifton Hill", position: [-37.7881, 145.0015] },
   { name: "Jolimont", position: [-37.8163, 144.9840] },
   { name: "Flinders Street", position: [-37.8184161, 144.9664779] },
   { name: "Southern Cross", position: [-37.8176, 144.9522] },
@@ -559,32 +631,15 @@ const BURNLEYGROUPLOOP_STATIONS: Station[] = [
   { name: "Parliament", position: [-37.81123787494798, 144.97303582934072] },
   { name: "Richmond", position: [-37.82359625345165, 144.9891977969667] },
 ];
+const JOLIMONT_TO_FLINDERS_PORTAL: [number, number][] = [
+  [-37.815808751063095, 144.9778546912331],
+    [-37.815624405906064, 144.9750759227291],// exiting Parliament
+  [-37.815743064919, 144.97438123057663], 
+  [-37.81632152482936, 144.97277458741638], // Parliament -> Jolimont curve
+  [-37.81778485426324, 144.96826388056115], // Jolimont / MCG side
+  [-37.8184161, 144.9664779], // Flinders Street eastern portal
+];
 const BURNLEY_LOOP: [number, number][] = [
-  [-37.82359625345165, 144.9891977969667], // Richmond
-  [-37.8205, 144.9750],
-  [-37.8184161, 144.9664779], // Flinders Street
-  [-37.819578159795725, 144.9610791331353],
-  [-37.82104238088903, 144.95707972900598],
-  [-37.8211906937223, 144.95500906362312],
-  [-37.81973721503802, 144.95279892337976],
-  [-37.8193066506804, 144.95240125386297], // Southern Cross
-  [-37.81766430074989, 144.95108174796619],
-  [-37.81602005179086, 144.94986938945834],
-  [-37.81465546682327, 144.94969772810222],
-  [-37.81335866395033, 144.9505774926714],
-  [-37.81335215689385, 144.9507340157454],
-  [-37.81196029877101, 144.9566610145156], // Flagstaff
-  [-37.8101, 144.9626], // Melbourne Central
-  [-37.80792668206212, 144.96937976627547],
-  [-37.808079259516454, 144.97045264993122],
-  [-37.80890995342101, 144.97193322934783],
-  [-37.81031702586954, 144.97240529813624], // Parliament
-  [-37.8147653441898, 144.97416778728817],
-  [-37.815923183065, 144.97346658889202],
-  [-37.81778485426324, 144.96826388056115],
-  [-37.8184161, 144.9664779], // Flinders Street
-  [-37.8205, 144.9750],
-  [-37.82359625345165, 144.9891977969667], // Richmond
 ];
 
 const PAKENHAM_STATIONS: Station[] = [
@@ -636,18 +691,19 @@ const SUNBURY_STATIONS: Station[] = [
   { name: "West Footscray", position: [-37.80159439768236, 144.88351876420322] },
   { name: "Middle Footscray", position: [-37.80244211892746, 144.89150101820428] },
   { name: "Footscray", position: [-37.801696124765726, 144.90150029345793] },
+  { name: "South Kensington", position: [-37.79971717185788, 144.92584789732544] },
   { name: "Arden", position: [-37.80093646751718, 144.94074635061708] },
   { name: "Parkville", position: [-37.79978943619289, 144.9595131752267] },
-  { name: "State Library", position: [-37.8117, 144.9629] },
-  { name: "Town Hall", position: [-37.8184161, 144.9656] },
+  { name: "State Library", position: STATE_LIBRARY_POSITION },
+  { name: "Town Hall", position: TOWN_HALL_POSITION },
   { name: "Anzac", position: [-37.8315, 144.9795] },
 ];
 
 const METRO_TUNNEL_STATIONS: Station[] = [
   { name: "Arden", position: [-37.80093646751718, 144.94074635061708] },
   { name: "Parkville", position: [-37.79978943619289, 144.9595131752267] },
-  { name: "State Library", position: [-37.8117, 144.9629] },
-  { name: "Town Hall", position: [-37.8184161, 144.9656] },
+  { name: "State Library", position: STATE_LIBRARY_POSITION },
+  { name: "Town Hall", position: TOWN_HALL_POSITION },
   { name: "Anzac", position: [-37.8315, 144.9795] },
 ];
 
@@ -674,6 +730,7 @@ const NORTHERNGROUPLOOP_STATIONS: Station[] = [
 const WERRIBEE_STATIONS: Station[] = [
   { name: "Southern Cross", position: [-37.81934099941143, 144.9524609650515] },
   { name: "North Melbourne", position: [-37.8073, 144.9426] },
+  { name: "South Kensington", position: [-37.79971717185788, 144.92584789732544] },
   { name: "Footscray", position: [-37.801696124765726, 144.90150029345793] },
   { name: "Seddon", position: [-37.80864624508298, 144.89540631027074] },
   { name: "Yarraville", position: [-37.8159245612344, 144.88935190525294] },
@@ -714,7 +771,7 @@ const SANDRINGHAM_STATIONS: Station[] = [
   },
   {
     name: "Prahran",
-    position: [-37.8518, 144.9932],
+    position: [-37.8495243704257, 144.98999628587248],
     staffed: false,
     barriers: false,
     metro: true,
@@ -722,7 +779,7 @@ const SANDRINGHAM_STATIONS: Station[] = [
   },
   {
     name: "Windsor",
-    position: [-37.8561, 144.9924],
+    position: [-37.85625063817182, 144.9918631033007],
     staffed: false,
     barriers: false,
     metro: true,
@@ -730,7 +787,7 @@ const SANDRINGHAM_STATIONS: Station[] = [
   },
   {
     name: "Balaclava",
-    position: [-37.8692, 144.9931],
+    position: [-37.869403785294736, 144.9935489947572],
     staffed: false,
     barriers: false,
     metro: true,
@@ -738,7 +795,7 @@ const SANDRINGHAM_STATIONS: Station[] = [
   },
   {
     name: "Ripponlea",
-    position: [-37.8775, 144.9958],
+    position: [-37.875885136161095, 144.9950077304033],
     staffed: false,
     barriers: false,
     metro: true,
@@ -746,7 +803,7 @@ const SANDRINGHAM_STATIONS: Station[] = [
   },
   {
     name: "Elsternwick",
-    position: [-37.8847, 144.9991],
+    position: [-37.8848445043112, 145.00082275960173],
     staffed: false,
     barriers: false,
     metro: true,
@@ -754,15 +811,30 @@ const SANDRINGHAM_STATIONS: Station[] = [
   },
   {
     name: "Gardenvale",
-    position: [-37.9019, 145.0042],
+    position: [-37.89657979680589, 145.00399849503614],
+    staffed: false,
+    barriers: false,
+    metro: true,
+    zone: "1",
+  },
+    {
+    name: "North Brighton",
+    position: [-37.90457206843572, 145.00235830164291],
     staffed: false,
     barriers: false,
     metro: true,
     zone: "1",
   },
   {
+    name: "Middle Brighton",
+    position: [-37.915119235574004, 144.99609266135178],
+    staffed: false,
+    barriers: false,
+    metro: true,
+    zone: "1",
+  },  {
     name: "Brighton Beach",
-    position: [-37.9269, 144.9992],
+    position: [  -37.9265958148369, 144.98914037554712],
     staffed: false,
     barriers: false,
     metro: true,
@@ -795,75 +867,183 @@ const MELBOURNE_CENTRAL_TO_STATE_LIBRARY: [number, number][] = [
 ];
 
 const CAUFIELD_LOOP: [number, number][] = [
-  
-  [-37.81934099941143, 144.9524609650515],
-  [-37.81766430074989, 144.95108174796619],
-  [-37.81602005179086, 144.94986938945834],
-  [-37.81465546682327, 144.94969772810222],
-  [-37.81335866395033, 144.9505774926714],
-  [-37.81335215689385, 144.9507340157454],
-  [-37.81196029877101, 144.9566610145156],
-  [-37.8101, 144.9626],
-  [-37.80792668206212, 144.96937976627547],
-  [-37.808079259516454, 144.97045264993122],
-  [-37.80890995342101, 144.97193322934783],
-  [-37.81031702586954, 144.97240529813624],
-  [-37.81794590442121, 144.97726539063947], // curve?? 
-  [-37.816901671251536, 144.9743776743041], 
-  [-37.81696275340265, 144.97150400581788],
-  [-37.81697970439321, 144.97113922540086],
-  [-37.81778485426324, 144.96826388056115],
-  [-37.8184161, 144.9664779], // FLINDERTS  
-  [-37.819578159795725, 144.9610791331353],
-  [-37.82104238088903, 144.95707972900598],
-  [-37.8211906937223, 144.95500906362312],
-  [-37.81973721503802, 144.95279892337976],
-  [-37.81934099941143, 144.9524609650515],
+  [-37.8181727321212, 144.9775078452675], // last point
+  [-37.81768238193436, 144.9769297210735], //  richmond portal cfd 
+  [-37.81746731800017, 144.97667222901444],
+  [-37.81686605500994, 144.97604932173275],
+  [-37.81623674589375, 144.97549946888685],
+  [-37.81560107467396, 144.9750569043993],
+  [-37.8146221302977, 144.9746103166069],
+  [-37.8136177452875, 144.97416238769392],
+  [-37.81266738107811, 144.97371982320394],
+  [-37.81135153908839, 144.97310562093975], // parliment station 
+  [-37.8097774115991, 144.9723515455121],
+  [-37.808744134445945, 144.97188076367107],
+  [-37.80832878772909, 144.97139260164244],
+  [-37.807998203978606, 144.9706362187189],
+  [-37.807934630000915, 144.96947213999889], // cureve 12
+  [-37.80854493784609, 144.9671010672232],
+  [-37.8098884449785, 144.96247693886204], //  Melbourne Centreral Stzatiopn
+  [-37.81174049518193, 144.9561415611667], // FLAGstaff station 
+  [-37.813109401599526, 144.95152276827767],
+  [-37.813305239346434, 144.9508467242103], // latrobe street 
+  [-37.81346098414173, 144.95054430515134],
+  [-37.813636329085746, 144.95028882474315],
+  [-37.81405826174884, 144.94994552250395],
+  [-37.81447516545205, 144.94977184946842],
+  [-37.81499801340689, 144.9496933948548],
+  [-37.815696727434805, 144.9497725200221],
+[-37.816076011426915, 144.94990126605308], // 
+[-37.81622364865211, 144.94994932059933], // Southern Cross (City Loop Western Portal)
+[-37.81871545154895, 144.95187242335422], // Southern Cross 
+[-37.819310838649166, 144.95234717436176], // Southern Cross Via Duct Curve 1
+[-37.82012445594275, 144.95304723092087], // Southern Cross Via Duct Curve 2
+[-37.82103128962857, 144.95433469121622], // Southern Cross Via Duct Curve 3
+[-37.82114993994472, 144.95459218328656], // Southern Cross Via Duct Curve 4
+[-37.821383002502714, 144.95569188895558], // Southern Cross Via Duct Curve 5
+[-37.82139147749586, 144.95593060558758], // Southern Cross Via Duct Curve 6
+[-37.821194433760674, 144.95703835790874], // Southern Cross Via Duct Curve 7
+[-37.82096560812568, 144.95760430399687], // Southern Cross Via Duct Curve 8
+[-37.820945852394416, 144.95783796247386], // Southern Cross Via Duct Curve 9
+[-37.82063439405348, 144.95870029266104], // Southern Cross Via Duct Curve 10
+[-37.8202689728552, 144.95961065802055], // Southern Cross Via Duct Curve 11
+[-37.819702844842155, 144.96130771961023], // Southern Cross Via Duct Curve 12
+[-37.819561944810225, 144.96199034180128], // Southern Cross Via Duct Curve 13
+[-37.81938608424239, 144.96263273086195], // Southern Cross Via Duct Curve 14
+[-37.819158312401186, 144.96355675186595], // Southern Cross Via Duct Curve 15
+[-37.81896761915805, 144.96448747839776],
+[-37.81871971720591, 144.96543429817373],
+[-37.81857139939793, 144.9660082909082], // Flinders Street 
 ];
+const JOLIMONT_TO_WEST_RICHMOND: [number, number][] = [
+  [-37.816492790989656, 144.98395976419087],   // Jolimont
+  [-37.816851137082246, 144.98751730791793],
+  [-37.81656720697537, 144.98920441740864],
+  [-37.816154014429515, 144.9900600244845],
+  [-37.81533821827685, 144.99107387481638],
+  [-37.814925027573054, 144.99145474850218],   // West Richmond
+  [-37.81416008894346, 144.99181148230872], // end of platform W RICHMOND 
+  [-37.81305398638554, 144.99203947007265], // york st 
+  [-37.81178046463648, 144.9922460001681], // garfield street
+  [-37.810964636334965, 144.9923747462035], // elithibith street
+  [-37.8103479913108, 144.99248203456145], // north richmond statioon 
+  [-37.80974617469039, 144.99256518304463],
+  [-37.80833061486316, 144.9929514211424], // greensowrd st
+  [-37.807406671946765, 144.99321695984267],
+  [-37.80682178467832, 144.9933269304114],
+  [-37.805111948572794, 144.993620995022],
+  [-37.80446558539445, 144.99373364780257], // colling wood station
+  [-37.803230062368854, 144.99393481347792],
+  [-37.801913985082294, 144.99414670799277], // yarra st 
+  [-37.801301503109485, 144.9941440257755], // studly st 
+  [-37.800642390533845, 144.9941359791526],
+  [-37.79929235705923, 144.99436933133384],
+  [-37.79912916452965, 144.99442029330388], // victoria park station
+  [-37.79766253492816, 144.9946455988675],
+  [-37.795935180955574, 144.99493795964617],
+  [-37.794518762887, 144.9951669011697],
+  [-37.79325093503257, 144.99532107701643],
+  [-37.792025822370704, 144.9950850426258],
+  [-37.7911244592212, 144.99499399411127],
 
+  [-37.79035503477694, 144.99506641375723],
+  [-37.78980332038522, 144.99515805457796],
+  [-37.7894196621083, 144.9952412030535], // clfinton hill arpocahc 
+  [-37.788251717787986, 144.99544505093596], // clifton hill 
+];
 const NORTHERN_LOOP: [number, number][] = [
-  [-37.8073, 144.9426],
-  [-37.81247065691958, 144.94693600775102],
-  [-37.81335215689385, 144.9507340157454],
-  [-37.81196029877101, 144.9566610145156],
-  [-37.8101, 144.9626],
-  [-37.80792668206212, 144.96937976627547],
-  [-37.808079259516454, 144.97045264993122],
-  [-37.80890995342101, 144.97193322934783],
-  [-37.81031702586954, 144.97240529813624],
-  [-37.8147653441898, 144.97416778728817],
-  [-37.815923183065, 144.97346658889202],
-  [-37.81778485426324, 144.96826388056115],
-  [-37.8184161, 144.9664779],
-  [-37.819578159795725, 144.9610791331353],
-  [-37.82104238088903, 144.95707972900598],
-  [-37.8211906937223, 144.95500906362312],
-  [-37.81973721503802, 144.95279892337976],
-  [-37.81934099941143, 144.9524609650515],
-  [-37.8073, 144.9426],
-];
+  [-37.8073, 144.9426], // Southern Cross (Western portal / loop entry)
 
+  // heading north-east under La Trobe St toward Flagstaff
+  [-37.81247065691958, 144.94693600775102], // approaching Flagstaff
+  [-37.81335215689385, 144.9507340157454], // Flagstaff area
+
+  // curve east toward Melbourne Central
+  [-37.81196029877101, 144.9566610145156], // Flagstaff → Melbourne Central curve
+  [-37.8101, 144.9626], // Melbourne Central
+
+  // continue east/north-east toward Parliament
+  // edit JOLIMONT_TO_FLINDERS_PORTAL above if you want to shape the Parliament/Jolimont/Flinders section
+  [-37.808062345214104, 144.96920805484984], // leaving Melbourne Central
+  [-37.808079259516454, 144.97045264993122], // tunnel alignment
+  [-37.80832299768361, 144.9712063005165],
+  [-37.80882520771621, 144.97175348932512], // approaching Parliament
+  [-37.81031702586954, 144.97240529813624], // Parliament station
+
+  // turn south toward Jolimont / Richmond portal
+  [-37.8147653441898, 144.97416778728817], // exiting Parliament
+  [-37.815923183065, 144.97346658889202], // Parliament → Jolimont curve
+  [-37.81778485426324, 144.96826388056115], // Jolimont / MCG side
+  [-37.8184161, 144.9664779], // eastern portal (toward Richmond / Flinders)
+
+  // swing back west toward Flinders Street
+  [-37.819578159795725, 144.9610791331353], // viaduct toward Flinders
+
+  // continue west back toward Southern Cross
+  [-37.82109536715535, 144.95707701757522], // Flinders → Southern Cross curve
+ [-37.821328429885675, 144.95581637936937],
+  [-37.8211906937223, 144.95500906362312], // viaduct mid-section
+   [-37.82098307302916, 144.95440017298998],
+  [-37.81973721503802, 144.95279892337976], // approaching Southern Cross
+  [-37.81934099941143, 144.9524609650515], // Southern Cross approach
+  [-37.816853698443914, 144.95049612250577],
+  [-37.81621957350685, 144.94995894904764], // last plit off of cfd and nrthn 
+[-37.81219780049446, 144.9464798395072],
+];
 const SANDRINGHAM_LINE: [number, number][] = [
-  [-37.81934099941143, 144.9524609650515],
-  [-37.81973721503802, 144.95279892337976],
-  [-37.8211906937223, 144.95500906362312],
-  [-37.82104238088903, 144.95707972900598],
-  [-37.819578159795725, 144.9610791331353],
-  [-37.8184161, 144.9664779],
-  [-37.8205, 144.975],
-  [-37.8225, 144.9825],
-  [-37.82359625345165, 144.9891977969667],
-  [-37.8295, 144.9915],
-  [-37.8345, 144.9925],
-  [-37.8381009, 144.99237],
-  [-37.8518, 144.9932],
-  [-37.8561, 144.9924],
-  [-37.8692, 144.9931],
-  [-37.8775, 144.9958],
-  [-37.8847, 144.9991],
-  [-37.9019, 145.0042],
-  [-37.9269, 144.9992],
-  [-37.9378, 145.0028],
+  [-37.818821008246935, 144.96515822429285], // Flinders Street
+  [-37.81835676092435, 144.96680614367563],
+  [-37.81818831342351, 144.96738684195435],
+  [-37.81760105905219, 144.9693011010421],
+  [-37.817251447015174, 144.97037800795056],
+  [-37.81701469145709, 144.97145403934510],
+  [-37.81689547670335, 144.97178214437636],
+  [-37.81680860273319, 144.97319298632365],
+  [-37.81709253191024, 144.97503700501213],
+  [-37.81755762249785, 144.9762976432565],
+  [-37.817884985183525, 144.9769521022641],
+  [-37.81840304161592, 144.97781711467150],
+  [-37.81914992638664, 144.97898924001413],
+  [-37.820086435044686, 144.9804389739665],
+  [-37.820795612786206, 144.98150645039166],
+  [-37.82134372863181, 144.98236427924510],
+  [-37.82233635555369, 144.9841989101896],
+  [-37.82239792870241, 144.9843463614976],
+  [-37.82285451103584, 144.98566198503144],
+  [-37.8232686852728, 144.9869941790775],
+  [-37.82381954341726, 144.9891573806168], // Richmond
+
+  // South Yarra → Richmond curves
+  [-37.825565758588816, 144.99270326773168], // Richmond to South Yarra curve
+  [-37.82548101345592, 144.99258525053799], // Richmond to South Yarra curve 2
+  [-37.827184389560315, 144.99390491980614], // Richmond to South Yarra curve 3
+  [-37.83209166656431, 144.9935008513864], // Richmond to South Yarra curve 4
+  [-37.83444244894703, 144.9930213092438], // Richmond to South Yarra curve 5
+  [-37.83566353672182, 144.9928552912536], // Richmond to South Yarra curve 6
+  [-37.83874201898154, 144.99204952288912], // South Yarra
+  [-37.839008708445924, 144.99201319177607], // South Yarra bridge
+  [-37.83922265048852, 144.9919246788808], // South Yarra entrance curve
+  [-37.83981681301816, 144.99176776965538], // South Yarra entrance curve 2
+  [-37.84948088240228, 144.98989704452956], // pharsanhn station
+  [-37.85156784714275, 144.9895675847279],
+  [-37.85397372002226, 144.99008256884602],
+  [-37.8547700127662, 144.9905653664568],
+  [-37.85586278356211, 144.99177772498697], // winsdor station
+  [-37.85659711485019, 144.9927396136255], // winsdor station bridnge 
+  [-37.85788256936412, 144.9937561708309], 
+  [-37.860062857088174, 144.9948972776503],
+  [-37.86164683209365, 144.99498579055694],
+  [-37.864329579924544, 144.994492948562],
+  [-37.86588170121176, 144.99418985894465],
+  [-37.86944319832077, 144.9935407643723],
+  [-37.872229574061805, 144.99349788204847],
+  [-37.87594743585128, 144.99515012282768],
+  [-37.88124019548833, 144.99826148525],
+  [-37.8873075976758, 145.00279758553393],
+  [-37.88908573308372, 145.00388119801502],
+  [-37.89206072149637, 145.00471275875503],
+  [-37.894516141671495, 145.00454107880682],
+  [-37.89659889201308, 145.0041977560489],
   [-37.9505, 145.0058],
 ];
 
@@ -872,30 +1052,45 @@ const SANDRINGHAM_LINE: [number, number][] = [
 // =========================
 const MERNDA_LINE = MERNDA_STATIONS.map((s) => s.position);
 const HURSTBRIDGE_LINE = HURSTBRIDGE_STATIONS.map((s) => s.position);
+const MERNDA_BRANCH_LINE = MERNDA_STATIONS.slice(MERNDA_STATIONS.findIndex((station) => station.name === "Clifton Hill")).map((s) => s.position);
+const HURSTBRIDGE_BRANCH_LINE = HURSTBRIDGE_STATIONS.slice(HURSTBRIDGE_STATIONS.findIndex((station) => station.name === "Clifton Hill")).map((s) => s.position);
 const CLIFTONHILL_LOOP: [number, number][] = [
-  [-37.7881, 145.0015], // Clifton Hill
-  [-37.8000, 144.9950],
   [-37.8163, 144.9840], // Jolimont
+    [-37.815808751063095, 144.9778546912331],
+    [-37.815624405906064, 144.9750759227291],// exiting Parliament
+  [-37.815743064919, 144.97438123057663], 
+  [-37.81632152482936, 144.97277458741638], // Parliament -> Jolimont curve
+  [-37.81778485426324, 144.96826388056115], // Jolimont / MCG side
   [-37.8184161, 144.9664779], // Flinders Street
-  [-37.819578159795725, 144.9610791331353],
-  [-37.82104238088903, 144.95707972900598],
-  [-37.8211906937223, 144.95500906362312],
-  [-37.81973721503802, 144.95279892337976],
+  [-37.81962871794242, 144.96119376026797],
+  [-37.82032716362383, 144.9590835338242],
+  [-37.82129915764358, 144.95648876990828],
+  [-37.8212396948123, 144.95500037577344],
+  [-37.820114282704075, 144.95311576000708],
   [-37.819330859301594, 144.95242620896954], // Southern Cross
-  [-37.81766430074989, 144.95108174796619],
-  [-37.81602005179086, 144.94986938945834],
-  [-37.81465546682327, 144.94969772810222],
+  [-37.81764785079244, 144.95110717843116],
+  [-37.81599729363393, 144.94993645307727],
+  [-37.814110931438485, 144.94997936721836],
   [-37.81335866395033, 144.9505774926714],
-  [-37.81335215689385, 144.9507340157454],
-  [-37.81196029877101, 144.9566610145156], // Flagstaff
-  [-37.8101, 144.9626], // Melbourne Central
-  [-37.8085, 144.9685],
-  [-37.81031702586954, 144.97240529813624], // Parliament
-  [-37.8145, 144.9740],
-  [-37.8163, 144.9840], // Jolimont
-  [-37.8000, 144.9950],
-  [-37.7881, 145.0015], // back
-];const CRAIGIEBURN_LINE = CRAIGIEBURN_STATIONS.map((station) => station.position);
+  [-37.81336091942794, 144.950829264709],
+  [-37.811699102585074, 144.95654834454922], // Flagstaff
+  [-37.809961702457514, 144.9625342832056], // Melbourne Central
+  [-37.80852193098466, 144.96753397933662],
+  [-37.808050963795516, 144.96916411750817],
+  [-37.80799744851422, 144.96995772619195],
+  [-37.808358272498175, 144.9713049058432],
+  [-37.80873095536469, 144.97179240882488],
+  [-37.809237048952674, 144.97205260610428],
+  [-37.81138709188395, 144.97306243861945], // Parliament
+  [-37.81441998176004, 144.9745404624412],
+  [-37.81488085131435, 144.97489451403888],
+  [-37.81534701529098, 144.97563882703489],
+  [-37.81561611769962, 144.9765145682701], // loop portal
+  [-37.815723447250065, 144.9770791387547],
+  [-37.815823035935786, 144.97785563825553],
+   // back to Jolimont
+];
+const CRAIGIEBURN_LINE = CRAIGIEBURN_STATIONS.map((station) => station.position);
 const UPFIELD_LINE = UPFIELD_STATIONS.map((station) => station.position);
 const WERRIBEE_LINE = WERRIBEE_STATIONS.map((station) => station.position);
 const WILLIAMSTOWN_LINE = WILLIAMSTOWN_STATIONS.map((station) => station.position);
@@ -953,22 +1148,52 @@ const FRANKSTON_TRACK: [number, number][] = [
   [-37.8532, 145.0161],
   [-37.8506631, 145.0136792], // Toorak
   [-37.8475, 145.0084],
-  [-37.8446738, 145.0019694], // Hawksburn
-  [-37.8413712064182, 144.99381416666222],
-  [-37.84074027756291, 144.99277197708855], // South Yarra Enterance Curve
-  [-37.84014541175312, 144.9924065225265], // South Yarra Enterance Curve 2
-  [-37.839508877221995, 144.9922573545601], // South Yarra Enterance Curve 3
-  [-37.83900452634713, 144.99223852217295], // South Yarra Birdge 
-  [-37.83851468142509, 144.99226132094938], // South Yarra
-  [-37.83566353672182, 144.9928552912536] , // South yarra to Richmond curve 
-  [-37.83444244894703, 144.9930213092438], // South yarra to Richmond curve 2 
-  [-37.83209166656431, 144.9935008513864], // South yarra to Richmond curve 3
-  [-37.827184389560315, 144.99390491980614], // South yarra to Richmond curve 4
-[-37.82548101345592, 144.99258525053799], // South yarra to Richmond curve 5
-[-37.825565758588816, 144.99270326773168], // South yarra to Richmond curve 6
-  [-37.82359625345165, 144.9891977969667], // Richmond
-  [-37.81817298581704, 144.97748903675006], 
-[-37.81794590442121, 144.97726539063947], // curve?? 
+[-37.8446738, 145.0019694], // Hawksburn
+[-37.8413712064182, 144.99381416666222],
+[-37.84074027756291, 144.99277197708855],
+[-37.84014541175312, 144.9924065225265],
+[-37.839508877221995, 144.9922573545601],
+[-37.83900452634713, 144.99223852217295],
+[-37.83848509035401, 144.99226495747362], // South Yarra
+
+// smooth northbound run after South Yarra
+[-37.837600, 144.992620],
+[-37.836700, 144.992780],
+[-37.835700, 144.992950],
+[-37.834600, 144.993100],
+[-37.833300, 144.993280],
+[-37.83209166656431, 144.993450],
+[-37.830200, 144.993680],
+[-37.828400, 144.993900],
+[-37.827184389560315, 144.994050],
+
+// gentle curve into Richmond
+[-37.826300, 144.993700],
+[-37.825600, 144.993200],
+[-37.824800, 144.992100],
+[-37.824200, 144.990700],
+[-37.82381492722702, 144.989400], // Richmond
+
+[-37.823516110116486, 144.98802759456223],
+[-37.82230421180452, 144.98414375600464],
+[-37.82112098337264, 144.9820521293735],
+[-37.8196908100639, 144.97988356338206],
+[-37.818742642858254, 144.9783909140706],
+[-37.818423759304906, 144.97790945754892],
+[-37.81817605752223, 144.9775121630495],
+[-37.81794590442121, 144.97726539063947], // end of tight curve
+
+// continue smooth toward Flinders
+[-37.81755762249785, 144.9762976432565],
+[-37.81709253191024, 144.97503700501213],
+[-37.81680860273319, 144.97319298632365],
+[-37.81701469145709, 144.97145403934510],
+[-37.817251447015174, 144.97037800795056],
+[-37.81760105905219, 144.9693011010421],
+[-37.81818831342351, 144.96738684195435],
+[-37.81835676092435, 144.96680614367563],
+
+[-37.818821008246935, 144.96515822429285], // Flinders Street
 
 ];
 const CRANBOURNE_LINE = CRANBOURNE_STATIONS.map((station) => station.position);
@@ -1054,8 +1279,396 @@ type PlatformBoardEntry = {
     destination: string;
     etaLabel: string;
     tdnLabel: string;
+    statusLabel?: string;
+    originLabel?: string;
+    viaLabel?: string;
+  }>;
+  emptyState?: string;
+};
+
+type DepartureBoardColumn = {
+  title: string;
+  accent: string;
+  services: Array<{
+    scheduledTime: string;
+    destination: string;
+    via: string;
+    minuteBadge: string;
   }>;
 };
+
+const SOUTH_YARRA_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 · Flinders Street / Newport",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      { destination: "Flinders Street", etaLabel: "13:53", tdnLabel: "TDN X086", statusLabel: "1m late" },
+      { destination: "Flinders Street → Newport", etaLabel: "14:23", tdnLabel: "TDN X090 → 6265", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 · Sandringham",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      { destination: "Sandringham", etaLabel: "13:43", tdnLabel: "TDN X081", statusLabel: "1m late" },
+      { destination: "Sandringham", etaLabel: "13:58", tdnLabel: "TDN X083", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "3",
+    label: "Platform 3 · City Loop",
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
+    services: [
+      { destination: "City Loop", etaLabel: "13:45", tdnLabel: "TDN 4902", statusLabel: "On Time" },
+      { destination: "City Loop", etaLabel: "13:55", tdnLabel: "TDN 4904", statusLabel: "2m late" },
+    ],
+  },
+  {
+    platform: "4",
+    label: "Platform 4 · Frankston",
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
+    services: [
+      { destination: "Frankston", etaLabel: "13:43", tdnLabel: "TDN 4413", statusLabel: "On Time" },
+      { destination: "Frankston", etaLabel: "13:53", tdnLabel: "TDN 4415", statusLabel: "On Time" },
+    ],
+  },
+];
+
+const RICHMOND_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 - Flinders Street / Newport",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      { destination: "Flinders Street", etaLabel: "13:56", tdnLabel: "TDN X086", statusLabel: "1m late" },
+      { destination: "Flinders Street", etaLabel: "14:11", tdnLabel: "TDN X088", statusLabel: "2m late" },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 - Sandringham",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      { destination: "Sandringham", etaLabel: "13:55", tdnLabel: "TDN X083", statusLabel: "On Time" },
+      { destination: "Sandringham", etaLabel: "14:10", tdnLabel: "TDN X085", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "3",
+    label: "Platform 3 - City Loop",
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
+    services: [
+      { destination: "City Loop", etaLabel: "13:58", tdnLabel: "TDN 4904", statusLabel: "1m late" },
+      { destination: "City Loop", etaLabel: "14:08", tdnLabel: "TDN 4906", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "4",
+    label: "Platform 4 - Frankston",
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
+    services: [
+      { destination: "Frankston", etaLabel: "13:50", tdnLabel: "TDN 4415", statusLabel: "On Time" },
+      { destination: "Frankston", etaLabel: "14:00", tdnLabel: "TDN 4417", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "5",
+    label: "Platform 5 - Southern Cross",
+    tone: "bg-violet-500/12 border-violet-400/20 text-violet-100",
+    services: [
+      { destination: "Southern Cross", etaLabel: "14:02", tdnLabel: "TDN 8428", statusLabel: "1m late" },
+      { destination: "Southern Cross", etaLabel: "14:42", tdnLabel: "TDN 8430", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "6",
+    label: "Platform 6 - Traralgon",
+    tone: "bg-violet-500/12 border-violet-400/20 text-violet-100",
+    services: [
+      { destination: "Traralgon", etaLabel: "13:58", tdnLabel: "TDN 8427", statusLabel: "Scheduled" },
+      { destination: "Traralgon", etaLabel: "14:38", tdnLabel: "TDN 8429", statusLabel: "Scheduled" },
+    ],
+  },
+  {
+    platform: "7",
+    label: "Platform 7 - Flinders Street",
+    tone: "bg-blue-500/12 border-blue-400/25 text-blue-100",
+    services: [
+      { destination: "Flinders Street", etaLabel: "14:03", tdnLabel: "TDN 2080", statusLabel: "On Time" },
+      { destination: "Flinders Street", etaLabel: "14:17", tdnLabel: "TDN 3004", statusLabel: "4m late" },
+    ],
+  },
+  {
+    platform: "8",
+    label: "Platform 8 - Flinders Street",
+    tone: "bg-blue-500/12 border-blue-400/25 text-blue-100",
+    services: [
+      { destination: "Flinders Street", etaLabel: "14:02", tdnLabel: "TDN 3204", statusLabel: "2m late" },
+      { destination: "Flinders Street", etaLabel: "14:18", tdnLabel: "TDN 2082", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "9",
+    label: "Platform 9 - Burnley group",
+    tone: "bg-blue-500/12 border-blue-400/25 text-blue-100",
+    services: [
+      { destination: "Glen Waverley", etaLabel: "13:51", tdnLabel: "TDN 2605", statusLabel: "3m late" },
+      { destination: "Belgrave", etaLabel: "13:53", tdnLabel: "TDN 3603", statusLabel: "4m late" },
+    ],
+  },
+  {
+    platform: "10",
+    label: "Platform 10 - Burnley group",
+    tone: "bg-blue-500/12 border-blue-400/25 text-blue-100",
+    services: [
+      { destination: "Glen Waverley", etaLabel: "15:21", tdnLabel: "TDN 2081", statusLabel: "1m late" },
+      { destination: "Blackburn", etaLabel: "15:50", tdnLabel: "TDN 3905", statusLabel: "3m late" },
+    ],
+  },
+];
+
+const CITY_LOOP_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 · Clifton Hill loop",
+    tone: "bg-red-500/12 border-red-400/20 text-red-100",
+    services: [
+      { destination: "Mernda", etaLabel: "09:59", tdnLabel: "TDN 1673", statusLabel: "1m late", originLabel: "Origin Flinders Street", viaLabel: "Via City Loop" },
+      { destination: "Hurstbridge", etaLabel: "10:06", tdnLabel: "TDN 1861", statusLabel: "On Time", originLabel: "Origin Flinders Street", viaLabel: "Via City Loop" },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 · Caulfield / Frankston",
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
+    services: [
+      { destination: "Flinders Street → Frankston", etaLabel: "10:06", tdnLabel: "TDN 4856 → 4373", statusLabel: "1m late" },
+      { destination: "Flinders Street → Frankston", etaLabel: "10:15", tdnLabel: "TDN 4858 → 4375", statusLabel: "3m late" },
+    ],
+  },
+  {
+    platform: "3",
+    label: "Platform 3 · Northern loop",
+    tone: "bg-yellow-500/12 border-yellow-400/25 text-yellow-100",
+    services: [
+      { destination: "Flinders Street → Craigieburn", etaLabel: "10:05", tdnLabel: "TDN 5634 → 5261", statusLabel: "3m late" },
+      { destination: "Flinders Street → Upfield", etaLabel: "10:15", tdnLabel: "TDN 5868 → 5037", statusLabel: "2m late" },
+    ],
+  },
+  {
+    platform: "4",
+    label: "Platform 4 · Burnley loop",
+    tone: "bg-blue-500/12 border-blue-400/20 text-blue-100",
+    services: [
+      { destination: "Flinders Street → Lilydale", etaLabel: "09:54", tdnLabel: "TDN 3634 → 3227", statusLabel: "4m late" },
+      { destination: "Flinders Street → Glen Waverley", etaLabel: "10:08", tdnLabel: "TDN 3918 → 2055", statusLabel: "3m late" },
+    ],
+  },
+];
+
+const FLINDERS_STREET_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 - Mernda / Hurstbridge",
+    tone: "bg-[#BE1014]/12 border-[#BE1014]/25 text-[#ffd6d8]",
+    services: [
+      { destination: "Mernda", etaLabel: "09:47", tdnLabel: "TDN 1671", statusLabel: "On Time" },
+      { destination: "Mernda", etaLabel: "09:52", tdnLabel: "TDN 1673", statusLabel: "2m late" },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 - Burnley group",
+    tone: "bg-blue-500/12 border-blue-400/25 text-blue-100",
+    services: [
+      { destination: "Blackburn", etaLabel: "09:44", tdnLabel: "TDN 3427", statusLabel: "On Time" },
+      { destination: "Belgrave", etaLabel: "09:56", tdnLabel: "TDN 3021", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "3",
+    label: "Platform 3 - Burnley group",
+    tone: "bg-blue-500/12 border-blue-400/25 text-blue-100",
+    services: [
+      { destination: "Lilydale", etaLabel: "09:40", tdnLabel: "TDN 3225", statusLabel: "On Time" },
+      { destination: "Glen Waverley", etaLabel: "09:48", tdnLabel: "TDN 2051", statusLabel: "1m late" },
+    ],
+  },
+  {
+    platform: "4",
+    label: "Platform 4 - Northern group",
+    tone: "bg-yellow-500/12 border-yellow-400/25 text-yellow-100",
+    services: [
+      { destination: "Broadmeadows", etaLabel: "09:54", tdnLabel: "TDN 5257", statusLabel: "On Time" },
+      { destination: "Upfield", etaLabel: "10:06", tdnLabel: "TDN 5035", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "5",
+    label: "Platform 5 - Northern group",
+    tone: "bg-yellow-500/12 border-yellow-400/25 text-yellow-100",
+    services: [
+      { destination: "Upfield", etaLabel: "09:50", tdnLabel: "TDN 5033", statusLabel: "On Time" },
+      { destination: "Craigieburn", etaLabel: "09:58", tdnLabel: "TDN 5259", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "6",
+    label: "Platform 6 - Frankston / regional",
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
+    services: [
+      { destination: "Frankston", etaLabel: "09:46", tdnLabel: "TDN 4367", statusLabel: "1m late" },
+      { destination: "Traralgon", etaLabel: "09:52", tdnLabel: "TDN 8415", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "7",
+    label: "Platform 7 - Frankston / regional",
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
+    services: [
+      { destination: "Frankston", etaLabel: "10:06", tdnLabel: "TDN 4369", statusLabel: "On Time" },
+      { destination: "Bairnsdale", etaLabel: "10:32", tdnLabel: "TDN 8417", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "8",
+    label: "Platform 8 - Newport / Williamstown",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      { destination: "Newport", etaLabel: "09:50", tdnLabel: "TDN 6255", statusLabel: "On Time" },
+      { destination: "Williamstown", etaLabel: "09:57", tdnLabel: "TDN 6335", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "9",
+    label: "Platform 9 - Newport / Williamstown",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      { destination: "Williamstown", etaLabel: "09:42", tdnLabel: "TDN 6223", statusLabel: "On Time" },
+      { destination: "Newport", etaLabel: "09:47", tdnLabel: "TDN 6441", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "10",
+    label: "Platform 10 - Newport / Williamstown",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      { destination: "Williamstown", etaLabel: "09:53", tdnLabel: "TDN 6319", statusLabel: "On Time" },
+      { destination: "Newport", etaLabel: "10:04", tdnLabel: "TDN 6513", statusLabel: "On Time" },
+    ],
+  },
+  {
+    platform: "12",
+    label: "Platform 12 - Sandringham overflow / 10B",
+    tone: "bg-pink-500/10 border-pink-300/15 text-pink-100/90",
+    services: [],
+    emptyState: "Usually no departures. Rare Sandringham turnbacks only.",
+  },
+  {
+    platform: "13",
+    label: "Platform 13 - Sandringham",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      { destination: "Sandringham", etaLabel: "09:51", tdnLabel: "TDN X051", statusLabel: "On Time" },
+      { destination: "Sandringham", etaLabel: "10:06", tdnLabel: "TDN X053", statusLabel: "On Time" },
+    ],
+  },
+];
+
+const SOUTHERN_CROSS_DEPARTURE_BOARD: DepartureBoardColumn[] = [
+  {
+    title: "Metro outbound",
+    accent: "bg-blue-500",
+    services: [
+      {
+        scheduledTime: "09:42",
+        destination: "Williamstown",
+        via: "Stops all via Newport",
+        minuteBadge: "3 min",
+      },
+      {
+        scheduledTime: "09:47",
+        destination: "Craigieburn",
+        via: "Stops all via North Melbourne",
+        minuteBadge: "8 min",
+      },
+      {
+        scheduledTime: "09:52",
+        destination: "Sandringham",
+        via: "Stops all via Flinders Street",
+        minuteBadge: "13 min",
+      },
+      {
+        scheduledTime: "09:56",
+        destination: "Sunbury",
+        via: "Metro Tunnel service",
+        minuteBadge: "17 min",
+      },
+    ],
+  },
+  {
+    title: "Regional & coaches",
+    accent: "bg-[#7d5cff]",
+    services: [
+      {
+        scheduledTime: "09:52",
+        destination: "Traralgon",
+        via: "V/Line via Pakenham corridor",
+        minuteBadge: "13 min",
+      },
+      {
+        scheduledTime: "10:12",
+        destination: "Southern Cross coach bay",
+        via: "Coach connection boarding",
+        minuteBadge: "33 min",
+      },
+      {
+        scheduledTime: "10:18",
+        destination: "Albury / Sydney XPT",
+        via: "Long-distance platform call",
+        minuteBadge: "39 min",
+      },
+      {
+        scheduledTime: "Live",
+        destination: "Replacement buses",
+        via: "Check active disruptions and coach bays",
+        minuteBadge: "Now",
+      },
+    ],
+  },
+];
+
+const SOUTHERN_CROSS_PLATFORM_1_SERVICES = [
+  {
+    runId: "622",
+    destination: "Central",
+    lineLabel: "7(X)",
+    consist: "ST22",
+    departureLabel: "7:50pm",
+    dayLabel: "Tonight",
+    statusLabel: "Timetabled",
+  },
+  {
+    runId: "624",
+    destination: "Central",
+    lineLabel: "7(X)",
+    consist: "ST24",
+    departureLabel: "8:30am",
+    dayLabel: "Tomorrow",
+    statusLabel: "Timetabled",
+  },
+  {
+    runId: "622",
+    destination: "Central",
+    lineLabel: "7(X)",
+    consist: "ST22",
+    departureLabel: "7:50pm",
+    dayLabel: "Tomorrow",
+    statusLabel: "Timetabled",
+  },
+];
 
 const LINE_PLATFORM_PRESETS: Record<
   (typeof PLATFORM_PRESET_PRIORITY)[number],
@@ -1068,10 +1681,10 @@ const LINE_PLATFORM_PRESETS: Record<
   }
 > = {
   metroTunnel: {
-    inboundLabel: "Platform 1 · City bound",
-    inboundServices: ["Town Hall", "State Library"],
-    outboundLabel: "Platform 2 · Tunnel outbound",
-    outboundServices: ["Sunbury", "Cranbourne"],
+    inboundLabel: "Platform 1 � Sunbury / Watergardens",
+    inboundServices: ["Sunbury", "Watergardens"],
+    outboundLabel: "Platform 2 � Cranbourne / Pakenham",
+    outboundServices: ["Cranbourne", "Pakenham"],
     tone: "bg-cyan-500/12 border-cyan-400/20 text-cyan-100",
   },
   frankston: {
@@ -1191,6 +1804,13 @@ const LINE_PLATFORM_PRESETS: Record<
 // Helpers
 // =========================
 function getStationDetails(station: Station): string {
+  if (station.name === "Southern Cross") {
+    return "Metro, V/Line, XPT, coaches, replacement buses";
+  }
+  if (station.name === "Flinders Street") {
+    return "13 platforms · Staffed (premium) · Partially gated (some Myki barriers + open entrances) · Accessible · Major CBD hub with tram connections and easy interchange to Town Hall via City Loop";
+  }
+
   const details: string[] = [];
 
   if (station.metro) details.push("Metro");
@@ -1213,6 +1833,19 @@ function getStationLineMemberships(stationName: string) {
 }
 
 function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
+  if (station.name === "South Yarra") {
+    return SOUTH_YARRA_PLATFORM_BOARD;
+  }
+  if (station.name === "Richmond") {
+    return RICHMOND_PLATFORM_BOARD;
+  }
+  if (station.name === "Flinders Street") {
+    return FLINDERS_STREET_PLATFORM_BOARD;
+  }
+  if (["Flagstaff", "Melbourne Central", "Parliament", "State Library", "Town Hall"].includes(station.name)) {
+    return CITY_LOOP_PLATFORM_BOARD;
+  }
+
   const memberships = getStationLineMemberships(station.name);
   const primaryLine = memberships[0] ?? "frankston";
   const preset = LINE_PLATFORM_PRESETS[primaryLine];
@@ -1268,6 +1901,58 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
   ];
 }
 
+function getPlatformServiceDisplay(
+  stationName: string,
+  platformLabel: string,
+  service: PlatformBoardEntry["services"][number],
+) {
+  let destination = service.destination;
+  let originLabel = service.originLabel;
+  let viaLabel = service.viaLabel;
+
+  const arrowParts = destination
+    .split(/\s*(?:→|->|â†’)\s*/g)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const isCityLoopStation = ["Flagstaff", "Melbourne Central", "Parliament", "State Library", "Town Hall"].includes(stationName);
+
+  if (isCityLoopStation) {
+    const isCaulfieldFrankstonPlatform = /caulfield|frankston/i.test(platformLabel);
+    const isCliftonHillPlatform = /clifton hill/i.test(platformLabel);
+    const isNorthernPlatform = /northern/i.test(platformLabel);
+    const isBurnleyPlatform = /burnley/i.test(platformLabel);
+
+    if (isCaulfieldFrankstonPlatform && arrowParts.length > 1) {
+      originLabel ||= `Origin ${arrowParts[arrowParts.length - 1]}`;
+      destination = "City Loop";
+      viaLabel ||= "Stops all via City Loop";
+    } else if (isCliftonHillPlatform) {
+      destination = arrowParts.length > 1 ? arrowParts[arrowParts.length - 1] : destination;
+      originLabel ||= "Origin Flinders Street";
+      viaLabel ||= "Stops all via City Loop";
+    } else if (isNorthernPlatform) {
+      destination = arrowParts.length > 1 ? arrowParts[arrowParts.length - 1] : destination;
+      originLabel ||= "Origin Flinders Street";
+      viaLabel ||= "Stops all via City Loop";
+    } else if (isBurnleyPlatform) {
+      destination = arrowParts.length > 1 ? arrowParts[arrowParts.length - 1] : destination;
+      originLabel ||= "Origin Flinders Street";
+      viaLabel ||= "Stops all via City Loop";
+    } else if (arrowParts.length > 1) {
+      originLabel ||= `Origin ${arrowParts[0]}`;
+      destination = arrowParts[arrowParts.length - 1];
+      viaLabel ||= "Via City Loop";
+    }
+  }
+
+  return {
+    destination,
+    originLabel,
+    viaLabel,
+  };
+}
+
 function offsetPolylineCoordinates(
   coordinates: [number, number][],
   direction: "left" | "right" = "left",
@@ -1321,33 +2006,109 @@ function offsetPolylineCoordinates(
 }
 
 function renderStationMarkers(
+  renderedStationKeys: Set<string>,
   stations: Station[],
   fillColor: string,
   strokeColor: string,
   resolveStation: (station: Station) => Station,
   onSelectStation: (station: Station) => void,
 ) {
-  return stations.map((station) => (
+  return stations.map((station) => {
+    const resolvedStation = resolveStation(station);
+    const isCityLoopPill = CITY_LOOP_PILL_STATIONS.has(resolvedStation.name);
+    const shouldRenderOnce = SINGLE_RENDER_STATIONS.has(resolvedStation.name);
+    const isCombinedLoopInterchange = COMBINED_LOOP_INTERCHANGES.has(resolvedStation.name);
+    const stationRenderKey = isCombinedLoopInterchange
+      ? "Melbourne Central / State Library"
+      : `${resolvedStation.name}`;
+    const markerPosition = isCombinedLoopInterchange
+      ? MELBOURNE_CENTRAL_STATE_LIBRARY_INTERCHANGE
+      : resolvedStation.position;
+    const markerName = isCombinedLoopInterchange
+      ? "Melbourne Central / State Library"
+      : resolvedStation.name;
+
+    if (shouldRenderOnce && renderedStationKeys.has(stationRenderKey)) {
+      return null;
+    }
+
+    if (shouldRenderOnce) {
+      renderedStationKeys.add(stationRenderKey);
+    }
+
+    if (isCityLoopPill) {
+      return (
+        <Marker
+          key={`${station.name}-${station.position[0]}-${station.position[1]}`}
+          position={markerPosition}
+          icon={createCityLoopPillIcon(strokeColor, markerName)}
+          zIndexOffset={900}
+          eventHandlers={{
+            click: () => onSelectStation(resolvedStation),
+          }}
+        >
+          <Popup>
+            <div className="p-3 w-48">
+              <p className="font-semibold text-white">{markerName}</p>
+              <p className="text-xs text-white/60 mt-1">
+                {getStationDetails(resolvedStation)}
+              </p>
+            </div>
+          </Popup>
+        </Marker>
+      );
+    }
+
+    return (
+      <CircleMarker
+        key={`${station.name}-${station.position[0]}-${station.position[1]}`}
+        center={resolvedStation.position}
+        radius={5}
+        pathOptions={{
+          color: strokeColor,
+          fillColor,
+          fillOpacity: 1,
+          weight: 2,
+        }}
+        eventHandlers={{
+          click: () => onSelectStation(resolvedStation),
+        }}
+      >
+        <Popup>
+          <div className="p-3 w-48">
+            <p className="font-semibold text-white">{resolvedStation.name}</p>
+            <p className="text-xs text-white/60 mt-1">
+              {getStationDetails(resolvedStation)}
+            </p>
+          </div>
+        </Popup>
+      </CircleMarker>
+    );
+  });
+}
+
+function renderRouteStopMarkers(
+  stops: Array<{ name: string; position: [number, number] }>,
+  fillColor: string,
+  strokeColor: string,
+  subtitle: string,
+) {
+  return stops.map((stop) => (
     <CircleMarker
-      key={`${station.name}-${station.position[0]}-${station.position[1]}`}
-      center={resolveStation(station).position}
-      radius={5}
+      key={`${stop.name}-${stop.position[0]}-${stop.position[1]}`}
+      center={stop.position}
+      radius={4}
       pathOptions={{
         color: strokeColor,
         fillColor,
-        fillOpacity: 1,
+        fillOpacity: 0.95,
         weight: 2,
-      }}
-      eventHandlers={{
-        click: () => onSelectStation(resolveStation(station)),
       }}
     >
       <Popup>
         <div className="p-3 w-48">
-          <p className="font-semibold text-white">{resolveStation(station).name}</p>
-          <p className="text-xs text-white/60 mt-1">
-            {getStationDetails(resolveStation(station))}
-          </p>
+          <p className="font-semibold text-white">{stop.name}</p>
+          <p className="text-xs text-white/60 mt-1">{subtitle}</p>
         </div>
       </Popup>
     </CircleMarker>
@@ -1737,6 +2498,7 @@ export function Map({
   showFilterRail = true,
 }: MapProps = {}) {
   const mapRef = useRef<L.Map | null>(null);
+  const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
   const consistData = null as any;
 
   const { data } = useGetReports({
@@ -1806,14 +2568,19 @@ const [layers, setLayers] = useState<LayerState>({
   });
 
   useEffect(() => {
-    if (persistedLayerState) {
+    if (persistedLayerState && !areLayerStatesEqual(layers, { ...layers, ...persistedLayerState })) {
       setLayers((prev) => ({ ...prev, ...persistedLayerState }));
     }
-  }, [persistedLayerState]);
+  }, [layers, persistedLayerState]);
 
   useEffect(() => {
-    onLayerStateChange?.(layers);
-  }, [/*layers, onLayerStateChange //causes infinite loop*/]);
+    if (!onLayerStateChange) return;
+    if (lastEmittedLayerStateRef.current && areLayerStatesEqual(lastEmittedLayerStateRef.current, layers)) {
+      return;
+    }
+    lastEmittedLayerStateRef.current = layers;
+    onLayerStateChange(layers);
+  }, [layers, onLayerStateChange]);
 
   useEffect(() => {
     if (!mapRef.current) {
@@ -1895,6 +2662,8 @@ const [layers, setLayers] = useState<LayerState>({
   const toggleLayer = useCallback((key: keyof LayerState) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
+
+  const renderedStationKeys = new Set<string>();
 
   const toggleServiceFilter = useCallback((filter: ServiceFilterKey) => {
     setLayers((prev) => {
@@ -2243,6 +3012,30 @@ const [layers, setLayers] = useState<LayerState>({
           maxZoom={19}
         />
 
+        <Marker
+          position={STATE_LIBRARY_POSITION}
+          icon={createCityLoopPillIcon("#279FD5", "State Library")}
+          zIndexOffset={905}
+          eventHandlers={{
+            click: () =>
+              setSelectedDetail({
+                type: "station",
+                station: resolveStation({
+                  name: "State Library",
+                  position: STATE_LIBRARY_POSITION,
+                  metro: true,
+                }),
+              }),
+          }}
+        >
+          <Popup>
+            <div className="p-3 w-48">
+              <p className="font-semibold text-white">State Library</p>
+              <p className="text-xs text-white/60 mt-1">Metro station</p>
+            </div>
+          </Popup>
+        </Marker>
+
 {modeIsTrainVisible && layers.frankstonLine && (
   <>
   <Polyline positions={CAUFIELD_LOOP}
@@ -2252,40 +3045,48 @@ const [layers, setLayers] = useState<LayerState>({
       positions={FRANKSTON_TRACK}
       pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
     />
-    {renderStationMarkers(FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 {modeIsTrainVisible && layers.merndaLine && (
   <>
     <Polyline
-      positions={MERNDA_LINE}
+      positions={MERNDA_BRANCH_LINE}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(MERNDA_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, MERNDA_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
 {modeIsTrainVisible && layers.hurstbridgeLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(HURSTBRIDGE_LINE, "left", 0.45)}
+      positions={offsetPolylineCoordinates(HURSTBRIDGE_BRANCH_LINE, "left", 0.45)}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
     <Polyline
-      positions={offsetPolylineCoordinates(HURSTBRIDGE_LINE, "right", 0.45)}
+      positions={offsetPolylineCoordinates(HURSTBRIDGE_BRANCH_LINE, "right", 0.45)}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(HURSTBRIDGE_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, HURSTBRIDGE_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
 {modeIsTrainVisible && layers.cliftonHillLoop && (
   <>
+  <Polyline
+  positions={JOLIMONT_TO_WEST_RICHMOND}
+  pathOptions={{
+    color: "#BE1014",
+    weight: 5,
+    opacity: 0.95,
+  }}
+/>
     <Polyline
       positions={offsetPolylineCoordinates(CLIFTONHILL_LOOP, "left", 0.4)}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(CLIFTONHILLGROUPLOOP_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, CLIFTONHILLGROUPLOOP_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 {modeIsTrainVisible && (layers.sunburyLine || layers.craigieburnLine || layers.upfieldLine || layers.northernLoop) && (
@@ -2294,7 +3095,7 @@ const [layers, setLayers] = useState<LayerState>({
       positions={NORTHERN_LOOP}
       pathOptions={{ color: "#FFD200", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(NORTHERNGROUPLOOP_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, NORTHERNGROUPLOOP_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
@@ -2304,7 +3105,7 @@ const [layers, setLayers] = useState<LayerState>({
       positions={offsetPolylineCoordinates(BURNLEY_LOOP, "left", 0.45)}
   pathOptions={{ color: "#003A8F", weight: 3, opacity: 0.6 }}
     />
-    {renderStationMarkers(BURNLEYGROUPLOOP_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, BURNLEYGROUPLOOP_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 {modeIsTrainVisible && layers.lilydaleLine && (
@@ -2325,7 +3126,7 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(LILYDALE_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, LILYDALE_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
@@ -2347,7 +3148,7 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(BELGRAVE_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, BELGRAVE_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
@@ -2369,7 +3170,7 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(ALAMEIN_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, ALAMEIN_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
@@ -2391,7 +3192,7 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(GLEN_WAVERLEY_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, GLEN_WAVERLEY_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 {modeIsTrainVisible && layers.craigieburnLine && (
@@ -2412,7 +3213,7 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
 
@@ -2434,7 +3235,7 @@ const [layers, setLayers] = useState<LayerState>({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(UPFIELD_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, UPFIELD_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
         {modeIsTrainVisible && layers.cranbourneLine && (
@@ -2451,7 +3252,7 @@ const [layers, setLayers] = useState<LayerState>({
               )}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            {renderStationMarkers(renderedStationKeys, CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
 
@@ -2465,7 +3266,7 @@ const [layers, setLayers] = useState<LayerState>({
               positions={offsetPolylineCoordinates(PAKENHAM_LINE, "right", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            {renderStationMarkers(renderedStationKeys, PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
 
@@ -2479,7 +3280,7 @@ const [layers, setLayers] = useState<LayerState>({
               positions={offsetPolylineCoordinates(SUNBURY_LINE, "right", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            {renderStationMarkers(renderedStationKeys, SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
 
@@ -2493,7 +3294,7 @@ const [layers, setLayers] = useState<LayerState>({
               positions={offsetPolylineCoordinates(METRO_TUNNEL_LINE, "right", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            {renderStationMarkers(renderedStationKeys, METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
 {modeIsTrainVisible && layers.werribeeLine && (
@@ -2545,9 +3346,9 @@ const [layers, setLayers] = useState<LayerState>({
       }}
     />
 
-    {renderStationMarkers(WERRIBEE_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
-    {renderStationMarkers(WILLIAMSTOWN_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
-    {renderStationMarkers(ALTONA_LOOP_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, WERRIBEE_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, WILLIAMSTOWN_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, ALTONA_LOOP_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
         {modeIsTrainVisible && layers.sandringhamLine && (
@@ -2560,7 +3361,7 @@ const [layers, setLayers] = useState<LayerState>({
               )}
               pathOptions={{ color: "#F178AF", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(SANDRINGHAM_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            {renderStationMarkers(renderedStationKeys, SANDRINGHAM_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
 
@@ -3174,7 +3975,7 @@ const [layers, setLayers] = useState<LayerState>({
       )}
 
       {selectedDetail && selectedDetail.type !== "vehicle" && (
-        <div className="absolute inset-x-3 bottom-32 z-[1001] mx-auto max-w-[calc(100%-1.5rem)] rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-3.5 shadow-2xl backdrop-blur-2xl max-md:max-h-[42vh] max-md:overflow-y-auto sm:bottom-24 sm:max-w-xl sm:p-4">
+        <div className="absolute inset-x-3 bottom-32 z-[1001] mx-auto max-h-[52vh] max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-3.5 shadow-2xl backdrop-blur-2xl sm:bottom-24 sm:max-w-2xl sm:p-4 lg:max-w-3xl">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-300/75">
@@ -3197,58 +3998,176 @@ const [layers, setLayers] = useState<LayerState>({
 
           {selectedDetail.type === "station" && (
             <div className="mt-3 space-y-3 text-sm text-white/70">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-3">{getStationDetails(selectedDetail.station)}</div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                  Marker position
-                  <div className="mt-1 text-white/90">
-                    {selectedDetail.station.position[0].toFixed(5)}, {selectedDetail.station.position[1].toFixed(5)}
-                  </div>
-                </div>
-              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">{getStationDetails(selectedDetail.station)}</div>
 
-              <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-300/75">
-                  Next services
-                </p>
-                <p className="mt-1 text-sm text-white/60">
-                  The next two services showing on each platform at {selectedDetail.station.name}.
-                </p>
-
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  {buildPlatformBoard(selectedDetail.station).map((platform) => (
-                    <div
-                      key={`${selectedDetail.station.name}-platform-${platform.platform}`}
-                      className={`rounded-[1.15rem] border p-3 ${platform.tone}`}
-                    >
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/55">
-                        {platform.label}
+              {selectedDetail.station.name === "Southern Cross" && (
+                <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-300/75">
+                        Departure board
                       </p>
-                      <div className="mt-3 space-y-2">
-                          {platform.services.map((service, index) => (
-                            <div
-                              key={`${platform.platform}-${service.destination}-${index}`}
-                              className="flex items-center justify-between rounded-xl border border-white/10 bg-black/15 px-3 py-2"
-                            >
-                              <div>
-                                <p className="text-sm font-semibold text-white">{service.destination}</p>
-                                <div className="mt-1 flex flex-wrap items-center gap-2">
-                                  <p className="text-[11px] text-white/50">Next service</p>
-                                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/80">
-                                    {service.tdnLabel}
+                      <p className="mt-1 text-xs text-white/55">
+                        Styled like the concourse screens for a quick glance.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
+                      Southern Cross
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
+                    <div className="overflow-hidden rounded-[1.25rem] border border-white/10 bg-slate-900/90 shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
+                      <div className="border-b border-white/10 bg-slate-950/80 px-4 py-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
+                          Southern Cross
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-white">Platform 1</p>
+                        <p className="mt-1 text-xs text-white/55">Regional departures can vary. Check platform displays.</p>
+                      </div>
+
+                      <div className="divide-y divide-slate-800/90">
+                        {SOUTHERN_CROSS_PLATFORM_1_SERVICES.map((service) => (
+                          <div
+                            key={`${service.runId}-${service.departureLabel}-${service.dayLabel}`}
+                            className="bg-white px-4 py-3 text-slate-950"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="rounded-md bg-slate-950 px-2 py-1 text-xs font-bold text-white">
+                                    {service.runId}
+                                  </span>
+                                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                    Plt 1
                                   </span>
                                 </div>
+                                <p className="mt-2 text-lg font-semibold leading-tight">{service.destination}</p>
+                                <p className="mt-1 text-sm text-slate-700">{service.lineLabel} • {service.consist}</p>
                               </div>
-                              <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/85">
-                                {service.etaLabel}
+                              <div className="text-right">
+                                <p className="text-sm font-semibold text-slate-950">{service.departureLabel}</p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">{service.dayLabel}</p>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex items-center justify-between">
+                              <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+                                {service.statusLabel}
+                              </span>
+                              <span className="rounded-md bg-slate-950 px-2.5 py-1 text-xs font-semibold text-white">
+                                Platform 1
                               </span>
                             </div>
+                          </div>
                         ))}
                       </div>
                     </div>
-                  ))}
+
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {SOUTHERN_CROSS_DEPARTURE_BOARD.map((column) => (
+                        <div
+                          key={column.title}
+                          className="overflow-hidden rounded-[1.25rem] border border-white/10 bg-slate-900/85 shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
+                        >
+                          <div className={`h-1.5 w-full ${column.accent}`} />
+                          <div className="divide-y divide-slate-800/90">
+                            {column.services.map((service) => (
+                              <div
+                                key={`${column.title}-${service.destination}-${service.scheduledTime}`}
+                                className="flex items-start justify-between gap-3 bg-white px-4 py-3 text-slate-950"
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-lg font-semibold leading-tight">{service.destination}</p>
+                                  <p className="mt-1 text-sm text-slate-700">{service.via}</p>
+                                  <p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                                    {service.scheduledTime}
+                                  </p>
+                                </div>
+                                <span className="shrink-0 rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white shadow-sm">
+                                  {service.minuteBadge}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {selectedDetail.station.name !== "Southern Cross" && (
+                <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-300/75">
+                    Next services
+                  </p>
+                  <p className="mt-1 text-xs text-white/55">
+                    The next two services showing on each platform at {selectedDetail.station.name}.
+                  </p>
+
+                  <div className="mt-2.5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {buildPlatformBoard(selectedDetail.station).map((platform) => (
+                      <div
+                        key={`${selectedDetail.station.name}-platform-${platform.platform}`}
+                        className={`rounded-[1rem] border p-2.5 ${platform.tone}`}
+                      >
+                        <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-white/55">
+                          {platform.label}
+                        </p>
+                        <div className="mt-2 space-y-1.5">
+                          {platform.services.length > 0 ? (
+                            platform.services.map((service, index) => {
+                              const display = getPlatformServiceDisplay(
+                                selectedDetail.station.name,
+                                platform.label,
+                                service,
+                              );
+
+                              return (
+                              <div
+                                key={`${platform.platform}-${service.destination}-${index}`}
+                                className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/15 px-2.5 py-1.5"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-semibold text-white">{display.destination}</p>
+                                  {(display.originLabel || display.viaLabel) && (
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      {display.originLabel && (
+                                        <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-medium text-white/70">
+                                          {display.originLabel}
+                                        </span>
+                                      )}
+                                      {display.viaLabel && (
+                                        <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-medium text-white/70">
+                                          {display.viaLabel}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                    <p className="text-[10px] text-white/50">{service.statusLabel ?? "Next service"}</p>
+                                    <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/80">
+                                      {service.tdnLabel}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/85">
+                                  {service.etaLabel}
+                                </span>
+                              </div>
+                            )})
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-white/15 bg-black/10 px-3 py-5 text-center">
+                              <p className="text-xs font-semibold text-white/85">No regular departures</p>
+                              <p className="mt-1 text-[10px] text-white/55">{platform.emptyState ?? "Check the live station displays for any special movements."}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -3293,4 +4212,13 @@ export function getFilterChips(filterKey: ServiceFilterKey) {
       return [];
   }
 }
+
+
+
+
+
+
+
+
+
 

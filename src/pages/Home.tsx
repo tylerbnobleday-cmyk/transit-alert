@@ -32,6 +32,56 @@ import {
   writeLocalPreferences,
 } from "@/lib/preferences";
 
+const TRAIN_BOARDING_HINTS: Record<string, { zone: string; reason: string }> = {
+  "North Melbourne": {
+    zone: "Front third",
+    reason: "Best for quick exits toward concourse links and northern platform changes.",
+  },
+  "Southern Cross": {
+    zone: "Front third",
+    reason: "Usually easiest for regional interchange, coach links, and the main concourse.",
+  },
+  "Flinders Street": {
+    zone: "Middle cars",
+    reason: "Best all-round spot for the subway, Swanston Street exits, and platform swaps.",
+  },
+  Richmond: {
+    zone: "Middle cars",
+    reason: "Keeps you close to the stairs for Burnley, Clifton Hill, Sandringham, and Frankston transfers.",
+  },
+  "South Yarra": {
+    zone: "Middle to rear",
+    reason: "Better for Sandringham and Frankston-side interchanges without a long platform walk.",
+  },
+  Parliament: {
+    zone: "Middle cars",
+    reason: "Closest to the main CBD concourse and exits.",
+  },
+  "Melbourne Central": {
+    zone: "Middle cars",
+    reason: "Best for the central concourse, escalators, and connecting walkways.",
+  },
+  Flagstaff: {
+    zone: "Middle cars",
+    reason: "Best for station exits and less rushing along the platform.",
+  },
+};
+
+const SIMPLE_SURFACE_ROUTES = [
+  {
+    name: "Route 64 tram",
+    mode: "tram" as const,
+    stops: ["Melbourne University", "Domain Interchange", "Balaclava Junction", "Caulfield Junction", "East Brighton"],
+    summary: "Good cross-city tram link via Domain, St Kilda Road, and Hawthorn Road.",
+  },
+  {
+    name: "Route 630 bus",
+    mode: "bus" as const,
+    stops: ["Elwood", "Elsternwick Station", "Ormond Station", "Huntingdale Station", "Monash University"],
+    summary: "Useful orbital bus for rail interchanges between the bayside and Monash corridor.",
+  },
+];
+
 type PlannerSheetProps = {
   isOpen: boolean;
   onToggle: () => void;
@@ -167,6 +217,36 @@ function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
   }));
 }
 
+function areStringArraysEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function areBooleanMapsEqual(
+  left: Record<string, boolean>,
+  right: Record<string, boolean>,
+) {
+  const leftEntries = Object.entries(left).sort(([a], [b]) => a.localeCompare(b));
+  const rightEntries = Object.entries(right).sort(([a], [b]) => a.localeCompare(b));
+
+  if (leftEntries.length !== rightEntries.length) return false;
+
+  return leftEntries.every(([key, value], index) => {
+    const [otherKey, otherValue] = rightEntries[index] ?? [];
+    return key === otherKey && value === otherValue;
+  });
+}
+
+function arePreferencePatchesEqual(current: UserPreferences, next: UserPreferences) {
+  return (
+    areStringArraysEqual(current.favouriteStops, next.favouriteStops) &&
+    areStringArraysEqual(current.favouriteRoutes, next.favouriteRoutes) &&
+    areStringArraysEqual(current.transportModes, next.transportModes) &&
+    areBooleanMapsEqual(current.selectedMapFilters, next.selectedMapFilters) &&
+    JSON.stringify(current.appPreferences) === JSON.stringify(next.appPreferences)
+  );
+}
+
 const STATION_SERVICE_LOOKUP: Record<string, string[]> = {
   "Town Hall": ["Sunbury", "Cranbourne", "Pakenham", "Metro Tunnel"],
   "State Library": ["Sunbury", "Cranbourne", "Pakenham", "Metro Tunnel"],
@@ -283,6 +363,7 @@ export default function Home() {
   const [journeyDestination, setJourneyDestination] = useState<string>("Sandringham");
   const [journeyRoute, setJourneyRoute] = useState<Station[]>([]);
   const [journeySummary, setJourneySummary] = useState<string>("Plan a journey using the fields below.");
+  const [journeyBoardingAdvice, setJourneyBoardingAdvice] = useState<string>("");
   const [isOriginPickerOpen, setIsOriginPickerOpen] = useState(false);
   const [originSearch, setOriginSearch] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
@@ -487,18 +568,38 @@ export default function Home() {
       : stations.slice(endIndex, startIndex + 1).reverse();
   };
 
+  const getJourneyBoardingAdvice = (route: Station[], summary: string) => {
+    if (route.length < 2) return "";
+
+    const transferMatch = summary.match(/Change at (.+?) from/);
+    const focusStation = transferMatch?.[1] ?? route[route.length - 1]?.name;
+    const hint = (focusStation && TRAIN_BOARDING_HINTS[focusStation]) || null;
+
+    if (hint) {
+      return `${hint.zone}: ${hint.reason}`;
+    }
+
+    return "Middle cars: usually the safest all-round pick for concourse access, stairs, and flexible transfers.";
+  };
+
+  const applyJourneyPlan = (route: Station[], summary: string) => {
+    setJourneyRoute(route);
+    setJourneySummary(summary);
+    setJourneyBoardingAdvice(getJourneyBoardingAdvice(route, summary));
+  };
+
   const computeJourneyRoute = () => {
     const origin = ALL_STATIONS.find((station) => station.name === journeyOrigin);
     const destination = ALL_STATIONS.find((station) => station.name === journeyDestination);
     if (!origin || !destination) {
       setJourneyRoute([]);
       setJourneySummary("Select valid stations to plan a route.");
+      setJourneyBoardingAdvice("");
       return;
     }
 
     if (origin.name === destination.name) {
-      setJourneyRoute([origin]);
-      setJourneySummary("You're already at your destination.");
+      applyJourneyPlan([origin], "You're already at your destination.");
       return;
     }
 
@@ -519,8 +620,7 @@ export default function Home() {
 
     if (commonLine) {
       const segment = getLineSegment(commonLine.stations, origin.name, destination.name);
-      setJourneyRoute(segment);
-      setJourneySummary(`Direct journey via the ${commonLine.name} line (${segment.length} stops).`);
+      applyJourneyPlan(segment, `Direct journey via the ${commonLine.name} line (${segment.length} stops).`);
       return;
     }
 
@@ -543,13 +643,11 @@ export default function Home() {
     }
 
     if (bestRoute.length) {
-      setJourneyRoute(bestRoute);
-      setJourneySummary(bestSummary);
+      applyJourneyPlan(bestRoute, bestSummary);
       return;
     }
 
-    setJourneyRoute([origin, destination]);
-    setJourneySummary("Fallback route: start and end markers shown, with no route connection found.");
+    applyJourneyPlan([origin, destination], "Fallback route: start and end markers shown, with no route connection found.");
   };
 
   const loadStationDraft = (stationName: string) => {
@@ -568,21 +666,29 @@ export default function Home() {
   };
 
 
-  const updatePreferences = useCallback((patch: Partial<UserPreferences>) => {
-    setPreferences((current) => {
-      const next = {
-        ...current,
-        ...patch,
-      };
-      writeLocalPreferences(next);
-      if (isAuthenticated && !isGuest) {
-        void saveAccountPreferences(next).catch((error) => {
-          console.warn("Unable to save account preferences right now.", error);
-        });
-      }
-      return next;
-    });
-  },[]);
+  const updatePreferences = useCallback(
+    (patch: Partial<UserPreferences>) => {
+      setPreferences((current) => {
+        const next = {
+          ...current,
+          ...patch,
+        };
+
+        if (arePreferencePatchesEqual(current, next)) {
+          return current;
+        }
+
+        writeLocalPreferences(next);
+        if (isAuthenticated && !isGuest) {
+          void saveAccountPreferences(next).catch((error) => {
+            console.warn("Unable to save account preferences right now.", error);
+          });
+        }
+        return next;
+      });
+    },
+    [isAuthenticated, isGuest],
+  );
 
   const layerState = preferences.selectedMapFilters as Partial<LayerState>;
 
@@ -787,7 +893,26 @@ export default function Home() {
   }
 
   if (!isAuthenticated) {
-    return null;
+    return (
+      <main className="flex min-h-[100dvh] items-center justify-center bg-background px-6 text-white">
+        <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-card/85 p-6 shadow-2xl backdrop-blur-xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-300/80">
+            TransitAlert Melbourne
+          </p>
+          <h1 className="mt-3 text-2xl font-semibold">Session ended</h1>
+          <p className="mt-2 text-sm text-white/65">
+            Your app session is no longer active, so we&apos;re sending you back to sign in.
+          </p>
+          <button
+            type="button"
+            onClick={() => setLocation("/login")}
+            className="mt-5 w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+          >
+            Go to login
+          </button>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -1059,11 +1184,11 @@ export default function Home() {
                     <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">Transport modes</p>
                     <div className="mt-2 grid grid-cols-2 gap-2">
                       {([
-                        { key: "train", label: "Trains" },
-                        { key: "tram", label: "Trams" },
-                        { key: "bus", label: "Buses" },
-                        { key: "vline", label: "V/Line" },
-                      ] as Array<{ key: TransportMode; label: string }>).map((mode) => {
+                        { key: "train", label: "Trains", activeClass: "border-blue-400/40 bg-blue-500/12 text-blue-100" },
+                        { key: "tram", label: "Trams", activeClass: "border-[#78BE20]/50 bg-[#78BE20]/15 text-[#d9ffb7]" },
+                        { key: "bus", label: "Buses", activeClass: "border-[#FF8200]/55 bg-[#FF8200]/15 text-[#ffd4a3]" },
+                        { key: "vline", label: "V/Line", activeClass: "border-purple-400/40 bg-purple-500/12 text-purple-100" },
+                      ] as Array<{ key: TransportMode; label: string; activeClass: string }>).map((mode) => {
                         const active = (preferences.transportModes as TransportMode[]).includes(mode.key);
                         const disabled = mode.key === "vline";
                         return (
@@ -1076,7 +1201,7 @@ export default function Home() {
                               disabled
                                 ? "cursor-not-allowed border-purple-400/20 bg-purple-500/8 text-purple-200/50 opacity-70"
                                 : active
-                                  ? "border-blue-400/40 bg-blue-500/12 text-blue-100"
+                                  ? mode.activeClass
                                   : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
                             }`}
                           >
@@ -1163,6 +1288,15 @@ export default function Home() {
                       </div>
                     )}
                   </div>
+
+                  {journeyBoardingAdvice && journeyRoute.length > 1 && (
+                    <div className="mt-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200/85">
+                        Best boarding position
+                      </p>
+                      <p className="mt-1 text-sm text-emerald-50/95">{journeyBoardingAdvice}</p>
+                    </div>
+                  )}
 
                   {journeyRoute.length > 0 && (
                     <div className="mt-4 grid gap-2">
