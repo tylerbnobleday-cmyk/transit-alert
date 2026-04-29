@@ -47,7 +47,7 @@ const defaultPreferences = {
   favouriteStops: [],
   favouriteRoutes: [],
   selectedMapFilters: {},
-  transportModes: ["train"],
+  transportModes: ["train", "tram", "bus", "vline"],
   appPreferences: {},
   updatedAt: new Date(),
 };

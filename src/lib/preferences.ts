@@ -7,14 +7,19 @@ export type UserPreferences = {
 };
 
 const LOCAL_STORAGE_KEY = "transitalert-local-preferences";
+export const DEFAULT_TRANSPORT_MODES = ["train", "tram", "bus", "vline"] as const;
 
 export const defaultPreferences: UserPreferences = {
   favouriteStops: [],
   favouriteRoutes: [],
   selectedMapFilters: {},
-  transportModes: ["train"],
+  transportModes: [...DEFAULT_TRANSPORT_MODES],
   appPreferences: {},
 };
+
+function isNetworkError(error: unknown) {
+  return error instanceof TypeError;
+}
 
 export function readLocalPreferences(): UserPreferences {
   try {
@@ -25,7 +30,10 @@ export function readLocalPreferences(): UserPreferences {
       favouriteStops: Array.isArray(parsed.favouriteStops) ? parsed.favouriteStops : [],
       favouriteRoutes: Array.isArray(parsed.favouriteRoutes) ? parsed.favouriteRoutes : [],
       selectedMapFilters: parsed.selectedMapFilters && typeof parsed.selectedMapFilters === "object" ? parsed.selectedMapFilters : {},
-      transportModes: Array.isArray(parsed.transportModes) && parsed.transportModes.length > 0 ? parsed.transportModes : ["train"],
+      transportModes:
+        Array.isArray(parsed.transportModes) && parsed.transportModes.length > 0
+          ? parsed.transportModes
+          : [...DEFAULT_TRANSPORT_MODES],
       appPreferences: parsed.appPreferences && typeof parsed.appPreferences === "object" ? parsed.appPreferences : {},
     };
   } catch {
@@ -50,41 +58,65 @@ export function clearLocalPreferences() {
 }
 
 export async function fetchAccountPreferences() {
-  const response = await fetch("/api/preferences");
-  if (!response.ok) {
-    throw new Error(`Failed to load preferences (${response.status})`);
+  try {
+    const response = await fetch("/api/preferences");
+    if (!response.ok) {
+      throw new Error(`Failed to load preferences (${response.status})`);
+    }
+    const payload = (await response.json()) as { preferences?: Partial<UserPreferences> };
+    return {
+      ...defaultPreferences,
+      ...payload.preferences,
+    };
+  } catch (error) {
+    if (isNetworkError(error)) {
+      return readLocalPreferences();
+    }
+    throw error;
   }
-  const payload = (await response.json()) as { preferences?: Partial<UserPreferences> };
-  return {
-    ...defaultPreferences,
-    ...payload.preferences,
-  };
 }
 
 export async function saveAccountPreferences(preferences: Partial<UserPreferences>) {
-  const response = await fetch("/api/preferences", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(preferences),
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({ error: "Failed to save preferences" }))) as { error?: string };
-    throw new Error(payload.error || "Failed to save preferences");
+  try {
+    const response = await fetch("/api/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(preferences),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({ error: "Failed to save preferences" }))) as { error?: string };
+      throw new Error(payload.error || "Failed to save preferences");
+    }
+    const payload = (await response.json()) as { preferences?: UserPreferences };
+    return payload.preferences ?? defaultPreferences;
+  } catch (error) {
+    if (isNetworkError(error)) {
+      return {
+        ...defaultPreferences,
+        ...preferences,
+      };
+    }
+    throw error;
   }
-  const payload = (await response.json()) as { preferences?: UserPreferences };
-  return payload.preferences ?? defaultPreferences;
 }
 
 export async function mergeLocalPreferences(preferences: UserPreferences) {
-  const response = await fetch("/api/preferences/merge", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(preferences),
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({ error: "Failed to merge preferences" }))) as { error?: string };
-    throw new Error(payload.error || "Failed to merge preferences");
+  try {
+    const response = await fetch("/api/preferences/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(preferences),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({ error: "Failed to merge preferences" }))) as { error?: string };
+      throw new Error(payload.error || "Failed to merge preferences");
+    }
+    const payload = (await response.json()) as { preferences?: UserPreferences };
+    return payload.preferences ?? defaultPreferences;
+  } catch (error) {
+    if (isNetworkError(error)) {
+      return preferences;
+    }
+    throw error;
   }
-  const payload = (await response.json()) as { preferences?: UserPreferences };
-  return payload.preferences ?? defaultPreferences;
 }

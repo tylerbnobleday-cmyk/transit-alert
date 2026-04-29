@@ -4,31 +4,7 @@ const require = createRequire(import.meta.url);
 const GtfsRealtimeBindings = require("../../vendor/ptv/gtfs-realtime.cjs");
 
 const PTV_BASE_URL =
-  "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/metro";
-
-function normalisePtvRouteId(routeId) {
-  const code = routeId?.match(/vic-02-([A-Z0-9]+):/i)?.[1]?.toUpperCase() ?? String(routeId || "Metro");
-  const routeMap = {
-    ALM: "Alamein",
-    BEG: "Belgrave",
-    CBE: "Cranbourne",
-    CGB: "Craigieburn",
-    FKN: "Frankston",
-    GWY: "Glen Waverley",
-    HBE: "Hurstbridge",
-    LIL: "Lilydale",
-    MDD: "Mernda",
-    PKM: "Pakenham",
-    SHM: "Sandringham",
-    STY: "Stony Point",
-    SUY: "Sunbury",
-    UFD: "Upfield",
-    WER: "Werribee",
-    WIL: "Williamstown",
-  };
-
-  return routeMap[code] ?? String(routeId || "Metro");
-}
+  "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/bus";
 
 function toNumber(value) {
   if (typeof value === "number") return value;
@@ -39,20 +15,36 @@ function toNumber(value) {
   return undefined;
 }
 
-function normaliseConsistLabel(...values) {
+function normaliseBusRoute(routeId, fallback = "Bus") {
+  if (typeof routeId !== "string") {
+    return fallback;
+  }
+
+  const trimmed = routeId.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  const routeMatch = trimmed.match(/\b([A-Z]?\d{1,4}[A-Z]?)\b/i);
+  if (routeMatch) {
+    return routeMatch[1].toUpperCase();
+  }
+
+  return fallback;
+}
+
+function normaliseLabel(...values) {
   for (const value of values) {
     if (typeof value !== "string") continue;
     const trimmed = value.trim();
     if (!trimmed) continue;
-    if (/^aus:vic:vic-02-[A-Z0-9]+:/i.test(trimmed)) continue;
-    if (/^vic-02-[A-Z0-9]+:/i.test(trimmed)) continue;
     return trimmed;
   }
 
-  return "Unknown";
+  return "Bus";
 }
 
-function buildPtvLiveTrains(feed) {
+function buildPtvLiveBuses(feed) {
   return (feed.entity ?? [])
     .map((entity) => {
       const vehicle = entity.vehicle;
@@ -63,26 +55,20 @@ function buildPtvLiveTrains(feed) {
       const longitude = position.longitude;
       if (typeof latitude !== "number" || typeof longitude !== "number") return null;
 
-      const routeId = vehicle.trip?.routeId || "Metro";
-      const lineName = normalisePtvRouteId(routeId);
-      const directionId = toNumber(vehicle.trip?.directionId);
+      const route = normaliseBusRoute(vehicle.trip?.routeId);
       const timestamp = toNumber(vehicle.timestamp);
-      const label = vehicle.vehicle?.label || vehicle.vehicle?.id || entity.id || routeId;
-      const consist = normaliseConsistLabel(vehicle.vehicle?.label, vehicle.vehicle?.id);
+      const label = normaliseLabel(vehicle.vehicle?.label, vehicle.vehicle?.licensePlate, route);
 
       return {
-        tdn: label,
+        id: entity.id || vehicle.vehicle?.id || `${route}-${latitude}-${longitude}`,
+        label,
         lat: latitude,
         lng: longitude,
-        line: lineName,
-        destination: lineName,
-        status: "on_time",
+        route,
+        status: "live",
         timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
-        direction: directionId === 0 ? "up" : "down",
         heading: typeof position.bearing === "number" ? position.bearing : undefined,
-        trainType: "Metro Train",
-        consist,
-        serviceDescription: lineName,
+        operator: "PTV Bus",
       };
     })
     .filter(Boolean);
@@ -96,7 +82,7 @@ export default async function handler(req, res) {
     process.env.PTV_API_KEY;
 
   if (!ptvSubscriptionKey) {
-    res.status(200).json({ trains: [] });
+    res.status(200).json({ buses: [] });
     return;
   }
 
@@ -119,10 +105,10 @@ export default async function handler(req, res) {
 
     const buffer = await response.arrayBuffer();
     const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
-    res.status(200).json({ trains: buildPtvLiveTrains(feed) });
+    res.status(200).json({ buses: buildPtvLiveBuses(feed) });
   } catch (error) {
     res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to load live trains",
+      error: error instanceof Error ? error.message : "Failed to load live buses",
     });
   }
 }

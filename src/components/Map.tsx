@@ -16,10 +16,18 @@ import { useGetReports } from "@/lib/api-client-react/src/generated/api";
 import type { Report } from "@/lib/api-client-react/src/generated/api.schemas";
 import smartbusIcon from "@/assets/icons/smartbus.svg";
 import trainIcon from "@/assets/icons/train.svg";
-import tramIcon from "@/assets/icons/tram.svg";
+import tramIcon from "@/assets/icons/tram.png";
+import hcmtIcon from "@/assets/icons/hcmt.svg";
+import xtrapolisIcon from "@/assets/icons/xtrapolis.svg";
+import siemensIcon from "@/assets/icons/siemens.svg";
+import southsideComengIcon from "@/assets/icons/ss-comeng.svg";
+import northsideComengIcon from "@/assets/icons/ns-comeng.svg";
 import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
-import { fetchConsistSnapshot } from "@/lib/transportvic-bot";
+import { fetchLiveBuses, type LiveBus } from "@/lib/live-buses";
+import { findStationCoordinate } from "@/lib/station-coordinates";
+import { fetchConsistSnapshot, type ConsistSnapshot } from "@/lib/transportvic-bot";
 import { fetchMarkerOverrides, saveMarkerOverrides, type MarkerOverride } from "@/lib/marker-overrides";
+import { DEFAULT_TRANSPORT_MODES } from "@/lib/preferences";
 import {
   Train,
   MapPin,
@@ -36,6 +44,9 @@ import {
 
 const MELBOURNE_CENTER: [number, number] = [-37.8136, 144.9631];
 const SOUTHERN_CROSS_POSITION: [number, number] = [-37.818313906129944, 144.95218];
+const FEATURED_CONSIST = "430M";
+const FLAGSTAFF_POSITION: [number, number] = [-37.81145, 144.9562];
+const MELBOURNE_CENTRAL_POSITION: [number, number] = [-37.80955, 144.96278];
 const MELBOURNE_CENTRAL_STATE_LIBRARY_INTERCHANGE: [number, number] = [-37.80995575690716, 144.96286];
 const STATE_LIBRARY_POSITION: [number, number] = [-37.80941962893699, 144.96324300865265];
 const TOWN_HALL_POSITION: [number, number] = [-37.816897881552016, 144.96717135795797];
@@ -58,6 +69,13 @@ const SINGLE_RENDER_STATIONS = new Set([
   "Town Hall",
 ]);
 const COMBINED_LOOP_INTERCHANGES = new Set(["Melbourne Central", "State Library"]);
+const CAULFIELD_METRO_SHARED_STATIONS = new Set([
+  "Hawksburn",
+  "Toorak",
+  "Armadale",
+  "Malvern",
+  "Caulfield",
+]);
 
 function createCityLoopPillIcon(strokeColor: string, stationName: string) {
   const isHorizontalPill =
@@ -70,33 +88,37 @@ function createCityLoopPillIcon(strokeColor: string, stationName: string) {
 
   if (isCombinedCentralLibrary) {
     return L.divIcon({
-      html: `
-        <div style="display:flex;align-items:center;justify-content:center;width:40px;height:76px;position:relative;">
-          <div style="position:absolute;top:10px;left:2px;width:13px;height:5px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 10px rgba(0,0,0,0.42);"></div>
-          <div style="position:absolute;top:10px;right:2px;width:13px;height:5px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 10px rgba(0,0,0,0.42);"></div>
-          <div style="width:18px;height:58px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 10px rgba(0,0,0,0.42);position:relative;overflow:hidden;">
-            <div style="position:absolute;top:4px;bottom:4px;left:3px;width:3px;border-radius:9999px;background:${strokeColor};opacity:0.95;"></div>
-          </div>
-        </div>
-      `,
+html: `
+  <div style="position:relative;width:30px;height:58px; transform: rotate(-12deg); transform-origin: center;">
+    
+    <div style="position:absolute;left:11px;top:14px;width:8px;height:38px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 8px rgba(0,0,0,0.36);overflow:hidden;">
+      <div style="position:absolute;top:3px;bottom:3px;left:2px;width:2px;border-radius:9999px;background:${strokeColor};opacity:0.95;"></div>
+    </div>
+
+    <div style="position:absolute;left:12px;top:9px;width:9px;height:9px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);transform:rotate(45deg);box-shadow:0 3px 8px rgba(0,0,0,0.36);"></div>
+
+    <div style="position:absolute;left:16px;top:0;width:14px;height:8px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 8px rgba(0,0,0,0.36);"></div>
+
+  </div>
+`,
       className: "bg-transparent border-none",
-      iconSize: [40, 76],
-      iconAnchor: [20, 38],
+      iconSize: [30, 58],
+      iconAnchor: [15, 29],
       popupAnchor: [0, -18],
     });
   }
 
   return L.divIcon({
     html: `
-      <div style="display:flex;align-items:center;justify-content:center;width:${isHorizontalPill ? (isCompactHorizontalPill ? "34px" : "42px") : "18px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "16px" : "18px") : "42px"};">
-        <div style="width:${isHorizontalPill ? (isCompactHorizontalPill ? "28px" : "34px") : "10px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "8px" : "10px") : "34px"};border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 10px rgba(0,0,0,0.42);position:relative;overflow:hidden;">
-          <div style="position:absolute;${isHorizontalPill ? `left:${isCompactHorizontalPill ? "2px" : "3px"};right:${isCompactHorizontalPill ? "2px" : "3px"};top:2px;height:2px;` : "top:3px;bottom:3px;left:2px;width:2px;"}border-radius:9999px;background:${strokeColor};opacity:0.95;"></div>
+      <div style="display:flex;align-items:center;justify-content:center;width:${isHorizontalPill ? (isCompactHorizontalPill ? "28px" : "34px") : "14px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "14px" : "16px") : "34px"};">
+        <div style="width:${isHorizontalPill ? (isCompactHorizontalPill ? "22px" : "28px") : "8px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "7px" : "8px") : "28px"};border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 8px rgba(0,0,0,0.36);position:relative;overflow:hidden;">
+          <div style="position:absolute;${isHorizontalPill ? `left:${isCompactHorizontalPill ? "2px" : "3px"};right:${isCompactHorizontalPill ? "2px" : "3px"};top:1px;height:2px;` : "top:3px;bottom:3px;left:1px;width:2px;"}border-radius:9999px;background:${strokeColor};opacity:0.95;"></div>
         </div>
       </div>
     `,
     className: "bg-transparent border-none",
-    iconSize: isHorizontalPill ? (isCompactHorizontalPill ? [34, 16] : [42, 18]) : [18, 42],
-    iconAnchor: isHorizontalPill ? (isCompactHorizontalPill ? [17, 8] : [21, 9]) : [9, 21],
+    iconSize: isHorizontalPill ? (isCompactHorizontalPill ? [28, 14] : [34, 16]) : [14, 34],
+    iconAnchor: isHorizontalPill ? (isCompactHorizontalPill ? [14, 7] : [17, 8]) : [7, 17],
     popupAnchor: isHorizontalPill ? [0, -10] : [0, -18],
   });
 }
@@ -114,6 +136,25 @@ export type Station = {
   zone?: string;
 };
 
+type SurfaceStop = {
+  id: string;
+  name: string;
+  locality: string;
+  position: [number, number];
+  subtitle: string;
+  modes: TransportMode[];
+  routeLabel: string;
+  departures: SurfaceStopDeparture[];
+};
+
+type SurfaceStopDeparture = {
+  route: string;
+  destination: string;
+  departureLabel: string;
+  statusLabel: string;
+  note?: string;
+};
+
 interface MapProps {
   journeyRoute?: Station[];
   splitCrossCityGroup?: boolean;
@@ -123,6 +164,8 @@ interface MapProps {
   onLayerStateChange?: (layers: LayerState) => void;
   isAdmin?: boolean;
   showFilterRail?: boolean;
+  focusedVehicleKey?: string | null;
+  onFocusedVehicleHandled?: () => void;
 }
 
 export interface LayerState {
@@ -231,7 +274,7 @@ function createLiveTrainIcon(vehicle: LiveTrain) {
   const isTrackedConsist = vehicle.consist === "430M";
   const outerSize = isTrackedConsist ? 68 : 54;
   const innerSize = isTrackedConsist ? 34 : 26;
-  const badgeLabel = isTrackedConsist ? "430M" : vehicle.tdn;
+  const badgeLabel = isTrackedConsist ? "430M" : getDisplayConsist(vehicle.tdn) ?? vehicle.tdn;
   const destinationLabel = vehicle.destination
     .replace(/\bStreet\b/gi, "St")
     .replace(/\bStation\b/gi, "")
@@ -309,6 +352,79 @@ function createLiveTrainIcon(vehicle: LiveTrain) {
     className: "bg-transparent border-none",
     iconSize: [outerSize, outerSize],
     iconAnchor: [outerSize / 2, outerSize / 2],
+    popupAnchor: [0, -22],
+  });
+}
+
+function createLiveBusIcon(bus: LiveBus) {
+  const routeLabel = bus.route.slice(0, 6);
+  const destinationLabel = (bus.destination ?? "Live bus")
+    .replace(/^route\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 18);
+  const rotation = typeof bus.heading === "number" && Number.isFinite(bus.heading) ? bus.heading : 0;
+
+  return L.divIcon({
+    html: `
+      <div style="position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;inset:0;border-radius:50%;background:#f97316;opacity:0.2;animation:ping 2.2s infinite;"></div>
+        <div style="
+          width:28px;
+          height:28px;
+          border-radius:9999px;
+          background:#f97316;
+          border:2px solid white;
+          box-shadow:0 4px 14px rgba(0,0,0,0.55);
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          transform:rotate(${rotation}deg);
+        ">
+          <img src="${smartbusIcon}" alt="" style="width:14px;height:14px;object-fit:contain;filter:brightness(0) invert(1);" />
+        </div>
+        <div style="
+          position:absolute;
+          top:-8px;
+          left:50%;
+          transform:translateX(-50%);
+          background:#0f172a;
+          color:white;
+          font-size:9px;
+          font-weight:700;
+          padding:2px 6px;
+          border-radius:6px;
+          border:1px solid rgba(255,255,255,0.15);
+          box-shadow:0 4px 10px rgba(0,0,0,0.4);
+          white-space:nowrap;
+        ">
+          ${routeLabel}
+        </div>
+        <div style="
+          position:absolute;
+          left:50%;
+          bottom:-16px;
+          transform:translateX(-50%);
+          background:rgba(15,23,42,0.92);
+          color:white;
+          font-size:9px;
+          font-weight:700;
+          padding:2px 6px;
+          border-radius:9999px;
+          border:1px solid rgba(255,255,255,0.14);
+          box-shadow:0 4px 10px rgba(0,0,0,0.35);
+          white-space:nowrap;
+          max-width:120px;
+          overflow:hidden;
+          text-overflow:ellipsis;
+        ">
+          ${destinationLabel}
+        </div>
+      </div>
+    `,
+    className: "bg-transparent border-none",
+    iconSize: [56, 56],
+    iconAnchor: [28, 28],
     popupAnchor: [0, -22],
   });
 }
@@ -431,23 +547,23 @@ const MERNDA_STATIONS: Station[] = [
   { name: "Victoria Park", position: [-37.79910783339788, 144.9944465452046] },
   { name: "Clifton Hill", position: [-37.78831003762462, 144.9955664605472] },
   { name: "Rushall", position: [-37.78282063669237, 144.99170449547316] },
-  { name: "Merri", position: [-37.7774, 145.0218] },
-  { name: "Northcote", position: [-37.7698, 145.0248] },
-  { name: "Croxton", position: [-37.7646, 145.0357] },
-  { name: "Thornbury", position: [-37.7558, 145.0377] },
-  { name: "Bell", position: [-37.7456, 145.0397] },
-  { name: "Preston", position: [-37.7388, 145.0408] },
-  { name: "Regent", position: [-37.7285, 145.0430] },
-  { name: "Reservoir", position: [-37.7169, 145.0452] },
-  { name: "Ruthven", position: [-37.7086, 145.0471] },
-  { name: "Keon Park", position: [-37.6948, 145.0361] },
-  { name: "Thomastown", position: [-37.6804, 145.0135] },
-  { name: "Lalor", position: [-37.6669, 145.0172] },
-  { name: "Epping", position: [-37.6521, 145.0198] },
-  { name: "South Morang", position: [-37.6490, 145.0678] },
-  { name: "Middle Gorge", position: [-37.6409, 145.0874] },
-  { name: "Hawkstowe", position: [-37.6420, 145.1021] },
-  { name: "Mernda", position: [-37.6006, 145.0958] },
+  { name: "Merri", position: [-37.777750539846984, 144.9930158084578] },
+  { name: "Northcote", position: [-37.76992048990079, 144.99530821413396] },
+  { name: "Croxton", position: [-37.76411084888179, 144.99711065861806] },
+  { name: "Thornbury", position: [-37.75506489378074, 144.99849818692718] },
+  { name: "Bell", position: [-37.745589224974715, 145.00035427556313] },
+  { name: "Preston", position: [-37.73875587823244, 145.00073179107602] },
+  { name: "Regent", position: [-37.72833894198504, 145.00280413393259] },
+  { name: "Reservoir", position: [-37.71684669179448, 145.0068228311183] },
+  { name: "Ruthven", position: [-37.70788599148591, 145.00942830349587] },
+  { name: "Keon Park", position: [-37.69472251099498, 145.01181442718885] },
+  { name: "Thomastown", position: [-37.68021126137258, 145.01421277845355] },
+  { name: "Lalor", position: [-37.66589866750707, 145.01723865896338] },
+  { name: "Epping", position: [-37.652168089301284, 145.03102996205098] },
+  { name: "South Morang", position: [-37.64891049184418, 145.06792353651812] },
+  { name: "Middle Gorge", position: [-37.64387601247085, 145.09247381096623] },
+  { name: "Hawkstowe", position: [-37.62273956095706, 145.0973495770265] },
+  { name: "Mernda", position: [-37.60268052005695, 145.10077971801257] },
 ];
 
 const HURSTBRIDGE_STATIONS: Station[] = [
@@ -643,7 +759,7 @@ const BURNLEY_LOOP: [number, number][] = [
 ];
 
 const PAKENHAM_STATIONS: Station[] = [
-  { name: "Anzac", position: [-37.8315, 144.9795] },
+  { name: "Anzac", position: [-37.83323797420302, 144.97276854232885] },
   { name: "Hawksburn", position: [-37.8446738, 145.0019694] },
   { name: "Toorak", position: [-37.8506631, 145.0136792] },
   { name: "Armadale", position: [-37.8562948, 145.0192436] },
@@ -696,7 +812,7 @@ const SUNBURY_STATIONS: Station[] = [
   { name: "Parkville", position: [-37.79978943619289, 144.9595131752267] },
   { name: "State Library", position: STATE_LIBRARY_POSITION },
   { name: "Town Hall", position: TOWN_HALL_POSITION },
-  { name: "Anzac", position: [-37.8315, 144.9795] },
+  { name: "Anzac", position: [-37.83323797420302, 144.97276854232885] },
 ];
 
 const METRO_TUNNEL_STATIONS: Station[] = [
@@ -704,7 +820,7 @@ const METRO_TUNNEL_STATIONS: Station[] = [
   { name: "Parkville", position: [-37.79978943619289, 144.9595131752267] },
   { name: "State Library", position: STATE_LIBRARY_POSITION },
   { name: "Town Hall", position: TOWN_HALL_POSITION },
-  { name: "Anzac", position: [-37.8315, 144.9795] },
+  { name: "Anzac", position: [-37.83323797420302, 144.97276854232885] },
 ];
 
 const CAUFIELDLOOP_STATIONS: Station[] = [
@@ -734,28 +850,28 @@ const WERRIBEE_STATIONS: Station[] = [
   { name: "Footscray", position: [-37.801696124765726, 144.90150029345793] },
   { name: "Seddon", position: [-37.80864624508298, 144.89540631027074] },
   { name: "Yarraville", position: [-37.8159245612344, 144.88935190525294] },
-  { name: "Spotswood", position: [-37.8290, 144.8865] },
-  { name: "Newport", position: [-37.8426, 144.8833] },
-  { name: "Laverton", position: [-37.8627, 144.7698] },
-  { name: "Aircraft", position: [-37.8676, 144.7524] },
-  { name: "Williams Landing", position: [-37.8643, 144.7393] },
-  { name: "Hoppers Crossing", position: [-37.8820, 144.7006] },
-  { name: "Werribee", position: [-37.8981, 144.6606] },
+  { name: "Spotswood", position: [-37.830475560641304, 144.88574396020414] },
+  { name: "Newport", position: [-37.84264314186776, 144.88355527766285] },
+  { name: "Laverton", position: [-37.86374615697885, 144.7720741120282] },
+  { name: "Aircraft", position: [-37.86652430453361, 144.76084104096728] },
+  { name: "Williams Landing", position: [-37.87009845943303, 144.74700083780496] },
+  { name: "Hoppers Crossing", position: [-37.882748919778834, 144.70113749736035] },
+  { name: "Werribee", position: [-37.89950763796044, 144.66087578807574] },
 ];
 
 const WILLIAMSTOWN_STATIONS: Station[] = [
-  { name: "Newport", position: [-37.8426, 144.8833] },
-  { name: "North Williamstown", position: [-37.8573, 144.8872] },
-  { name: "Williamstown Beach", position: [-37.8636, 144.8994] },
-  { name: "Williamstown", position: [-37.8673, 144.9006] },
+  { name: "Newport", position: [-37.84269100630597, 144.88362501538808] },
+  { name: "North Williamstown", position: [-37.85731316329924, 144.88884995850088] },
+  { name: "Williamstown Beach", position: [-37.86405552358406, 144.89446402447876] },
+  { name: "Williamstown", position: [-37.86768910119632, 144.90528941998267] },
 ];
 
 const ALTONA_LOOP_STATIONS: Station[] = [
-  { name: "Newport", position: [-37.8426, 144.8833] },
-  { name: "Seaholme", position: [-37.8645, 144.8454] },
-  { name: "Altona", position: [-37.8673, 144.8305] },
-  { name: "Westona", position: [-37.8660, 144.8135] },
-  { name: "Laverton", position: [-37.8627, 144.7698] },
+  { name: "Newport", position: [-37.84269100630597, 144.88362501538808] },
+  { name: "Seaholme", position: [-37.867764659987316, 144.84120771014238] },
+  { name: "Altona", position: [-37.86698148967684, 144.82999249088098] },
+  { name: "Westona", position: [-37.86511016206653, 144.8135289261629] },
+  { name: "Laverton", position: [-37.86374615697885, 144.7720741120282] },
 ];
 
 const SANDRINGHAM_STATIONS: Station[] = [
@@ -865,6 +981,7 @@ const MELBOURNE_CENTRAL_TO_STATE_LIBRARY: [number, number][] = [
   [-37.8101, 144.9626],
   [-37.8117, 144.9629],
 ];
+const CLIFTON_HILL_POSITION: [number, number] = [-37.78831003762462, 144.9955664605472];
 
 const CAUFIELD_LOOP: [number, number][] = [
   [-37.8181727321212, 144.9775078452675], // last point
@@ -964,11 +1081,13 @@ const NORTHERN_LOOP: [number, number][] = [
 
   // continue east/north-east toward Parliament
   // edit JOLIMONT_TO_FLINDERS_PORTAL above if you want to shape the Parliament/Jolimont/Flinders section
-  [-37.808062345214104, 144.96920805484984], // leaving Melbourne Central
-  [-37.808079259516454, 144.97045264993122], // tunnel alignment
-  [-37.80832299768361, 144.9712063005165],
-  [-37.80882520771621, 144.97175348932512], // approaching Parliament
-  [-37.81031702586954, 144.97240529813624], // Parliament station
+  [-37.80807339740153, 144.96921480284715], // leaving Melbourne Central
+  [-37.80801993633507, 144.96972437757896], // tunnel alignment
+  [-37.80804748502936, 144.970295688085],
+  [-37.8082191343581, 144.9709984268594],
+  [-37.80873407995166, 144.97174944539097],
+  [-37.81059179110248, 144.97265533855764], // approaching Parliament
+  [-37.811378449431345, 144.97302812703637], // Parliament station
 
   // turn south toward Jolimont / Richmond portal
   [-37.8147653441898, 144.97416778728817], // exiting Parliament
@@ -1053,7 +1172,7 @@ const SANDRINGHAM_LINE: [number, number][] = [
 const MERNDA_LINE = MERNDA_STATIONS.map((s) => s.position);
 const HURSTBRIDGE_LINE = HURSTBRIDGE_STATIONS.map((s) => s.position);
 const MERNDA_BRANCH_LINE = MERNDA_STATIONS.slice(MERNDA_STATIONS.findIndex((station) => station.name === "Clifton Hill")).map((s) => s.position);
-const HURSTBRIDGE_BRANCH_LINE = HURSTBRIDGE_STATIONS.slice(HURSTBRIDGE_STATIONS.findIndex((station) => station.name === "Clifton Hill")).map((s) => s.position);
+const HURSTBRIDGE_BRANCH_LINE: [number, number][] = [CLIFTON_HILL_POSITION, ...HURSTBRIDGE_LINE];
 const CLIFTONHILL_LOOP: [number, number][] = [
   [-37.8163, 144.9840], // Jolimont
     [-37.815808751063095, 144.9778546912331],
@@ -1079,13 +1198,14 @@ const CLIFTONHILL_LOOP: [number, number][] = [
   [-37.808050963795516, 144.96916411750817],
   [-37.80799744851422, 144.96995772619195],
   [-37.808358272498175, 144.9713049058432],
-  [-37.80873095536469, 144.97179240882488],
+  [-37.80874077936197, 144.97177965092897],
   [-37.809237048952674, 144.97205260610428],
   [-37.81138709188395, 144.97306243861945], // Parliament
-  [-37.81441998176004, 144.9745404624412],
-  [-37.81488085131435, 144.97489451403888],
-  [-37.81534701529098, 144.97563882703489],
-  [-37.81561611769962, 144.9765145682701], // loop portal
+  [-37.81418344412575, 144.97439498748966],
+  [-37.81431640835925, 144.97447008934023],
+  [-37.814837194661806, 144.97484007119382],
+  [-37.81520853710754, 144.9752652013244],
+  [-37.81555775700814, 144.97629458077256], // loop portal
   [-37.815723447250065, 144.9770791387547],
   [-37.815823035935786, 144.97785563825553],
    // back to Jolimont
@@ -1095,6 +1215,12 @@ const UPFIELD_LINE = UPFIELD_STATIONS.map((station) => station.position);
 const WERRIBEE_LINE = WERRIBEE_STATIONS.map((station) => station.position);
 const WILLIAMSTOWN_LINE = WILLIAMSTOWN_STATIONS.map((station) => station.position);
 const ALTONA_LOOP_LINE = ALTONA_LOOP_STATIONS.map((station) => station.position);
+const RENDERED_SANDRINGHAM_STATIONS = alignStationsToRenderedPolyline(
+  SANDRINGHAM_STATIONS,
+  SANDRINGHAM_LINE,
+  "right",
+  0.5,
+);
 const FRANKSTON_TRACK: [number, number][] = [
   [-38.1426676, 145.1262003], // Frankston
   [-38.1378, 145.1282],
@@ -1198,6 +1324,13 @@ const FRANKSTON_TRACK: [number, number][] = [
 ];
 const CRANBOURNE_LINE = CRANBOURNE_STATIONS.map((station) => station.position);
 const PAKENHAM_LINE = PAKENHAM_STATIONS.map((station) => station.position);
+const PAKENHAM_PRE_HAWKSBURN_LINE = PAKENHAM_STATIONS.slice(
+  0,
+  PAKENHAM_STATIONS.findIndex((station) => station.name === "Hawksburn") + 1,
+).map((station) => station.position);
+const PAKENHAM_POST_HAWKSBURN_LINE = PAKENHAM_STATIONS.slice(
+  PAKENHAM_STATIONS.findIndex((station) => station.name === "Hawksburn"),
+).map((station) => station.position);
 const SUNBURY_LINE = SUNBURY_STATIONS.map((station) => station.position);
 const LILYDALE_LINE = LILYDALE_STATIONS.map((station) => station.position);
 const BELGRAVE_LINE = BELGRAVE_STATIONS.map((station) => station.position);
@@ -1230,6 +1363,80 @@ export const ALL_STATIONS: Station[] = [
   (station, index, array) =>
     array.findIndex((item) => item.name === station.name) === index
 );
+
+const ANYTRIP_SURFACE_STOPS: SurfaceStop[] = [
+  {
+    id: "au3:6204",
+    name: "Hawthorn Rd/North Rd",
+    locality: "Caulfield South",
+    position: [-37.90128, 145.01994],
+    subtitle: "630 bus stop",
+    modes: ["bus"],
+    routeLabel: "630",
+    departures: [
+      { route: "630", destination: "Monash University", departureLabel: "3 min", statusLabel: "Scheduled", note: "Via Ormond" },
+      { route: "630", destination: "Elwood", departureLabel: "14 min", statusLabel: "Scheduled", note: "Local stopping" },
+      { route: "630", destination: "Monash University", departureLabel: "27 min", statusLabel: "Scheduled", note: "Via North Rd" },
+    ],
+  },
+  {
+    id: "au3:7148",
+    name: "Hawthorn Rd/North Rd",
+    locality: "Brighton East",
+    position: [-37.90141, 145.01875],
+    subtitle: "630 bus stop",
+    modes: ["bus"],
+    routeLabel: "630",
+    departures: [
+      { route: "630", destination: "Elwood", departureLabel: "4 min", statusLabel: "Scheduled", note: "Via Hawthorn Rd" },
+      { route: "630", destination: "Monash University", departureLabel: "12 min", statusLabel: "Scheduled", note: "Cross-town service" },
+      { route: "630", destination: "Elwood", departureLabel: "24 min", statusLabel: "Scheduled", note: "Local stopping" },
+    ],
+  },
+  {
+    id: "au3:19004",
+    name: "North Rd/Hawthorn Rd #63",
+    locality: "Caulfield South",
+    position: [-37.9012, 145.01933],
+    subtitle: "Route 64 tram stop",
+    modes: ["tram"],
+    routeLabel: "64",
+    departures: [
+      { route: "64", destination: "Melbourne University", departureLabel: "2 min", statusLabel: "Tram due", note: "Northbound" },
+      { route: "64", destination: "East Brighton", departureLabel: "9 min", statusLabel: "Scheduled", note: "Southbound" },
+      { route: "64", destination: "Melbourne University", departureLabel: "15 min", statusLabel: "Scheduled", note: "Via St Kilda Rd" },
+    ],
+  },
+  {
+    id: "au3:18417",
+    name: "North Rd/Hawthorn Rd #63",
+    locality: "Brighton East",
+    position: [-37.90157, 145.01907],
+    subtitle: "Route 64 tram stop",
+    modes: ["tram"],
+    routeLabel: "64",
+    departures: [
+      { route: "64", destination: "East Brighton", departureLabel: "1 min", statusLabel: "Tram due", note: "Southbound" },
+      { route: "64", destination: "Melbourne University", departureLabel: "7 min", statusLabel: "Scheduled", note: "Northbound" },
+      { route: "64", destination: "East Brighton", departureLabel: "13 min", statusLabel: "Scheduled", note: "Via Hawthorn Rd" },
+    ],
+  },
+  {
+    id: "au3:19003",
+    name: "Taylor St/Hawthorn Rd #64",
+    locality: "Brighton East",
+    position: [-37.90378, 145.01881],
+    subtitle: "Route 64 tram stop",
+    modes: ["tram"],
+    routeLabel: "64",
+    departures: [
+      { route: "64", destination: "East Brighton", departureLabel: "5 min", statusLabel: "Scheduled", note: "Southbound" },
+      { route: "64", destination: "Melbourne University", departureLabel: "11 min", statusLabel: "Scheduled", note: "Northbound" },
+      { route: "64", destination: "East Brighton", departureLabel: "19 min", statusLabel: "Scheduled", note: "Local stopping" },
+    ],
+  },
+];
+
 export const LINES = {
   mernda: MERNDA_STATIONS,
   hurstbridge: HURSTBRIDGE_STATIONS,
@@ -1275,6 +1482,7 @@ type PlatformBoardEntry = {
   platform: string;
   label: string;
   tone: string;
+  layoutClass?: string;
   services: Array<{
     destination: string;
     etaLabel: string;
@@ -1429,6 +1637,159 @@ const RICHMOND_PLATFORM_BOARD: PlatformBoardEntry[] = [
   },
 ];
 
+const FOOTSCRAY_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 · Metro Tunnel eastbound",
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+    services: [
+      { destination: "Town Hall → East Pakenham", etaLabel: "14:42", tdnLabel: "TDN Z074 → C071", statusLabel: "On Time", originLabel: "Origin Footscray", viaLabel: "Metro Tunnel" },
+      { destination: "Town Hall → Cranbourne", etaLabel: "14:52", tdnLabel: "TDN Z458 → C471", statusLabel: "On Time", originLabel: "Origin Footscray", viaLabel: "Metro Tunnel" },
+      { destination: "Town Hall → East Pakenham", etaLabel: "15:02", tdnLabel: "TDN Z076 → C073", statusLabel: "On Time", originLabel: "Origin Footscray", viaLabel: "Metro Tunnel" },
+      { destination: "Town Hall → Cranbourne", etaLabel: "15:12", tdnLabel: "TDN Z460 → C473", statusLabel: "On Time", originLabel: "Origin Footscray", viaLabel: "Metro Tunnel" },
+      { destination: "Town Hall → East Pakenham", etaLabel: "15:22", tdnLabel: "TDN Z078 → C075", statusLabel: "On Time", originLabel: "Origin Footscray", viaLabel: "Metro Tunnel" },
+      { destination: "Town Hall → Cranbourne", etaLabel: "15:32", tdnLabel: "TDN Z462 → C475", statusLabel: "1m late", originLabel: "Origin Footscray", viaLabel: "Metro Tunnel" },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 · Sunbury / Watergardens",
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+    services: [
+      { destination: "Sunbury", etaLabel: "14:46", tdnLabel: "TDN Z069", statusLabel: "On Time", originLabel: "Origin Town Hall", viaLabel: "Metro Tunnel" },
+      { destination: "Watergardens", etaLabel: "14:56", tdnLabel: "TDN Z467", statusLabel: "On Time", originLabel: "Origin Town Hall", viaLabel: "Metro Tunnel" },
+      { destination: "Sunbury", etaLabel: "15:06", tdnLabel: "TDN Z071", statusLabel: "On Time", originLabel: "Origin Town Hall", viaLabel: "Metro Tunnel" },
+      { destination: "Watergardens", etaLabel: "15:16", tdnLabel: "TDN Z469", statusLabel: "On Time", originLabel: "Origin Town Hall", viaLabel: "Metro Tunnel" },
+      { destination: "Sunbury", etaLabel: "15:26", tdnLabel: "TDN Z073", statusLabel: "On Time", originLabel: "Origin Town Hall", viaLabel: "Metro Tunnel" },
+      { destination: "Watergardens", etaLabel: "15:36", tdnLabel: "TDN Z471", statusLabel: "On Time", originLabel: "Origin Town Hall", viaLabel: "Metro Tunnel" },
+    ],
+  },
+  {
+    platform: "3",
+    label: "Platform 3 · Southern Cross / regional",
+    tone: "bg-violet-500/12 border-violet-400/20 text-violet-100",
+    services: [
+      { destination: "Southern Cross", etaLabel: "14:42", tdnLabel: "TDN 8134", statusLabel: "On Time", originLabel: "Regional shuttle", viaLabel: "Westbound arrival" },
+      { destination: "Southern Cross", etaLabel: "14:50", tdnLabel: "TDN 8772", statusLabel: "2m early", originLabel: "Regional shuttle", viaLabel: "Westbound arrival" },
+      { destination: "Southern Cross", etaLabel: "15:10", tdnLabel: "TDN 8774", statusLabel: "1m early", originLabel: "Regional shuttle", viaLabel: "Westbound arrival" },
+      { destination: "Southern Cross", etaLabel: "15:19", tdnLabel: "TDN 8074", statusLabel: "On Time", originLabel: "Regional shuttle", viaLabel: "Westbound arrival" },
+      { destination: "Southern Cross", etaLabel: "15:22", tdnLabel: "TDN 8136", statusLabel: "1m late", originLabel: "Regional shuttle", viaLabel: "Westbound arrival" },
+      { destination: "Southern Cross", etaLabel: "15:30", tdnLabel: "TDN 8776", statusLabel: "On Time", originLabel: "Regional shuttle", viaLabel: "Westbound arrival" },
+    ],
+  },
+  {
+    platform: "4",
+    label: "Platform 4 · Geelong / Ballarat / Bendigo",
+    tone: "bg-violet-500/12 border-violet-400/20 text-violet-100",
+    services: [
+      { destination: "Waurn Ponds", etaLabel: "14:38", tdnLabel: "TDN 8759", statusLabel: "1m late", originLabel: "Origin Southern Cross", viaLabel: "Regional" },
+      { destination: "Wendouree", etaLabel: "14:43", tdnLabel: "TDN 8129", statusLabel: "2m late", originLabel: "Origin Southern Cross", viaLabel: "Regional" },
+      { destination: "Waurn Ponds", etaLabel: "14:58", tdnLabel: "TDN 8761", statusLabel: "1m late", originLabel: "Origin Southern Cross", viaLabel: "Regional" },
+      { destination: "Bendigo", etaLabel: "15:10", tdnLabel: "TDN 8027", statusLabel: "1m late", originLabel: "Origin Southern Cross", viaLabel: "Regional" },
+      { destination: "Waurn Ponds", etaLabel: "15:18", tdnLabel: "TDN 8763", statusLabel: "1m late", originLabel: "Origin Southern Cross", viaLabel: "Regional" },
+      { destination: "Wendouree", etaLabel: "15:23", tdnLabel: "TDN 8131", statusLabel: "2m late", originLabel: "Origin Southern Cross", viaLabel: "Regional" },
+    ],
+  },
+  {
+    platform: "5",
+    label: "Platform 5 · Flinders Street",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      { destination: "Flinders Street", etaLabel: "14:45", tdnLabel: "TDN 6320", statusLabel: "4m late", originLabel: "Origin Williamstown", viaLabel: "City bound" },
+      { destination: "Flinders Street", etaLabel: "14:55", tdnLabel: "TDN 6456", statusLabel: "2m late", originLabel: "Origin Werribee", viaLabel: "City bound" },
+      { destination: "Flinders Street", etaLabel: "15:05", tdnLabel: "TDN 6322", statusLabel: "3m late", originLabel: "Origin Williamstown", viaLabel: "City bound" },
+      { destination: "Flinders Street", etaLabel: "15:15", tdnLabel: "TDN 6458", statusLabel: "2m late", originLabel: "Origin Werribee", viaLabel: "City bound" },
+      { destination: "Flinders Street", etaLabel: "15:25", tdnLabel: "TDN 6324", statusLabel: "On Time", originLabel: "Origin Williamstown", viaLabel: "City bound" },
+      { destination: "Flinders Street", etaLabel: "15:35", tdnLabel: "TDN 6460", statusLabel: "1m late", originLabel: "Origin Werribee", viaLabel: "City bound" },
+    ],
+  },
+  {
+    platform: "6",
+    label: "Platform 6 · Werribee / Williamstown",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      { destination: "Williamstown", etaLabel: "14:43", tdnLabel: "TDN 6325", statusLabel: "On Time", originLabel: "Origin Flinders Street", viaLabel: "Werribee corridor" },
+      { destination: "Werribee", etaLabel: "14:53", tdnLabel: "TDN 6457", statusLabel: "On Time", originLabel: "Origin Flinders Street", viaLabel: "Werribee corridor" },
+      { destination: "Williamstown", etaLabel: "15:03", tdnLabel: "TDN 6327", statusLabel: "On Time", originLabel: "Origin Flinders Street", viaLabel: "Werribee corridor" },
+      { destination: "Werribee", etaLabel: "15:13", tdnLabel: "TDN 6459", statusLabel: "3m late", originLabel: "Origin Flinders Street", viaLabel: "Werribee corridor" },
+      { destination: "Williamstown", etaLabel: "15:23", tdnLabel: "TDN 6329", statusLabel: "On Time", originLabel: "Origin Flinders Street", viaLabel: "Werribee corridor" },
+      { destination: "Werribee", etaLabel: "15:33", tdnLabel: "TDN 6461", statusLabel: "On Time", originLabel: "Origin Flinders Street", viaLabel: "Werribee corridor" },
+    ],
+  },
+];
+
+const MALVERN_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 · City Loop / Metro Tunnel",
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+    services: [
+      {
+        destination: "Town Hall",
+        etaLabel: "10:06",
+        tdnLabel: "TDN Z458 → C471",
+        statusLabel: "On Time",
+        originLabel: "Origin Cranbourne",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "City Loop",
+        etaLabel: "10:15",
+        tdnLabel: "TDN 4858 → 4375",
+        statusLabel: "3m late",
+        originLabel: "Origin Frankston",
+        viaLabel: "Stops all via City Loop",
+      },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 · Frankston",
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
+    services: [
+      {
+        destination: "Frankston",
+        etaLabel: "10:24",
+        tdnLabel: "TDN 4860 → 4377",
+        statusLabel: "8m late",
+        originLabel: "Origin City Loop",
+        viaLabel: "Stops all stations",
+      },
+      {
+        destination: "Mordialloc",
+        etaLabel: "10:33",
+        tdnLabel: "TDN 4862 → 4379",
+        statusLabel: "1m late",
+        originLabel: "Origin Flinders Street",
+        viaLabel: "Frankston line",
+      },
+    ],
+  },
+  {
+    platform: "3",
+    label: "Platform 3 · Cranbourne / Pakenham",
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+    services: [
+      {
+        destination: "Cranbourne",
+        etaLabel: "10:32",
+        tdnLabel: "TDN Z460 → C473",
+        statusLabel: "On Time",
+        originLabel: "Platform 3",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "Pakenham",
+        etaLabel: "10:42",
+        tdnLabel: "TDN Z078 → C075",
+        statusLabel: "On Time",
+        originLabel: "Platform 3",
+        viaLabel: "Metro Tunnel",
+      },
+    ],
+  },
+];
+
 const CITY_LOOP_PLATFORM_BOARD: PlatformBoardEntry[] = [
   {
     platform: "1",
@@ -1467,6 +1828,102 @@ const CITY_LOOP_PLATFORM_BOARD: PlatformBoardEntry[] = [
     ],
   },
 ];
+
+const TOWN_HALL_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 · Sunbury / Watergardens",
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+    services: [
+      {
+        destination: "Sunbury",
+        etaLabel: "10:06",
+        tdnLabel: "TDN Z069",
+        statusLabel: "On Time",
+        originLabel: "Origin Footscray",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "Watergardens",
+        etaLabel: "10:16",
+        tdnLabel: "TDN Z071",
+        statusLabel: "On Time",
+        originLabel: "Origin Footscray",
+        viaLabel: "Metro Tunnel",
+      },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 · Cranbourne / Pakenham",
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+    services: [
+      {
+        destination: "Cranbourne",
+        etaLabel: "10:08",
+        tdnLabel: "TDN Z458 → C471",
+        statusLabel: "On Time",
+        originLabel: "Origin Footscray",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "Pakenham",
+        etaLabel: "10:18",
+        tdnLabel: "TDN Z074 → C071",
+        statusLabel: "On Time",
+        originLabel: "Origin Footscray",
+        viaLabel: "Metro Tunnel",
+      },
+    ],
+  },
+  {
+    platform: "EXT",
+    label: "Extension · Flinders Street",
+    tone: "bg-white/6 border-white/15 text-white",
+    services: [
+      {
+        destination: "Flinders Street",
+        etaLabel: "10:10",
+        tdnLabel: "TDN Z069",
+        statusLabel: "2 min after Town Hall",
+        originLabel: "Southbound extension",
+        viaLabel: "Continues beyond Town Hall",
+      },
+      {
+        destination: "Flinders Street",
+        etaLabel: "10:20",
+        tdnLabel: "TDN Z458 → C471",
+        statusLabel: "2 min after Town Hall",
+        originLabel: "Southbound extension",
+        viaLabel: "Continues beyond Town Hall",
+      },
+    ],
+  },
+];
+
+const METRO_TUNNEL_CONNECTION_BOARD: PlatformBoardEntry = {
+  platform: "MT",
+  label: "Metro Tunnel · Platforms 1 / 2",
+  tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+  services: [
+    {
+      destination: "Sunbury",
+      etaLabel: "10:02",
+      tdnLabel: "TDN MT01",
+      statusLabel: "On Time",
+      originLabel: "Platform 1",
+      viaLabel: "Watergardens branch",
+    },
+    {
+      destination: "Pakenham / Cranbourne",
+      etaLabel: "10:08",
+      tdnLabel: "TDN MT02",
+      statusLabel: "1m late",
+      originLabel: "Platform 2",
+      viaLabel: "Metro Tunnel",
+    },
+  ],
+};
 
 const FLINDERS_STREET_PLATFORM_BOARD: PlatformBoardEntry[] = [
   {
@@ -1573,6 +2030,147 @@ const FLINDERS_STREET_PLATFORM_BOARD: PlatformBoardEntry[] = [
     services: [
       { destination: "Sandringham", etaLabel: "09:51", tdnLabel: "TDN X051", statusLabel: "On Time" },
       { destination: "Sandringham", etaLabel: "10:06", tdnLabel: "TDN X053", statusLabel: "On Time" },
+    ],
+  },
+];
+
+const NORTH_MELBOURNE_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 · City Loop starters",
+    tone: "bg-yellow-500/12 border-yellow-400/25 text-yellow-100",
+    services: [
+      {
+        destination: "City Loop",
+        etaLabel: "15:20",
+        tdnLabel: "TDN UFD11",
+        statusLabel: "Next service",
+        originLabel: "Origin North Melbourne",
+        viaLabel: "Via North Melbourne Loop",
+      },
+      {
+        destination: "City Loop",
+        etaLabel: "15:27",
+        tdnLabel: "TDN UFD13",
+        statusLabel: "Following",
+        originLabel: "Origin North Melbourne",
+        viaLabel: "Loop departure",
+      },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 · Upfield outbound",
+    tone: "bg-yellow-500/12 border-yellow-400/25 text-yellow-100",
+    services: [
+      {
+        destination: "Upfield",
+        etaLabel: "15:23",
+        tdnLabel: "TDN UFD21",
+        statusLabel: "Next service",
+        originLabel: "Origin City Loop",
+        viaLabel: "Stops all outbound",
+      },
+      {
+        destination: "Coburg",
+        etaLabel: "15:32",
+        tdnLabel: "TDN UFD22",
+        statusLabel: "Following",
+        originLabel: "Origin Flinders Street",
+        viaLabel: "Short run",
+      },
+    ],
+  },
+  {
+    platform: "3",
+    label: "Platform 3 · Northern group City Loop",
+    tone: "bg-yellow-500/12 border-yellow-400/25 text-yellow-100",
+    services: [
+      {
+        destination: "City Loop",
+        etaLabel: "15:24",
+        tdnLabel: "TDN CGB15",
+        statusLabel: "Next service",
+        originLabel: "Origin North Melbourne",
+        viaLabel: "Northern group via Loop",
+      },
+      {
+        destination: "City Loop",
+        etaLabel: "15:34",
+        tdnLabel: "TDN CGB17",
+        statusLabel: "Following",
+        originLabel: "Origin North Melbourne",
+        viaLabel: "Loop departure",
+      },
+    ],
+  },
+  {
+    platform: "4",
+    label: "Platform 4 · Craigieburn / Broadmeadows outbound",
+    tone: "bg-yellow-500/12 border-yellow-400/25 text-yellow-100",
+    services: [
+      {
+        destination: "Craigieburn",
+        etaLabel: "15:26",
+        tdnLabel: "TDN CGB31",
+        statusLabel: "Next service",
+        originLabel: "Origin City Loop",
+        viaLabel: "Stops all outbound",
+      },
+      {
+        destination: "Broadmeadows",
+        etaLabel: "15:36",
+        tdnLabel: "TDN CGB33",
+        statusLabel: "Following",
+        originLabel: "Origin Flinders Street",
+        viaLabel: "Short run",
+      },
+    ],
+  },
+  {
+    platform: "5",
+    label: "Platform 5 · Flinders Street / through city",
+    tone: "bg-slate-500/12 border-slate-300/20 text-slate-100",
+    services: [
+      {
+        destination: "Flinders Street",
+        etaLabel: "15:28",
+        tdnLabel: "TDN XCY41",
+        statusLabel: "Next service",
+        originLabel: "Cross-city movement",
+        viaLabel: "Through to city",
+      },
+      {
+        destination: "City Loop",
+        etaLabel: "15:39",
+        tdnLabel: "TDN XCY43",
+        statusLabel: "Following",
+        originLabel: "Cross-city movement",
+        viaLabel: "Loop-bound",
+      },
+    ],
+  },
+  {
+    platform: "6",
+    label: "Platform 6 · Werribee / Williamstown / Laverton",
+    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
+    services: [
+      {
+        destination: "Werribee",
+        etaLabel: "15:23",
+        tdnLabel: "TDN WER21",
+        statusLabel: "Next service",
+        originLabel: "Origin Flinders Street",
+        viaLabel: "Cross-city westbound",
+      },
+      {
+        destination: "Laverton",
+        etaLabel: "15:32",
+        tdnLabel: "TDN WER22",
+        statusLabel: "Following",
+        originLabel: "Origin Flinders Street",
+        viaLabel: "Stops all westbound",
+      },
     ],
   },
 ];
@@ -1839,8 +2437,20 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
   if (station.name === "Richmond") {
     return RICHMOND_PLATFORM_BOARD;
   }
+  if (station.name === "North Melbourne") {
+    return NORTH_MELBOURNE_PLATFORM_BOARD;
+  }
+  if (station.name === "Footscray") {
+    return FOOTSCRAY_PLATFORM_BOARD;
+  }
+  if (station.name === "Malvern") {
+    return MALVERN_PLATFORM_BOARD;
+  }
   if (station.name === "Flinders Street") {
     return FLINDERS_STREET_PLATFORM_BOARD;
+  }
+  if (station.name === "Town Hall") {
+    return TOWN_HALL_PLATFORM_BOARD;
   }
   if (["Flagstaff", "Melbourne Central", "Parliament", "State Library", "Town Hall"].includes(station.name)) {
     return CITY_LOOP_PLATFORM_BOARD;
@@ -1899,6 +2509,173 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
       })),
     },
   ];
+}
+
+function renderPlatformBoardCard(
+  stationName: string,
+  platform: PlatformBoardEntry,
+  indexOffset = 0,
+) {
+  if (platform.platform === "MT") {
+    const primaryService = platform.services[0];
+    const secondaryServices = platform.services.slice(1);
+    const formatMetroTunnelStatus = (service: (typeof platform.services)[number]) =>
+      service.viaLabel === "Watergardens branch" ? "Stops all" : "Metro Tunnel";
+    const formatMetroTunnelCountdown = (
+      service: (typeof platform.services)[number],
+      fallback: string,
+    ) => (service.etaLabel.toLowerCase().includes("now") ? "Now" : fallback);
+
+    return (
+      <div
+        key={`${stationName}-platform-${platform.platform}-${indexOffset}`}
+        className="overflow-hidden rounded-[1.1rem] border border-[#279FD5]/30 bg-white text-slate-950 shadow-[0_16px_36px_rgba(0,0,0,0.24)]"
+      >
+        <div className="border-l-[8px] border-l-[#279FD5] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+            Metro Tunnel · Platforms 1 / 2
+          </p>
+          {primaryService && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="text-[2rem] font-semibold leading-none text-slate-950">
+                    {primaryService.etaLabel}
+                  </span>
+                  <span className="min-w-0 text-[2rem] font-semibold leading-[0.95] text-slate-950 break-words">
+                    {primaryService.destination}
+                  </span>
+                </div>
+                <p className="mt-2 text-[15px] font-medium text-slate-900">
+                  {formatMetroTunnelStatus(primaryService)}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                  {primaryService.originLabel && (
+                    <span className="rounded-full bg-slate-200 px-2 py-0.5 font-medium text-slate-700">
+                      {primaryService.originLabel}
+                    </span>
+                  )}
+                  {primaryService.tdnLabel && (
+                    <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700">
+                      {primaryService.tdnLabel}
+                    </span>
+                  )}
+                  <span>{primaryService.statusLabel ?? "Scheduled"}</span>
+                </div>
+              </div>
+              <div className="shrink-0 bg-black px-4 py-2 text-[2rem] font-semibold leading-none text-white shadow-[0_6px_16px_rgba(0,0,0,0.25)]">
+                {formatMetroTunnelCountdown(primaryService, "5 min")}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {secondaryServices.length > 0 && (
+          <div className="border-t border-black/10 bg-white px-4 py-3">
+            <div className="space-y-3">
+              {secondaryServices.map((service, index) => (
+                <div
+                  key={`${platform.platform}-${service.destination}-${index}`}
+                  className="grid gap-3 border-l-[6px] border-l-[#279FD5] border-t border-black/15 pt-3 first:border-t-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
+                >
+                  <div className="min-w-0 pl-3">
+                    <p className="text-[1.8rem] font-semibold leading-none text-slate-950">
+                      {service.etaLabel}
+                    </p>
+                    <p className="mt-1 text-[1.85rem] font-semibold leading-[0.95] text-slate-950 break-words">
+                      {service.destination}
+                    </p>
+                    <p className="mt-2 text-[15px] font-medium text-slate-900">
+                      {formatMetroTunnelStatus(service)}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                      {service.originLabel && (
+                        <span className="rounded-full bg-slate-200 px-2 py-0.5 font-medium text-slate-700">
+                          {service.originLabel}
+                        </span>
+                      )}
+                      {service.tdnLabel && (
+                        <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700">
+                          {service.tdnLabel}
+                        </span>
+                      )}
+                      <span>{service.statusLabel ?? "Scheduled"}</span>
+                    </div>
+                  </div>
+                  <div className="shrink-0 bg-black px-4 py-2 text-[2rem] font-semibold leading-none text-white shadow-[0_6px_16px_rgba(0,0,0,0.25)]">
+                    {formatMetroTunnelCountdown(service, index === 0 ? "13 min" : "24 min")}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      key={`${stationName}-platform-${platform.platform}-${indexOffset}`}
+      className={`rounded-[1rem] border p-2.5 ${platform.tone}`}
+    >
+      <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-white/55">
+        {platform.label}
+      </p>
+      <div className="mt-2 space-y-1.5">
+        {platform.services.length > 0 ? (
+          platform.services.map((service, index) => {
+            const display = getPlatformServiceDisplay(
+              stationName,
+              platform.label,
+              service,
+            );
+
+            return (
+              <div
+                key={`${platform.platform}-${service.destination}-${index}`}
+                className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/15 px-2.5 py-1.5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-white">{display.destination}</p>
+                  {(display.originLabel || display.viaLabel) && (
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {display.originLabel && (
+                        <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-medium text-white/70">
+                          {display.originLabel}
+                        </span>
+                      )}
+                      {display.viaLabel && (
+                        <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-medium text-white/70">
+                          {display.viaLabel}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <p className="text-[10px] text-white/50">{service.statusLabel ?? "Next service"}</p>
+                    <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/80">
+                      {service.tdnLabel}
+                    </span>
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/85">
+                  {service.etaLabel}
+                </span>
+              </div>
+            );
+          })
+        ) : (
+          <div className="rounded-xl border border-dashed border-white/15 bg-black/10 px-3 py-5 text-center">
+            <p className="text-xs font-semibold text-white/85">No regular departures</p>
+            <p className="mt-1 text-[10px] text-white/55">
+              {platform.emptyState ?? "Check the live station displays for any special movements."}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function getPlatformServiceDisplay(
@@ -2005,6 +2782,113 @@ function offsetPolylineCoordinates(
   });
 }
 
+function createFeaturedConsistIcon(isLive: boolean) {
+  const glowColor = isLive ? "#facc15" : "#94a3b8";
+  const badgeTone = isLive ? "#0f172a" : "#1e293b";
+  const badgeText = isLive ? "LIVE" : "EST";
+
+  return L.divIcon({
+    html: `
+      <div style="position:relative;width:58px;height:58px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;inset:0;border-radius:50%;background:${glowColor};opacity:${isLive ? "0.22" : "0.14"};animation:ping 2.2s infinite;"></div>
+        <div style="position:relative;display:flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:9999px;background:#0f172a;border:2px solid ${glowColor};box-shadow:0 8px 20px rgba(15,23,42,0.58);">
+          <span style="font-size:20px;line-height:1;color:${glowColor};">★</span>
+        </div>
+        <div style="position:absolute;top:-7px;right:-2px;border-radius:9999px;background:${badgeTone};border:1px solid rgba(255,255,255,0.18);padding:2px 6px;color:#f8fafc;font-size:9px;font-weight:800;letter-spacing:0.08em;">430M</div>
+        <div style="position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);border-radius:9999px;background:rgba(15,23,42,0.92);border:1px solid rgba(255,255,255,0.12);padding:2px 6px;color:${glowColor};font-size:8px;font-weight:800;letter-spacing:0.12em;">${badgeText}</div>
+      </div>
+    `,
+    className: "bg-transparent border-none",
+    iconSize: [58, 58],
+    iconAnchor: [29, 29],
+    popupAnchor: [0, -24],
+  });
+}
+
+function resolveConsistSnapshotCoordinate(snapshot?: ConsistSnapshot | null): [number, number] | null {
+  if (!snapshot) return null;
+
+  if (typeof snapshot.position?.lat === "number" && typeof snapshot.position?.lng === "number") {
+    return [snapshot.position.lat, snapshot.position.lng];
+  }
+
+  return (
+    findStationCoordinate(snapshot.position?.current_stop) ??
+    findStationCoordinate(snapshot.position?.next_stop) ??
+    findStationCoordinate(snapshot.current_trip?.origin) ??
+    findStationCoordinate(snapshot.current_trip?.destination) ??
+    findStationCoordinate(snapshot.next_trip?.origin) ??
+    findStationCoordinate(snapshot.next_trip?.destination) ??
+    SOUTHERN_CROSS_POSITION
+  );
+}
+
+function projectPointToSegment(
+  point: [number, number],
+  start: [number, number],
+  end: [number, number],
+): [number, number] {
+  const segmentLat = end[0] - start[0];
+  const segmentLng = end[1] - start[1];
+  const segmentLengthSquared = segmentLat * segmentLat + segmentLng * segmentLng;
+
+  if (segmentLengthSquared === 0) {
+    return start;
+  }
+
+  const pointLat = point[0] - start[0];
+  const pointLng = point[1] - start[1];
+  const t = Math.max(
+    0,
+    Math.min(1, (pointLat * segmentLat + pointLng * segmentLng) / segmentLengthSquared),
+  );
+
+  return [start[0] + segmentLat * t, start[1] + segmentLng * t];
+}
+
+function getDistanceSquared(left: [number, number], right: [number, number]) {
+  const latDelta = left[0] - right[0];
+  const lngDelta = left[1] - right[1];
+  return latDelta * latDelta + lngDelta * lngDelta;
+}
+
+function alignStationsToRenderedPolyline(
+  stations: Station[],
+  track: [number, number][],
+  direction: "left" | "right",
+  multiplier: number,
+): Station[] {
+  const renderedTrack = offsetPolylineCoordinates(track, direction, multiplier);
+
+  if (renderedTrack.length < 2) {
+    return stations;
+  }
+
+  return stations.map((station) => {
+    let closestPoint = station.position;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < renderedTrack.length - 1; index += 1) {
+      const projectedPoint = projectPointToSegment(
+        station.position,
+        renderedTrack[index],
+        renderedTrack[index + 1],
+      );
+      const distance = getDistanceSquared(station.position, projectedPoint);
+
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestPoint = projectedPoint;
+      }
+    }
+
+    return {
+      ...station,
+      position: closestPoint,
+    };
+  });
+}
+
 function renderStationMarkers(
   renderedStationKeys: Set<string>,
   stations: Station[],
@@ -2016,7 +2900,9 @@ function renderStationMarkers(
   return stations.map((station) => {
     const resolvedStation = resolveStation(station);
     const isCityLoopPill = CITY_LOOP_PILL_STATIONS.has(resolvedStation.name);
-    const shouldRenderOnce = SINGLE_RENDER_STATIONS.has(resolvedStation.name);
+    const isSharedCaulfieldMetroStation = CAULFIELD_METRO_SHARED_STATIONS.has(resolvedStation.name);
+    const shouldRenderOnce =
+      SINGLE_RENDER_STATIONS.has(resolvedStation.name) || isSharedCaulfieldMetroStation;
     const isCombinedLoopInterchange = COMBINED_LOOP_INTERCHANGES.has(resolvedStation.name);
     const stationRenderKey = isCombinedLoopInterchange
       ? "Melbourne Central / State Library"
@@ -2065,10 +2951,10 @@ function renderStationMarkers(
         center={resolvedStation.position}
         radius={5}
         pathOptions={{
-          color: strokeColor,
-          fillColor,
+          color: isSharedCaulfieldMetroStation ? "#0f172a" : strokeColor,
+          fillColor: isSharedCaulfieldMetroStation ? "#ffffff" : fillColor,
           fillOpacity: 1,
-          weight: 2,
+          weight: isSharedCaulfieldMetroStation ? 3 : 2,
         }}
         eventHandlers={{
           click: () => onSelectStation(resolvedStation),
@@ -2115,6 +3001,46 @@ function renderRouteStopMarkers(
   ));
 }
 
+function renderSurfaceStops(
+  stops: SurfaceStop[],
+  fillColor: string,
+  strokeColor: string,
+  onSelect: (stop: SurfaceStop) => void,
+) {
+  return stops.map((stop) => (
+    <CircleMarker
+      key={stop.id}
+      center={stop.position}
+      radius={5}
+      pathOptions={{
+        color: strokeColor,
+        fillColor,
+        fillOpacity: 0.98,
+        weight: 2,
+      }}
+      eventHandlers={{
+        click: () => onSelect(stop),
+      }}
+    >
+      <Popup>
+        <div className="p-3 w-56">
+          <p className="font-semibold text-white">{stop.name}</p>
+          <p className="mt-1 text-xs text-white/70">
+            {stop.locality} · {stop.subtitle}
+          </p>
+          <button
+            type="button"
+            onClick={() => onSelect(stop)}
+            className="mt-3 inline-flex rounded-full border border-white/15 bg-white/6 px-3 py-1 text-[11px] font-semibold text-blue-200 transition hover:bg-white/10"
+          >
+            Open schedules
+          </button>
+        </div>
+      </Popup>
+    </CircleMarker>
+  ));
+}
+
 function formatRouteWindow(time?: string | null) {
   if (!time) {
     return "Unknown";
@@ -2123,15 +3049,184 @@ function formatRouteWindow(time?: string | null) {
   return time.slice(0, 5);
 }
 
-function splitConsistCars(consist: string) {
-  if (consist === "430M") {
-    return ["369M", "1035T", "370M", "429M", "1065T", "430M"];
+function getDistanceInMetres(from: [number, number], to: [number, number]) {
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const earthRadius = 6371000;
+  const lat1 = toRadians(from[0]);
+  const lat2 = toRadians(to[0]);
+  const dLat = toRadians(to[0] - from[0]);
+  const dLng = toRadians(to[1] - from[1]);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+  return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistanceLabel(distanceMetres: number) {
+  if (distanceMetres < 1000) {
+    return `${Math.round(distanceMetres)} m away`;
   }
-  return consist
+
+  return `${(distanceMetres / 1000).toFixed(1)} km away`;
+}
+
+function getVehicleServiceSummary(vehicle: LiveTrain) {
+  const route = vehicle.serviceDescription?.trim();
+  if (route) {
+    return route;
+  }
+
+  return `${vehicle.line} to ${vehicle.destination}`.trim();
+}
+
+function getVehicleOriginFallback(vehicle: LiveTrain) {
+  const summary = getVehicleServiceSummary(vehicle);
+  const match = summary.match(/^(.*?)\s+to\s+(.*)$/i);
+  if (match?.[1]?.trim()) {
+    return match[1].trim();
+  }
+
+  if (/city|flinders street|southern cross/i.test(vehicle.destination)) {
+    return `${vehicle.line} line`;
+  }
+
+  return "Live position";
+}
+
+function getVehicleStoppingPattern(vehicle: LiveTrain) {
+  const summary = getVehicleServiceSummary(vehicle);
+  if (/ to /i.test(summary)) {
+    return summary;
+  }
+
+  return `${vehicle.line} line service to ${vehicle.destination}`;
+}
+
+function getVehicleWindowLabel(snapshot: ConsistSnapshot | undefined, vehicle: LiveTrain) {
+  if (snapshot?.current_trip) {
+    return `${formatRouteWindow(snapshot.current_trip.departs)}-${formatRouteWindow(snapshot.current_trip.arrives)}`;
+  }
+
+  if (snapshot?.next_trip) {
+    return `${formatRouteWindow(snapshot.next_trip.departs)}-${formatRouteWindow(snapshot.next_trip.arrives)}`;
+  }
+
+  return vehicle.timestamp ? "Live now" : "Waiting";
+}
+
+function isRouteIdentifier(value: string) {
+  return /^aus:vic:vic-02-[A-Z0-9]+:/i.test(value) || /^vic-02-[A-Z0-9]+:/i.test(value);
+}
+
+function isValidConsistPart(part: string) {
+  return /^\d{2,4}[A-Z]?$/i.test(part);
+}
+
+function normaliseDisplayedConsistParts(consist: string) {
+  const trimmed = consist.trim();
+  if (!trimmed || isRouteIdentifier(trimmed)) {
+    return [];
+  }
+
+  const rawParts = trimmed
     .split(/[\s-]+/)
     .map((part) => part.trim())
-    .filter(Boolean);
+    .filter((part) => Boolean(part) && !isRouteIdentifier(part) && isValidConsistPart(part));
+
+  const looksLikeHcmt =
+    rawParts.length >= 2 &&
+    rawParts.every((part) => /^\d{4}M?$/i.test(part));
+
+  const parts = looksLikeHcmt ? rawParts.map((part) => part.replace(/M$/i, "")) : rawParts;
+  const trailerCars = parts.filter((part) => /\d+T$/i.test(part));
+  const motorCars = parts.filter((part) => /\d+M$/i.test(part));
+  const trailersLead =
+    trailerCars.length > 0 &&
+    parts.slice(0, trailerCars.length).every((part) => /\d+T$/i.test(part)) &&
+    parts.slice(trailerCars.length).every((part) => /\d+M$/i.test(part));
+
+  if (trailersLead && motorCars.length === trailerCars.length * 2) {
+    const arrangedParts: string[] = [];
+
+    for (let index = 0; index < trailerCars.length; index += 1) {
+      const motorOffset = index * 2;
+      arrangedParts.push(motorCars[motorOffset], trailerCars[index], motorCars[motorOffset + 1]);
+    }
+
+    return arrangedParts.filter(Boolean);
+  }
+
+  return parts;
 }
+
+function formatDisplayedConsist(parts: string[]) {
+  if (parts.length === 6 && parts[1]?.endsWith("T") && parts[4]?.endsWith("T")) {
+    return `${parts.slice(0, 3).join("-")}, ${parts.slice(3).join("-")}`;
+  }
+
+  if (parts.length === 3 && parts[1]?.endsWith("T")) {
+    return parts.join("-");
+  }
+
+  return parts.join("-");
+}
+
+function getDisplayConsist(consist: string) {
+  const trimmed = consist.trim();
+  if (!trimmed || /^unknown$/i.test(trimmed) || isRouteIdentifier(trimmed)) {
+    return null;
+  }
+
+  const parts = normaliseDisplayedConsistParts(trimmed);
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return formatDisplayedConsist(parts);
+}
+
+function getSnapshotConsistId(consist: string) {
+  const trimmed = consist.trim();
+  if (!trimmed || /^unknown$/i.test(trimmed) || isRouteIdentifier(trimmed)) {
+    return null;
+  }
+
+  const parts = normaliseDisplayedConsistParts(trimmed);
+  return parts.length > 0 ? parts.join("-") : null;
+}
+
+function splitConsistCars(consist: string) {
+  const displayConsist = getDisplayConsist(consist);
+  if (!displayConsist) {
+    return [];
+  }
+
+  if (displayConsist === "430M") {
+    return ["369M", "1035T", "370M", "429M", "1065T", "430M"];
+  }
+  return normaliseDisplayedConsistParts(displayConsist);
+}
+
+// Saved layout presets for future TransitAlert consist visualisation work.
+// These keep the rough carriage-slot shape we want for Metro 6-car and
+// non-Metro-Tunnel 7-car style capacity mockups.
+const CONSIST_LAYOUT_PRESETS = {
+  metroSixCar: {
+    label: "Metro 6-car",
+    slotCount: 6,
+    activeSlots: [0, 1, 2, 3, 4, 5],
+    blockedSlots: [],
+    endCars: [0, 5],
+  },
+  regionalSevenCar: {
+    label: "Regional / 7-car",
+    slotCount: 10,
+    activeSlots: [4, 5, 6, 7, 8, 9],
+    blockedSlots: [0, 1, 2, 3],
+    endCars: [9],
+  },
+} as const;
 
 function inferComengVariant(vehicle: LiveTrain) {
   const joined = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
@@ -2187,6 +3282,29 @@ function getVehicleDisplayType(vehicle: LiveTrain) {
   }
 
   return vehicle.trainType;
+}
+
+function getVehicleTypeIcon(vehicle: LiveTrain) {
+  const formation = getVehicleFormation(vehicle);
+
+  switch (formation.family) {
+    case "HCMT":
+      return hcmtIcon;
+    case "Siemens Nexas":
+      return siemensIcon;
+    case "Xâ€™Trapolis 100":
+      return xtrapolisIcon;
+    case "South-side Comeng":
+      return southsideComengIcon;
+    case "North-side Comeng":
+      return northsideComengIcon;
+    default:
+      return null;
+  }
+}
+
+function getVehicleFocusKey(vehicle: Pick<LiveTrain, "consist" | "tdn">) {
+  return `${vehicle.consist}::${vehicle.tdn}`;
 }
 
 function getDistanceInKm(a: [number, number], b: [number, number]) {
@@ -2490,16 +3608,18 @@ label: "Werribee / Williamstown / Altona",
 export function Map({
   journeyRoute = [],
   splitCrossCityGroup = false,
-  transportModes = ["train"],
+  transportModes = [...DEFAULT_TRANSPORT_MODES],
   onTransportModesChange,
   persistedLayerState,
   onLayerStateChange,
   isAdmin = false,
   showFilterRail = true,
+  focusedVehicleKey = null,
+  onFocusedVehicleHandled,
 }: MapProps = {}) {
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
-  const consistData = null as any;
+  const consistData = { active: false } as any;
 
   const { data } = useGetReports({
     query: { refetchInterval: 30000 },
@@ -2515,22 +3635,91 @@ export function Map({
     refetchInterval: 15000,
     retry: false,
   });
+  const {
+    data: liveBuses = [],
+    isLoading: isLiveBusesLoading,
+  } = useQuery({
+    queryKey: ["/api/ptv/live-buses"],
+    queryFn: fetchLiveBuses,
+    refetchInterval: 15000,
+    retry: false,
+  });
+  const { data: featuredConsistSnapshot } = useQuery({
+    queryKey: ["consist-snapshot", FEATURED_CONSIST, "featured-marker"],
+    queryFn: () => fetchConsistSnapshot(FEATURED_CONSIST),
+    refetchInterval: 30000,
+    retry: false,
+  });
 
   const reports = Array.isArray(data) ? data : [];
   const [selectedDetail, setSelectedDetail] = useState<
     | { type: "station"; station: Station }
     | { type: "vehicle"; vehicle: LiveTrain }
+    | { type: "surfaceStop"; stop: SurfaceStop }
     | { type: "report"; report: Report }
     | null
   >(null);
   const selectedVehicle = selectedDetail?.type === "vehicle" ? selectedDetail.vehicle : null;
+  const selectedSurfaceStop = selectedDetail?.type === "surfaceStop" ? selectedDetail.stop : null;
+  const selectedVehicleSnapshotConsist = selectedVehicle ? getSnapshotConsistId(selectedVehicle.consist) : null;
   const { data: selectedVehicleSnapshot } = useQuery({
-    queryKey: ["consist-snapshot", selectedVehicle?.consist],
-    queryFn: () => fetchConsistSnapshot(selectedVehicle!.consist),
-    enabled: Boolean(selectedVehicle?.consist),
+    queryKey: ["consist-snapshot", selectedVehicleSnapshotConsist],
+    queryFn: () => fetchConsistSnapshot(selectedVehicleSnapshotConsist!),
+    enabled: Boolean(selectedVehicleSnapshotConsist),
     refetchInterval: 30000,
     retry: false,
   });
+  const selectedVehicleOriginLabel = selectedVehicle
+    ? selectedVehicleSnapshot?.current_trip?.origin ??
+      selectedVehicleSnapshot?.next_trip?.origin ??
+      getVehicleOriginFallback(selectedVehicle)
+    : "";
+  const selectedVehicleDestinationLabel = selectedVehicle
+    ? selectedVehicleSnapshot?.current_trip?.destination ??
+      selectedVehicleSnapshot?.next_trip?.destination ??
+      selectedVehicle.destination
+    : "";
+  const selectedVehiclePatternLabel = selectedVehicle
+    ? selectedVehicleSnapshot?.current_trip
+      ? `${selectedVehicleSnapshot.current_trip.origin} to ${selectedVehicleSnapshot.current_trip.destination}`
+      : selectedVehicleSnapshot?.next_trip
+        ? `Next: ${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
+        : getVehicleStoppingPattern(selectedVehicle)
+    : "";
+  const featuredConsistLiveVehicle = useMemo(
+    () => liveVehicles.find((vehicle) => vehicle.consist === FEATURED_CONSIST) ?? null,
+    [liveVehicles],
+  );
+  const featuredConsistPosition = useMemo<[number, number]>(
+    () =>
+      featuredConsistLiveVehicle
+        ? [featuredConsistLiveVehicle.lat, featuredConsistLiveVehicle.lng]
+        : resolveConsistSnapshotCoordinate(featuredConsistSnapshot) ?? SOUTHERN_CROSS_POSITION,
+    [featuredConsistLiveVehicle, featuredConsistSnapshot],
+  );
+  const featuredConsistIsLive = Boolean(
+    featuredConsistLiveVehicle ||
+      featuredConsistSnapshot?.status === "active" ||
+      featuredConsistSnapshot?.position,
+  );
+  const regularLiveVehicles = useMemo(
+    () => liveVehicles.filter((vehicle) => vehicle.consist !== FEATURED_CONSIST),
+    [liveVehicles],
+  );
+  const selectedSurfaceStopLiveBuses = useMemo(() => {
+    if (!selectedSurfaceStop || !selectedSurfaceStop.modes.includes("bus")) {
+      return [];
+    }
+
+    return liveBuses
+      .map((bus) => ({
+        bus,
+        distanceMetres: getDistanceInMetres(selectedSurfaceStop.position, [bus.lat, bus.lng]),
+      }))
+      .filter(({ bus, distanceMetres }) => bus.route === selectedSurfaceStop.routeLabel && distanceMetres <= 3000)
+      .sort((left, right) => left.distanceMetres - right.distanceMetres)
+      .slice(0, 4);
+  }, [liveBuses, selectedSurfaceStop]);
   const [isMarkerEditMode, setIsMarkerEditMode] = useState(false);
   const [draftMarkerOverrides, setDraftMarkerOverrides] = useState<Record<string, MarkerOverride>>({});
 
@@ -2613,16 +3802,66 @@ const [layers, setLayers] = useState<LayerState>({
   }, [isMarkerEditMode]);
 
   useEffect(() => {
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) =>
-          setUserLoc([position.coords.latitude, position.coords.longitude]),
-        () => setUserLoc(MELBOURNE_CENTER)
-      );
-    } else {
-      setUserLoc(MELBOURNE_CENTER);
+    if (!("geolocation" in navigator)) {
+      return;
     }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLoc([position.coords.latitude, position.coords.longitude]);
+      },
+      () => {
+        // Keep the location empty if GPS is unavailable instead of treating Melbourne as the user's fix.
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
+      },
+    );
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setUserLoc([position.coords.latitude, position.coords.longitude]);
+      },
+      () => {
+        // Ignore background watch errors and keep the last known valid location.
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 15000,
+      },
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!focusedVehicleKey) return;
+
+      const vehicle = liveVehicles.find((candidate) => getVehicleFocusKey(candidate) === focusedVehicleKey);
+      if (!vehicle) return;
+
+      if (vehicle.consist === FEATURED_CONSIST) {
+        setSelectedDetail(null);
+        mapRef.current?.flyTo(featuredConsistPosition, Math.max(mapRef.current.getZoom(), 14), {
+          animate: true,
+          duration: 0.85,
+        });
+        onFocusedVehicleHandled?.();
+        return;
+      }
+
+      setSelectedDetail({ type: "vehicle", vehicle });
+      mapRef.current?.flyTo([vehicle.lat, vehicle.lng], Math.max(mapRef.current.getZoom(), 14), {
+        animate: true,
+        duration: 0.85,
+      });
+      onFocusedVehicleHandled?.();
+    }, [featuredConsistPosition, focusedVehicleKey, liveVehicles, onFocusedVehicleHandled]);
 
   const centerOnUserLocation = useCallback(() => {
     if (!mapRef.current) return;
@@ -2645,7 +3884,6 @@ const [layers, setLayers] = useState<LayerState>({
             moveToLocation(userLoc);
             return;
           }
-          moveToLocation(MELBOURNE_CENTER);
         },
         {
           enableHighAccuracy: true,
@@ -2656,7 +3894,15 @@ const [layers, setLayers] = useState<LayerState>({
       return;
     }
 
-    moveToLocation(userLoc ?? MELBOURNE_CENTER);
+    if (userLoc) {
+      moveToLocation(userLoc);
+      return;
+    }
+
+    mapRef.current.flyTo(MELBOURNE_CENTER, Math.max(mapRef.current.getZoom(), 12), {
+      animate: true,
+      duration: 0.75,
+    });
   }, [userLoc]);
 
   const toggleLayer = useCallback((key: keyof LayerState) => {
@@ -2795,7 +4041,8 @@ const [layers, setLayers] = useState<LayerState>({
         : "No active trains returned right now";
   const liveTrainStatusDetail = hasLiveTrainFeedError
     ? liveTrainsErrorMessage
-    : "Source: TransportVic consist tracking, with PTV fallback when available";
+    : "Tap a train marker or use the planner live list to jump straight into trip tracking.";
+  const shouldShowBusStopFallback = !isLiveBusesLoading && liveBuses.length === 0;
   const visibleServiceFilters = SERVICE_FILTERS.filter((filter) => {
     if (filter.key === "crossCityPink") {
       return !splitCrossCityGroup;
@@ -2824,6 +4071,12 @@ const [layers, setLayers] = useState<LayerState>({
   );
   const resolveStation = useCallback(
     (station: Station): Station => {
+      if (station.name === "Flagstaff") {
+        return { ...station, position: FLAGSTAFF_POSITION };
+      }
+      if (station.name === "Melbourne Central") {
+        return { ...station, position: MELBOURNE_CENTRAL_POSITION };
+      }
       const override = markerOverrideMap[station.name];
       if (!override) return station;
       if (!isMarkerEditMode && getDistanceInKm(station.position, [override.lat, override.lng]) > 0.75) {
@@ -2846,7 +4099,7 @@ const [layers, setLayers] = useState<LayerState>({
     const nextModes = transportModes.includes(mode)
       ? transportModes.filter((item) => item !== mode)
       : [...transportModes, mode];
-    onTransportModesChange?.(nextModes.length > 0 ? nextModes : ["train"]);
+    onTransportModesChange?.(nextModes.length > 0 ? nextModes : [...DEFAULT_TRANSPORT_MODES]);
   };
 
   const saveEditedMarkers = async () => {
@@ -3012,33 +4265,10 @@ const [layers, setLayers] = useState<LayerState>({
           maxZoom={19}
         />
 
-        <Marker
-          position={STATE_LIBRARY_POSITION}
-          icon={createCityLoopPillIcon("#279FD5", "State Library")}
-          zIndexOffset={905}
-          eventHandlers={{
-            click: () =>
-              setSelectedDetail({
-                type: "station",
-                station: resolveStation({
-                  name: "State Library",
-                  position: STATE_LIBRARY_POSITION,
-                  metro: true,
-                }),
-              }),
-          }}
-        >
-          <Popup>
-            <div className="p-3 w-48">
-              <p className="font-semibold text-white">State Library</p>
-              <p className="text-xs text-white/60 mt-1">Metro station</p>
-            </div>
-          </Popup>
-        </Marker>
-
 {modeIsTrainVisible && layers.frankstonLine && (
   <>
-  <Polyline positions={CAUFIELD_LOOP}
+  <Polyline
+      positions={offsetPolylineCoordinates(CAUFIELD_LOOP, "right", 0.72)}
       pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
  />
     <Polyline
@@ -3083,7 +4313,7 @@ const [layers, setLayers] = useState<LayerState>({
   }}
 />
     <Polyline
-      positions={offsetPolylineCoordinates(CLIFTONHILL_LOOP, "left", 0.4)}
+      positions={offsetPolylineCoordinates(CLIFTONHILL_LOOP, "left", 0.14)}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
     {renderStationMarkers(renderedStationKeys, CLIFTONHILLGROUPLOOP_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
@@ -3259,11 +4489,15 @@ const [layers, setLayers] = useState<LayerState>({
         {modeIsTrainVisible && layers.pakenhamLine && (
           <>
             <Polyline
-              positions={offsetPolylineCoordinates(PAKENHAM_LINE, "left", 0.6)}
+              positions={offsetPolylineCoordinates(PAKENHAM_PRE_HAWKSBURN_LINE, "left", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
             <Polyline
-              positions={offsetPolylineCoordinates(PAKENHAM_LINE, "right", 0.6)}
+              positions={offsetPolylineCoordinates(PAKENHAM_PRE_HAWKSBURN_LINE, "right", 0.6)}
+              pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
+            />
+            <Polyline
+              positions={PAKENHAM_POST_HAWKSBURN_LINE}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
             {renderStationMarkers(renderedStationKeys, PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
@@ -3361,7 +4595,7 @@ const [layers, setLayers] = useState<LayerState>({
               )}
               pathOptions={{ color: "#F178AF", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, SANDRINGHAM_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            {renderStationMarkers(renderedStationKeys, RENDERED_SANDRINGHAM_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
           </>
         )}
 
@@ -3432,21 +4666,109 @@ const [layers, setLayers] = useState<LayerState>({
         )}
 
         {userLoc && <LocationCenterer loc={userLoc} />}
-{modeIsTrainVisible && liveVehicles.map((vehicle) => (
-  <Marker
-    key={`${vehicle.consist}-${vehicle.tdn}`}
-    position={[vehicle.lat, vehicle.lng]}
-    icon={createLiveTrainIcon(vehicle)}
-    zIndexOffset={vehicle.consist === "430M" ? 2500 : 1200}
-    riseOnHover
-    eventHandlers={{
-      mousedown: () => setSelectedDetail({ type: "vehicle", vehicle }),
-      touchstart: () => setSelectedDetail({ type: "vehicle", vehicle }),
-      click: () => setSelectedDetail({ type: "vehicle", vehicle }),
-      popupopen: () => setSelectedDetail({ type: "vehicle", vehicle }),
-    }}
-  />
-))}
+        {modeIsTrainVisible && (
+          <Marker
+            position={featuredConsistPosition}
+            icon={createFeaturedConsistIcon(featuredConsistIsLive)}
+            zIndexOffset={2800}
+            riseOnHover
+          >
+            <Popup>
+              <div className="w-64 p-3">
+                <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2">
+                  <div>
+                    <p className="text-sm font-bold text-white">Consist {FEATURED_CONSIST}</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300/80">
+                      Starred map marker
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${featuredConsistIsLive ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-700/70 text-slate-200"}`}>
+                    {featuredConsistIsLive ? "Live" : "Approx"}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-white/85">
+                  {featuredConsistSnapshot?.current_trip
+                    ? `${featuredConsistSnapshot.current_trip.origin} to ${featuredConsistSnapshot.current_trip.destination}`
+                    : featuredConsistSnapshot?.next_trip
+                      ? `Next run: ${featuredConsistSnapshot.next_trip.origin} to ${featuredConsistSnapshot.next_trip.destination}`
+                      : "No active trip right now, so this is a rough placeholder on the map."}
+                </p>
+                <p className="mt-2 text-xs text-white/55">
+                  {featuredConsistSnapshot?.position?.vehicle_stop_status === "STOPPED_AT"
+                    ? `Last known stop: ${featuredConsistSnapshot.position.current_stop}`
+                    : featuredConsistSnapshot?.position?.current_stop
+                      ? `Approx near ${featuredConsistSnapshot.position.current_stop}`
+                      : "Pinned near the city until a better estimate is available."}
+                </p>
+              </div>
+            </Popup>
+          </Marker>
+        )}
+        {modeIsTrainVisible &&
+          regularLiveVehicles.map((vehicle) => (
+            <Marker
+              key={`${vehicle.consist}-${vehicle.tdn}`}
+              position={[vehicle.lat, vehicle.lng]}
+              icon={createLiveTrainIcon(vehicle)}
+              zIndexOffset={1200}
+              riseOnHover
+              eventHandlers={{
+                mousedown: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                touchstart: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                click: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                popupopen: () => setSelectedDetail({ type: "vehicle", vehicle }),
+              }}
+            />
+          ))}
+        {modeIsBusVisible &&
+          liveBuses.map((bus) => (
+            <Marker
+              key={bus.id}
+              position={[bus.lat, bus.lng]}
+              icon={createLiveBusIcon(bus)}
+              zIndexOffset={1000}
+              riseOnHover
+            >
+              <Popup>
+                <div className="w-56 p-3">
+                  <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2">
+                    <div>
+                      <p className="text-sm font-bold text-white">
+                        {bus.route === "Bus" ? "Live bus" : `Route ${bus.route}`}
+                      </p>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-300/80">
+                        {bus.operator ?? "PTV Bus"}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold text-orange-200">
+                      Live
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-white/85">{bus.destination ?? "Live vehicle position"}</p>
+                  <p className="mt-2 text-xs text-white/55">
+                    {bus.timestamp
+                      ? `Updated ${formatDistanceToNow(new Date(bus.timestamp), { addSuffix: true })}`
+                      : "Live feed timestamp unavailable"}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        {modeIsBusVisible &&
+          shouldShowBusStopFallback &&
+          renderSurfaceStops(
+            ANYTRIP_SURFACE_STOPS.filter((stop) => stop.modes.includes("bus")),
+            "#FF8200",
+            "#FF8200",
+            (stop) => setSelectedDetail({ type: "surfaceStop", stop }),
+          )}
+        {modeIsTramVisible &&
+          renderSurfaceStops(
+            ANYTRIP_SURFACE_STOPS.filter((stop) => stop.modes.includes("tram")),
+            "#78BE20",
+            "#78BE20",
+            (stop) => setSelectedDetail({ type: "surfaceStop", stop }),
+          )}
         {visibleReports.map((report) => {
           if (!report.lat || !report.lng) return null;
 
@@ -3589,12 +4911,12 @@ const [layers, setLayers] = useState<LayerState>({
             Transport Modes
           </p>
           <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:mt-3 sm:gap-2">
-            {([
-              { key: "train", label: "Trains", icon: "train" },
-              { key: "tram", label: "Trams", icon: "tram" },
-              { key: "bus", label: "Buses", icon: "bus" },
-              { key: "vline", label: "V/Line", icon: "vline" },
-            ] as Array<{ key: TransportMode; label: string; icon: "train" | "tram" | "bus" | "vline" }>).map((mode) => {
+              {([
+                { key: "train", label: "Trains", icon: "train" },
+                { key: "vline", label: "V/Line", icon: "vline" },
+                { key: "tram", label: "Trams", icon: "tram" },
+                { key: "bus", label: "Buses", icon: "bus" },
+              ] as Array<{ key: TransportMode; label: string; icon: "train" | "tram" | "bus" | "vline" }>).map((mode) => {
               const active = transportModes.includes(mode.key);
               return (
                 <button
@@ -3769,7 +5091,7 @@ const [layers, setLayers] = useState<LayerState>({
                     : `${selectedDetail.vehicle.line} service`}
               </p>
               <p className="mt-1 text-xs text-white/55">
-                TDN {selectedVehicleSnapshot?.current_trip?.id ?? selectedVehicleSnapshot?.next_trip?.id ?? selectedDetail.vehicle.tdn} / Consist {selectedDetail.vehicle.consist}
+                TDN {selectedVehicleSnapshot?.current_trip?.id ?? selectedVehicleSnapshot?.next_trip?.id ?? selectedDetail.vehicle.tdn}
               </p>
             </div>
             <button
@@ -3786,68 +5108,15 @@ const [layers, setLayers] = useState<LayerState>({
               Running service
             </p>
             <p className="mt-1.5 text-lg font-semibold leading-tight text-white">
-              {selectedVehicleSnapshot?.current_trip
-                ? `${selectedVehicleSnapshot.current_trip.origin} to ${selectedVehicleSnapshot.current_trip.destination}`
-                : selectedVehicleSnapshot?.next_trip
-                  ? `Next: ${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
-                  : selectedDetail.vehicle.serviceDescription ?? "Waiting for next trip"}
+              {selectedVehiclePatternLabel}
             </p>
             <p className="mt-1.5 text-xs text-white/65">
               {selectedVehicleSnapshot?.current_trip
                 ? `Running now from ${formatRouteWindow(selectedVehicleSnapshot.current_trip.departs)} to ${formatRouteWindow(selectedVehicleSnapshot.current_trip.arrives)}`
                 : selectedVehicleSnapshot?.next_trip
                   ? `Departs ${formatRouteWindow(selectedVehicleSnapshot.next_trip.departs)} and arrives ${formatRouteWindow(selectedVehicleSnapshot.next_trip.arrives)}`
-                  : "No active trip has been reported right now."}
+                  : "Using the live feed fallback while trip-level timing is unavailable."}
             </p>
-          </div>
-
-          <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
-                Trip list
-              </p>
-              <p className="text-[10px] text-white/38">
-                live snapshot
-              </p>
-            </div>
-
-            <div className="mt-2.5 space-y-2.5">
-              {selectedVehicleSnapshot?.current_trip && (
-                <div className="rounded-[1.1rem] border border-emerald-400/15 bg-emerald-500/8 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/70">
-                    Running now
-                  </p>
-                  <p className="mt-1.5 text-[15px] font-semibold leading-tight text-white">
-                    {selectedVehicleSnapshot.current_trip.origin} to {selectedVehicleSnapshot.current_trip.destination}
-                  </p>
-                  <p className="mt-1 text-xs text-white/65">
-                    {formatRouteWindow(selectedVehicleSnapshot.current_trip.departs)} to{" "}
-                    {formatRouteWindow(selectedVehicleSnapshot.current_trip.arrives)}
-                  </p>
-                </div>
-              )}
-
-              {selectedVehicleSnapshot?.next_trip && (
-                <div className="rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">
-                    Up next
-                  </p>
-                  <p className="mt-1.5 text-[15px] font-semibold leading-tight text-white">
-                    {selectedVehicleSnapshot.next_trip.origin} to {selectedVehicleSnapshot.next_trip.destination}
-                  </p>
-                  <p className="mt-1 text-xs text-white/65">
-                    {formatRouteWindow(selectedVehicleSnapshot.next_trip.departs)} to{" "}
-                    {formatRouteWindow(selectedVehicleSnapshot.next_trip.arrives)}
-                  </p>
-                </div>
-              )}
-
-              {!selectedVehicleSnapshot?.current_trip && !selectedVehicleSnapshot?.next_trip && (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-3 text-sm text-white/55">
-                  No active or upcoming trip details are available for this consist right now.
-                </div>
-              )}
-            </div>
           </div>
 
           <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
@@ -3857,7 +5126,7 @@ const [layers, setLayers] = useState<LayerState>({
                   Origin
                 </p>
                 <p className="mt-1.5 text-[1.9rem] font-semibold leading-none text-white">
-                  {selectedVehicleSnapshot?.current_trip?.origin ?? selectedVehicleSnapshot?.next_trip?.origin ?? "Unknown"}
+                  {selectedVehicleOriginLabel}
                 </p>
               </div>
               <div className="mt-6 flex items-center gap-2 text-emerald-300/80">
@@ -3870,7 +5139,7 @@ const [layers, setLayers] = useState<LayerState>({
                   Destination
                 </p>
                 <p className="mt-1.5 text-[1.9rem] font-semibold leading-none text-white">
-                  {selectedVehicleSnapshot?.current_trip?.destination ?? selectedVehicleSnapshot?.next_trip?.destination ?? selectedDetail.vehicle.destination}
+                  {selectedVehicleDestinationLabel}
                 </p>
               </div>
             </div>
@@ -3879,7 +5148,7 @@ const [layers, setLayers] = useState<LayerState>({
               <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-100">
                 {selectedVehicleSnapshot?.position?.vehicle_stop_status === "STOPPED_AT"
                   ? `Stopped at ${selectedVehicleSnapshot.position.current_stop}`
-                  : selectedDetail.vehicle.serviceDescription ?? "Live tracked service"}
+                  : getVehicleStoppingPattern(selectedDetail.vehicle)}
               </span>
               {selectedVehicleSnapshot?.current_trip?.url && (
                 <a
@@ -3900,13 +5169,9 @@ const [layers, setLayers] = useState<LayerState>({
                 <p className="mt-1 text-sm font-semibold text-white">{getVehicleDisplayType(selectedDetail.vehicle)}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Window</p>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Stopping pattern</p>
                 <p className="mt-1 text-sm font-semibold text-white">
-                  {selectedVehicleSnapshot?.current_trip
-                    ? `${formatRouteWindow(selectedVehicleSnapshot.current_trip.departs)}-${formatRouteWindow(selectedVehicleSnapshot.current_trip.arrives)}`
-                    : selectedVehicleSnapshot?.next_trip
-                      ? `${formatRouteWindow(selectedVehicleSnapshot.next_trip.departs)}-${formatRouteWindow(selectedVehicleSnapshot.next_trip.arrives)}`
-                      : "Waiting"}
+                  {selectedVehiclePatternLabel}
                 </p>
               </div>
               <div>
@@ -3914,13 +5179,9 @@ const [layers, setLayers] = useState<LayerState>({
                 <p className="mt-1 text-sm font-semibold text-white">Metro Trains Melbourne</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Updated</p>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Window</p>
                 <p className="mt-1 text-sm font-semibold text-white">
-                  {selectedVehicleSnapshot?.as_of
-                    ? formatDistanceToNow(new Date(selectedVehicleSnapshot.as_of), { addSuffix: true })
-                    : selectedDetail.vehicle.timestamp
-                      ? formatDistanceToNow(new Date(selectedDetail.vehicle.timestamp), { addSuffix: true })
-                      : "Unknown"}
+                  {getVehicleWindowLabel(selectedVehicleSnapshot, selectedDetail.vehicle)}
                 </p>
               </div>
             </div>
@@ -3928,30 +5189,38 @@ const [layers, setLayers] = useState<LayerState>({
 
           <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
             <div className="flex items-start justify-between gap-3">
-              <div>
+              <div className="flex min-w-0 items-start gap-3">
+                {getVehicleTypeIcon(selectedDetail.vehicle) && (
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 p-2">
+                    <img
+                      src={getVehicleTypeIcon(selectedDetail.vehicle) ?? undefined}
+                      alt={`${getVehicleDisplayType(selectedDetail.vehicle)} icon`}
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  </div>
+                )}
+
+                <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
-                  Train type & consist
+                  Train type
                 </p>
-                <p className="mt-2.5 text-xl font-semibold text-white">
+                <p className="mt-2.5 text-xl font-semibold leading-tight text-white">
                   {getVehicleDisplayType(selectedDetail.vehicle)}
                 </p>
-              </div>
-              <div className="text-right text-xs text-white/60">
-                <p>Allocated set</p>
-                <p className="mt-1 font-semibold text-white">{selectedDetail.vehicle.consist}</p>
+                </div>
               </div>
             </div>
 
-            <div className="mt-3 flex flex-wrap gap-2">
-              {splitConsistCars(selectedDetail.vehicle.consist).map((car) => (
-                <span
-                  key={`${selectedDetail.vehicle.consist}-${car}`}
-                  className="rounded-full border border-blue-300/20 bg-blue-400/10 px-2.5 py-1 text-[10px] font-semibold text-blue-100/90"
-                >
-                  {car}
-                </span>
-              ))}
-            </div>
+            {getDisplayConsist(selectedDetail.vehicle.consist) && (
+              <div className="mt-3 border-t border-white/10 pt-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
+                  Consist
+                </p>
+                <p className="mt-1.5 text-sm font-semibold text-white">
+                  {getDisplayConsist(selectedDetail.vehicle.consist)}
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
@@ -3975,16 +5244,22 @@ const [layers, setLayers] = useState<LayerState>({
       )}
 
       {selectedDetail && selectedDetail.type !== "vehicle" && (
-        <div className="absolute inset-x-3 bottom-32 z-[1001] mx-auto max-h-[52vh] max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-3.5 shadow-2xl backdrop-blur-2xl sm:bottom-24 sm:max-w-2xl sm:p-4 lg:max-w-3xl">
+        <div className="absolute inset-x-3 bottom-32 z-[1001] mx-auto max-h-[52vh] w-full max-w-[95vw] overflow-y-auto rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-3.5 shadow-2xl backdrop-blur-2xl sm:bottom-24 sm:p-4 lg:max-w-[980px]">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-300/75">
-                {selectedDetail.type === "station" ? "Station" : "Service report"}
+                {selectedDetail.type === "station"
+                  ? "Station"
+                  : selectedDetail.type === "surfaceStop"
+                    ? "Stop"
+                    : "Service report"}
               </p>
               <p className="mt-2 text-lg font-semibold text-white">
                 {selectedDetail.type === "station"
                   ? selectedDetail.station.name
-                  : selectedDetail.report.locationName}
+                  : selectedDetail.type === "surfaceStop"
+                    ? selectedDetail.stop.name
+                    : selectedDetail.report.locationName}
               </p>
             </div>
             <button
@@ -4097,76 +5372,76 @@ const [layers, setLayers] = useState<LayerState>({
               )}
 
               {selectedDetail.station.name !== "Southern Cross" && (
-                <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-300/75">
-                    Next services
-                  </p>
-                  <p className="mt-1 text-xs text-white/55">
-                    The next two services showing on each platform at {selectedDetail.station.name}.
-                  </p>
+                (() => {
+                  const isMetroTunnelConnectorStation =
+                    selectedDetail.station.name === "Melbourne Central" ||
+                    selectedDetail.station.name === "State Library";
+                  const platformBoard = buildPlatformBoard(selectedDetail.station);
+                  const connectedStationName =
+                    selectedDetail.station.name === "Melbourne Central"
+                      ? "State Library"
+                      : selectedDetail.station.name === "State Library"
+                        ? "Melbourne Central"
+                        : null;
 
-                  <div className="mt-2.5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {buildPlatformBoard(selectedDetail.station).map((platform) => (
+                  return (
+                    <div className={isMetroTunnelConnectorStation ? "w-[min(980px,95vw)] rounded-[1.45rem] border border-white/10 bg-white/[0.03] p-3" : ""}>
                       <div
-                        key={`${selectedDetail.station.name}-platform-${platform.platform}`}
-                        className={`rounded-[1rem] border p-2.5 ${platform.tone}`}
+                        className={
+                          isMetroTunnelConnectorStation
+                            ? "grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]"
+                            : ""
+                        }
                       >
-                        <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-white/55">
-                          {platform.label}
-                        </p>
-                        <div className="mt-2 space-y-1.5">
-                          {platform.services.length > 0 ? (
-                            platform.services.map((service, index) => {
-                              const display = getPlatformServiceDisplay(
-                                selectedDetail.station.name,
-                                platform.label,
-                                service,
-                              );
+                      {isMetroTunnelConnectorStation && (
+                        <div className="min-w-[320px] max-w-[320px] rounded-[1.2rem] border border-[#279FD5]/20 bg-[#279FD5]/[0.08] p-3 shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7cd9ff]">
+                            Station
+                          </p>
+                          <p className="mt-1 text-2xl font-semibold leading-tight text-white">
+                            {connectedStationName ?? selectedDetail.station.name}
+                          </p>
+                          <div className="mt-3 rounded-[1rem] border border-white/10 bg-black/15 p-3">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7cd9ff]">
+                              Metro Tunnel interchange
+                            </p>
+                            <p className="mt-1 text-lg font-semibold leading-tight text-white">
+                              {selectedDetail.station.name}
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed text-white/65">
+                              Platforms 1 and 2 with direct CBD interchange access.
+                            </p>
+                          </div>
+                          <div className="mt-3">
+                            {renderPlatformBoardCard(
+                              selectedDetail.station.name,
+                              METRO_TUNNEL_CONNECTION_BOARD,
+                              100,
+                            )}
+                          </div>
+                        </div>
+                      )}
 
-                              return (
-                              <div
-                                key={`${platform.platform}-${service.destination}-${index}`}
-                                className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/15 px-2.5 py-1.5"
-                              >
-                                <div className="min-w-0">
-                                  <p className="truncate text-xs font-semibold text-white">{display.destination}</p>
-                                  {(display.originLabel || display.viaLabel) && (
-                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                      {display.originLabel && (
-                                        <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-medium text-white/70">
-                                          {display.originLabel}
-                                        </span>
-                                      )}
-                                      {display.viaLabel && (
-                                        <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-medium text-white/70">
-                                          {display.viaLabel}
-                                        </span>
-                                      )}
-                                    </div>
-                                  )}
-                                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                    <p className="text-[10px] text-white/50">{service.statusLabel ?? "Next service"}</p>
-                                    <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/80">
-                                      {service.tdnLabel}
-                                    </span>
-                                  </div>
-                                </div>
-                                <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/85">
-                                  {service.etaLabel}
-                                </span>
-                              </div>
-                            )})
-                          ) : (
-                            <div className="rounded-xl border border-dashed border-white/15 bg-black/10 px-3 py-5 text-center">
-                              <p className="text-xs font-semibold text-white/85">No regular departures</p>
-                              <p className="mt-1 text-[10px] text-white/55">{platform.emptyState ?? "Check the live station displays for any special movements."}</p>
-                            </div>
+                      <div className={isMetroTunnelConnectorStation ? "min-w-0 rounded-[1.2rem] border border-white/10 bg-black/10 p-3" : "rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3"}>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-300/75">
+                          Next services
+                        </p>
+                        <p className="mt-1 text-xs text-white/55">
+                          {isMetroTunnelConnectorStation
+                            ? `${selectedDetail.station.name} loop platforms and connected CBD services.`
+                            : `The next two services showing on each platform at ${selectedDetail.station.name}.`}
+                        </p>
+
+                        <div className={`mt-2.5 grid gap-2 ${isMetroTunnelConnectorStation ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
+                          {platformBoard.map((platform, index) =>
+                            renderPlatformBoardCard(selectedDetail.station.name, platform, index),
                           )}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+                    </div>
+                  );
+                })()
               )}
             </div>
           )}
@@ -4182,6 +5457,131 @@ const [layers, setLayers] = useState<LayerState>({
               {selectedDetail.report.notes && (
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:col-span-2">
                   {selectedDetail.report.notes}
+                </div>
+              )}
+            </div>
+          )}
+
+          {selectedDetail.type === "surfaceStop" && (
+            <div className="mt-3 space-y-3 text-sm text-white/70">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                <p className="text-sm font-semibold text-white">{selectedDetail.stop.locality}</p>
+                <p className="mt-1 text-xs text-white/60">{selectedDetail.stop.subtitle}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedDetail.stop.modes.map((mode) => (
+                    <span
+                      key={`${selectedDetail.stop.id}-${mode}`}
+                      className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/75"
+                    >
+                      {mode}
+                    </span>
+                  ))}
+                  <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-100/85">
+                    Route {selectedDetail.stop.routeLabel}
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-300/75">
+                      Schedules
+                    </p>
+                    <p className="mt-1 text-xs text-white/55">
+                      Next scheduled departures for this stop in the app.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
+                    {selectedDetail.stop.departures.length} listed
+                  </span>
+                </div>
+
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  {selectedDetail.stop.departures.map((departure) => (
+                    <div
+                      key={`${selectedDetail.stop.id}-${departure.route}-${departure.destination}-${departure.departureLabel}`}
+                      className="rounded-2xl border border-white/10 bg-black/15 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-200/75">
+                            Route {departure.route}
+                          </p>
+                          <p className="mt-1 text-base font-semibold leading-tight text-white">
+                            {departure.destination}
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/85">
+                          {departure.departureLabel}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-white/55">
+                        {departure.note ?? departure.statusLabel}
+                      </p>
+                      <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200/75">
+                        {departure.statusLabel}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {selectedDetail.stop.modes.includes("bus") && (
+                <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-300/75">
+                        Live track buses
+                      </p>
+                      <p className="mt-1 text-xs text-white/55">
+                        Nearby live buses on route {selectedDetail.stop.routeLabel}.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
+                      {selectedSurfaceStopLiveBuses.length > 0 ? `${selectedSurfaceStopLiveBuses.length} live` : "No live buses"}
+                    </span>
+                  </div>
+
+                  {selectedSurfaceStopLiveBuses.length > 0 ? (
+                    <div className="mt-3 grid gap-2">
+                      {selectedSurfaceStopLiveBuses.map(({ bus, distanceMetres }) => (
+                        <div
+                          key={`${selectedDetail.stop.id}-${bus.id}`}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/15 p-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white">
+                              Route {bus.route} to {bus.destination ?? "Live bus"}
+                            </p>
+                            <p className="mt-1 text-xs text-white/55">
+                              {formatDistanceLabel(distanceMetres)}
+                              {bus.timestamp
+                                ? ` · Updated ${formatDistanceToNow(new Date(bus.timestamp), { addSuffix: true })}`
+                                : ""}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              mapRef.current?.flyTo([bus.lat, bus.lng], Math.max(mapRef.current?.getZoom() ?? 14, 14), {
+                                animate: true,
+                                duration: 0.85,
+                              });
+                              setSelectedDetail(null);
+                            }}
+                            className="inline-flex rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-500/15"
+                          >
+                            Jump to bus
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-2xl border border-dashed border-white/10 bg-black/10 p-3 text-sm text-white/55">
+                      No route {selectedDetail.stop.routeLabel} buses are reporting live near this stop right now.
+                    </div>
+                  )}
                 </div>
               )}
             </div>

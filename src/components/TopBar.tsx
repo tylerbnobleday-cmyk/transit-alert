@@ -1,6 +1,7 @@
-import { AlertTriangle, CheckCircle2, MessageSquare } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMetroNotifyAlerts, type MetroNotifyAlert } from "@/lib/todays-alerts";
+import { TRANSITALERT_VERSION_LABEL } from "@/lib/version";
 
 const KNOWN_ALERT_LINES = [
   "Metro Tunnel",
@@ -45,9 +46,9 @@ function extractAlertLineLabel(alert: MetroNotifyAlert) {
 }
 
 interface TopBarProps {
-  onOpenChat: () => void;
   onOpenAlerts: () => void;
   onOpenUserMenu: () => void;
+  onOpenVersion: () => void;
   user?: {
     username: string;
     role: string;
@@ -119,7 +120,7 @@ function isRecentAlert(updatedAt?: string) {
   return Date.now() - parsed < 1000 * 60 * 60 * 2;
 }
 
-export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBarProps) {
+export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: TopBarProps) {
   const { data: metroAlerts = [] } = useQuery({
     queryKey: ["/api/metro-notify/alerts", "topbar"],
     queryFn: fetchMetroNotifyAlerts,
@@ -137,7 +138,6 @@ export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBa
 
   return (
     <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex items-start gap-2 px-2.5 pt-2.5 sm:px-6 sm:pt-5">
-      {/* Left controls */}
       <div className="pointer-events-auto flex min-w-0 max-w-[calc(100%-4.6rem)] items-center gap-1.5 sm:max-w-none sm:gap-3">
         {user && (
           <button
@@ -157,20 +157,25 @@ export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBa
           </button>
         )}
 
-        <div className="flex min-w-0 items-center gap-1.5 rounded-2xl border border-white/10 bg-card/80 p-1.5 pr-2.5 shadow-xl shadow-black/50 backdrop-blur-xl sm:gap-3 sm:p-2 sm:pr-4">
-          <img 
-            src={`${import.meta.env.BASE_URL}images/app-logo.png`} 
-            alt="Transit Alert" 
+        <button
+          type="button"
+          onClick={onOpenVersion}
+          className="flex min-w-0 items-center gap-1.5 rounded-2xl border border-white/10 bg-card/80 p-1.5 pr-2.5 text-left shadow-xl shadow-black/50 backdrop-blur-xl transition hover:bg-card sm:gap-3 sm:p-2 sm:pr-4"
+        >
+          <img
+            src={`${import.meta.env.BASE_URL}app-logo.svg`}
+            alt="Transit Alert"
             className="h-8 w-8 shrink-0 rounded-xl sm:h-10 sm:w-10"
           />
           <div className="min-w-0">
             <h1 className="truncate font-display text-[13px] font-bold leading-none tracking-tight text-white sm:text-lg">TransitAlert</h1>
-            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider sm:text-xs">Melbourne</p>
+            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider sm:text-xs">
+              {TRANSITALERT_VERSION_LABEL}
+            </p>
           </div>
-        </div>
+        </button>
       </div>
 
-      {/* Right controls */}
       <div className="pointer-events-none absolute right-2.5 top-2.5 z-[70] flex flex-col items-end gap-2 sm:right-6 sm:top-5 sm:gap-3">
         <button
           type="button"
@@ -202,18 +207,6 @@ export function TopBar({ onOpenChat, onOpenAlerts, onOpenUserMenu, user }: TopBa
               {alertSubtitle}
             </span>
           </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={onOpenChat}
-          className="pointer-events-auto group relative z-[60] mt-1 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-primary shadow-[0_0_20px_rgba(37,99,235,0.4)] transition-all active:scale-95 hover:scale-105 hover:shadow-[0_0_30px_rgba(37,99,235,0.6)] sm:mt-1 sm:h-14 sm:w-14"
-        >
-          <MessageSquare className="relative z-10 h-4.5 w-4.5 text-primary-foreground sm:h-6 sm:w-6" />
-          <div className="absolute inset-0 rounded-full bg-white opacity-0 group-hover:opacity-20 transition-opacity"></div>
-          
-          {/* Unread dot */}
-          <span className="absolute top-0 right-0 w-3 h-3 bg-destructive rounded-full border-2 border-primary z-20"></span>
         </button>
       </div>
     </div>

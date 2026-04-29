@@ -145,6 +145,32 @@ function truncate(text: string, maxLength = 300): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
+function buildOfflineFallback(url: string, method: string): unknown {
+  if (method !== "GET") {
+    return undefined;
+  }
+
+  if (url === "/api/reports") {
+    return [];
+  }
+
+  if (url === "/api/reports/stats") {
+    return {
+      alertsToday: 0,
+      riskyRoutes: [],
+    };
+  }
+
+  if (url === "/api/healthz") {
+    return {
+      ok: false,
+      status: "offline",
+    };
+  }
+
+  return undefined;
+}
+
 function buildErrorMessage(response: Response, data: unknown): string {
   const prefix = `HTTP ${response.status} ${response.statusText}`;
 
@@ -357,7 +383,18 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  let response: Response;
+  try {
+    response = await fetch(input, { ...init, method, headers });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      const fallback = buildOfflineFallback(requestInfo.url, method);
+      if (fallback !== undefined) {
+        return fallback as T;
+      }
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);

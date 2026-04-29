@@ -8,6 +8,7 @@ export type MetroNotifyAlert = {
   status: string;
   updatedAt?: string;
   url?: string;
+  addToCalendarUrl?: string;
   source: "metro";
 };
 
@@ -30,6 +31,7 @@ function normaliseMetroAlert(raw: Partial<MetroNotifyAlert> & Record<string, unk
     status: typeof raw.status === "string" && raw.status.trim() ? raw.status : "active",
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : undefined,
     url: typeof raw.url === "string" ? raw.url : undefined,
+    addToCalendarUrl: typeof raw.addToCalendarUrl === "string" ? raw.addToCalendarUrl : undefined,
     source: "metro",
   };
 }

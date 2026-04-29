@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
@@ -9,22 +9,8 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 const require = createRequire(import.meta.url);
 const GtfsRealtimeBindings = require("./vendor/ptv/gtfs-realtime.cjs");
 
-const port = Number(process.env.PORT || 5173);
-const basePath = process.env.BASE_PATH || "/";
 const PTV_BASE_URL = "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/metro";
 const TRANSPORTVIC_BASE_URL = "https://transportvic.me";
-const ptvSubscriptionKey =
-  process.env.PTV_SUBSCRIPTION_KEY ||
-  process.env.PTV_subscription_key ||
-  process.env.OCP_APIM_SUBSCRIPTION_KEY ||
-  process.env.PTV_API_KEY;
-const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
-const adminUsername = process.env.ADMIN_USERNAME || "tyler";
-const adminPassword = process.env.ADMIN_PASSWORD || "AppleJuice";
-const trackedConsists = (process.env.TRACKED_CONSISTS || "430M")
-  .split(",")
-  .map((value) => value.trim().toUpperCase())
-  .filter(Boolean);
 
 const ROLE_OPTIONS = [
   "Admin",
@@ -35,6 +21,14 @@ const ROLE_OPTIONS = [
   "Friend",
   "Bug Tester",
 ] as const;
+
+type RuntimeConfig = {
+  ptvSubscriptionKey?: string;
+  telegramBotToken?: string;
+  adminUsername: string;
+  adminPassword: string;
+  trackedConsists: string[];
+};
 
 type AppRole = (typeof ROLE_OPTIONS)[number];
 
@@ -123,6 +117,20 @@ type UserPreferences = {
   appPreferences: Record<string, unknown>;
 };
 
+type ReportRecord = {
+  id: number;
+  reportType: "inspector" | "delay" | "incident";
+  transportType: "tram" | "train" | "bus" | "stop";
+  lineNumber: string | null;
+  direction: "city_bound" | "outbound" | "unknown";
+  locationName: string;
+  notes: string | null;
+  username: string;
+  lat: number | null;
+  lng: number | null;
+  createdAt: string;
+};
+
 const defaultPreferences: UserPreferences = {
   favouriteStops: [],
   favouriteRoutes: [],
@@ -131,23 +139,48 @@ const defaultPreferences: UserPreferences = {
   appPreferences: {},
 };
 
+const reportStore: ReportRecord[] = [];
+let nextReportId = 1;
+
+function buildReportStats(reports: ReportRecord[]) {
+  const routeCounts = new Map<string, { lineNumber: string; transportType: string; reportCount: number }>();
+
+  for (const report of reports) {
+    const lineNumber = report.lineNumber?.trim();
+    if (!lineNumber) continue;
+
+    const key = `${report.transportType}:${lineNumber}`;
+    const existing = routeCounts.get(key);
+    if (existing) {
+      existing.reportCount += 1;
+      continue;
+    }
+
+    routeCounts.set(key, {
+      lineNumber,
+      transportType: report.transportType,
+      reportCount: 1,
+    });
+  }
+
+  const riskyRoutes = [...routeCounts.values()]
+    .map((route) => ({
+      ...route,
+      riskLevel:
+        route.reportCount >= 5 ? "high" : route.reportCount >= 3 ? "medium" : "low",
+    }))
+    .sort((left, right) => right.reportCount - left.reportCount)
+    .slice(0, 8);
+
+  return {
+    alertsToday: reports.length,
+    riskyRoutes,
+  };
+}
+
 const preferencesStore = new Map<string, UserPreferences>();
 
 const sessionStore = new Map<string, SessionRecord>();
-const accountStore = new Map<string, AccountRecord>([
-  [
-    adminUsername.toLowerCase(),
-    {
-      id: adminUsername.toLowerCase(),
-      username: adminUsername,
-      email: `${adminUsername}@transitalert.local`,
-      password: adminPassword,
-      role: "Admin",
-      isAdmin: true,
-    },
-  ],
-]);
-
 function sendJson(res: any, status: number, payload: unknown) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -454,7 +487,7 @@ async function fetchTransportVicAlerts() {
   return text ? text.split(/\s{2,}/).filter(Boolean) : [];
 }
 
-async function fetchTelegramBotProfile() {
+async function fetchTelegramBotProfile(telegramBotToken?: string) {
   if (!telegramBotToken) {
     return { connected: false, username: null, firstName: null };
   }
@@ -513,7 +546,7 @@ async function loadConsistSnapshot(consist: string) {
   return { data, alerts, stops, position, gps, lastRun };
 }
 
-async function fetchFeed(feedPath: "/vehicle-positions" | "/service-alerts") {
+async function fetchFeed(feedPath: "/vehicle-positions" | "/service-alerts", ptvSubscriptionKey?: string) {
   if (!ptvSubscriptionKey) {
     throw new Error("Missing PTV_SUBSCRIPTION_KEY");
   }
@@ -533,7 +566,7 @@ async function fetchFeed(feedPath: "/vehicle-positions" | "/service-alerts") {
   return GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
 }
 
-async function buildTransportVicLiveTrains(consists = trackedConsists) {
+async function buildTransportVicLiveTrains(consists: string[]) {
   const snapshots = await Promise.all(
     consists.map(async (consist) => {
       try {
@@ -690,7 +723,22 @@ function buildMetroAlerts(feed: Awaited<ReturnType<typeof fetchFeed>>) {
     .filter(Boolean);
 }
 
-function ptvRealtimePlugin(): Plugin {
+function ptvRealtimePlugin(runtimeConfig: RuntimeConfig): Plugin {
+  const { adminPassword, adminUsername, ptvSubscriptionKey, telegramBotToken, trackedConsists } = runtimeConfig;
+  const accountStore = new Map<string, AccountRecord>([
+    [
+      adminUsername.toLowerCase(),
+      {
+        id: adminUsername.toLowerCase(),
+        username: adminUsername,
+        email: `${adminUsername}@transitalert.local`,
+        password: adminPassword,
+        role: "Admin",
+        isAdmin: true,
+      },
+    ],
+  ]);
+
   const registerMiddleware = (middlewares: any) => {
     middlewares.use(async (req, res, next) => {
       try {
@@ -895,17 +943,59 @@ function ptvRealtimePlugin(): Plugin {
           return;
         }
 
+        if (req.url === "/api/reports" && req.method === "GET") {
+          sendJson(res, 200, [...reportStore].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt)));
+          return;
+        }
+
+        if (req.url === "/api/reports" && req.method === "POST") {
+          const body = (await readJsonBody(req)) as Partial<ReportRecord>;
+          const report: ReportRecord = {
+            id: nextReportId,
+            reportType:
+              body.reportType === "delay" || body.reportType === "incident" ? body.reportType : "inspector",
+            transportType:
+              body.transportType === "tram" ||
+              body.transportType === "bus" ||
+              body.transportType === "stop"
+                ? body.transportType
+                : "train",
+            lineNumber: typeof body.lineNumber === "string" && body.lineNumber.trim() ? body.lineNumber.trim() : null,
+            direction:
+              body.direction === "city_bound" || body.direction === "outbound" ? body.direction : "unknown",
+            locationName:
+              typeof body.locationName === "string" && body.locationName.trim()
+                ? body.locationName.trim()
+                : "Unknown location",
+            notes: typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : null,
+            username: typeof body.username === "string" && body.username.trim() ? body.username.trim() : "Guest",
+            lat: typeof body.lat === "number" ? body.lat : null,
+            lng: typeof body.lng === "number" ? body.lng : null,
+            createdAt: new Date().toISOString(),
+          };
+
+          reportStore.unshift(report);
+          nextReportId += 1;
+          sendJson(res, 201, report);
+          return;
+        }
+
+        if (req.url === "/api/reports/stats" && req.method === "GET") {
+          sendJson(res, 200, buildReportStats(reportStore));
+          return;
+        }
+
         if (req.url === "/api/telegram/status") {
-          const profile = await fetchTelegramBotProfile();
+          const profile = await fetchTelegramBotProfile(telegramBotToken);
           sendJson(res, 200, profile);
           return;
         }
 
         if (req.url === "/api/ptv/live-trains") {
-          const trackedTrains = await buildTransportVicLiveTrains();
+          const trackedTrains = await buildTransportVicLiveTrains(trackedConsists);
           let ptvTrains: Array<Record<string, unknown>> = [];
           if (ptvSubscriptionKey) {
-            const feed = await fetchFeed("/vehicle-positions");
+            const feed = await fetchFeed("/vehicle-positions", ptvSubscriptionKey);
             ptvTrains = buildPtvLiveTrains(feed);
           }
           const trains = mergeLiveTrainLists(ptvTrains, trackedTrains);
@@ -978,7 +1068,7 @@ function ptvRealtimePlugin(): Plugin {
             return;
           }
 
-          const feed = await fetchFeed("/service-alerts");
+          const feed = await fetchFeed("/service-alerts", ptvSubscriptionKey);
           sendJson(res, 200, { alerts: buildMetroAlerts(feed) });
           return;
         }
@@ -1002,47 +1092,75 @@ function ptvRealtimePlugin(): Plugin {
   };
 }
 
-export default defineConfig({
-  base: basePath,
-  plugins: [
-    ptvRealtimePlugin(),
-    react(),
-    tailwindcss(),
-    runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer({
-              root: path.resolve(import.meta.dirname, ".."),
-            }),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
-  ],
-  resolve: {
-    alias: {
-      "@": path.resolve(import.meta.dirname, "src"),
-      "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+export default defineConfig(async ({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const port = Number(env.PORT || process.env.PORT || 5173);
+  const basePath = env.BASE_PATH || process.env.BASE_PATH || "/";
+  const runtimeConfig: RuntimeConfig = {
+    ptvSubscriptionKey:
+      env.PTV_SUBSCRIPTION_KEY ||
+      env.PTV_subscription_key ||
+      env.OCP_APIM_SUBSCRIPTION_KEY ||
+      env.PTV_API_KEY ||
+      process.env.PTV_SUBSCRIPTION_KEY ||
+      process.env.PTV_subscription_key ||
+      process.env.OCP_APIM_SUBSCRIPTION_KEY ||
+      process.env.PTV_API_KEY,
+    telegramBotToken:
+      env.TELEGRAM_BOT_TOKEN ||
+      env.BOT_TOKEN ||
+      process.env.TELEGRAM_BOT_TOKEN ||
+      process.env.BOT_TOKEN,
+    adminUsername: env.ADMIN_USERNAME || process.env.ADMIN_USERNAME || "tyler",
+    adminPassword: env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || "AppleJuice",
+    trackedConsists: (env.TRACKED_CONSISTS || process.env.TRACKED_CONSISTS || "430M")
+      .split(",")
+      .map((value) => value.trim().toUpperCase())
+      .filter(Boolean),
+  };
+
+  return {
+    base: basePath,
+    plugins: [
+      ptvRealtimePlugin(runtimeConfig),
+      react(),
+      tailwindcss(),
+      runtimeErrorOverlay(),
+      ...(process.env.NODE_ENV !== "production" &&
+      process.env.REPL_ID !== undefined
+        ? [
+            await import("@replit/vite-plugin-cartographer").then((m) =>
+              m.cartographer({
+                root: path.resolve(import.meta.dirname, ".."),
+              }),
+            ),
+            await import("@replit/vite-plugin-dev-banner").then((m) =>
+              m.devBanner(),
+            ),
+          ]
+        : []),
+    ],
+    resolve: {
+      alias: {
+        "@": path.resolve(import.meta.dirname, "src"),
+        "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+      },
+      dedupe: ["react", "react-dom"],
     },
-    dedupe: ["react", "react-dom"],
-  },
-  root: path.resolve(import.meta.dirname),
-  server: {
-    port,
-    host: "0.0.0.0",
-    allowedHosts: true,
-    fs: {
-      strict: true,
-      deny: ["**/.*"],
+    root: path.resolve(import.meta.dirname),
+    server: {
+      port,
+      host: "0.0.0.0",
+      allowedHosts: true,
+      fs: {
+        strict: true,
+        deny: ["**/.*"],
+      },
     },
-  },
-  preview: {
-    port,
-    host: "0.0.0.0",
-    allowedHosts: true,
-  },
+    preview: {
+      port,
+      host: "0.0.0.0",
+      allowedHosts: true,
+    },
+  };
 });

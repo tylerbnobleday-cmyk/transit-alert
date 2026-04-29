@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, MapPin, Plus, Search, Send, TrainFront } from "lucide-react";
+import { ChevronDown, ChevronUp, MapPin, Plus, Search, TrainFront } from "lucide-react";
 import {
   Map as TransitMap,
   Station,
@@ -16,13 +16,15 @@ import {
 import { TopBar } from "@/components/TopBar";
 import { RiskyRoutes } from "@/components/RiskyRoutes";
 import { AddReportDrawer } from "@/components/AddReportDrawer";
-import { ChatPanel } from "@/components/ChatPanel";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useGetTelegramStatus } from "@/lib/api-client-react/src/generated/api";
+import { TRANSITALERT_WEB_VERSION } from "@/lib/version";
 import { fetchAuthSession, logoutSession } from "@/lib/auth";
 import { fetchAdminConfig, saveAdminConfig, type AdminRuntimeConfig } from "@/lib/admin-config";
 import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
+import busButtonIcon from "@/assets/icons/bus.png";
+import tramButtonIcon from "@/assets/icons/tram.png";
 import {
+  DEFAULT_TRANSPORT_MODES,
   defaultPreferences,
   fetchAccountPreferences,
   mergeLocalPreferences,
@@ -82,6 +84,9 @@ const SIMPLE_SURFACE_ROUTES = [
   },
 ];
 
+const HOME_ORIGIN_LABEL = "Home · 15 Louise St, Brighton East";
+const CURRENT_LOCATION_LABEL = "Current location";
+
 type PlannerSheetProps = {
   isOpen: boolean;
   onToggle: () => void;
@@ -95,6 +100,11 @@ type DockedPanelSheetProps = {
   title: string;
   summary: string;
   children: ReactNode;
+};
+
+type VersionModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
 };
 
 type FleetTypeKey =
@@ -117,7 +127,9 @@ type FleetTypeConfig = {
 
 type FleetTrip = {
   id: string;
+  focusKey: string;
   tdn: string;
+  tripNumber: string;
   line: string;
   route: string;
   fleet: FleetTypeKey;
@@ -139,6 +151,32 @@ type StationDeparture = {
   lineTone: string;
 };
 
+type JourneyLeg = {
+  mode: "train" | "tram" | "bus" | "walk";
+  title: string;
+  from: string;
+  to: string;
+  detail: string;
+  badge: string;
+};
+
+type JourneyDisplay = {
+  summary: string;
+  pattern: string;
+  typeLabel: string;
+  window: string;
+  duration: string;
+  date: string;
+  stopCountLabel: string;
+  legs: JourneyLeg[];
+};
+
+type ChangelogEntry = {
+  version: string;
+  date: string;
+  notes: string[];
+};
+
 const FLEET_TYPES: FleetTypeConfig[] = [
   { key: "hcmt", label: "HCMT", emoji: "Train", total: 33 },
   { key: "xtrapolis", label: "X'Trapolis", emoji: "Train", total: 32 },
@@ -148,6 +186,79 @@ const FLEET_TYPES: FleetTypeConfig[] = [
   { key: "n-class", label: "N Class", emoji: "Train", total: 1 },
   { key: "vlocity", label: "VLocity", emoji: "Train", total: 25 },
 ];
+
+const VERSION_LOG: ChangelogEntry[] = [
+  {
+    version: TRANSITALERT_WEB_VERSION,
+    date: "11/10/2025",
+    notes: [
+      "New icons and a refreshed header landed.",
+      "Fleet colours now follow route names instead of relying on TDN guesses.",
+      "General real-time improvements helped V/Line trips appear more reliably.",
+    ],
+  },
+  {
+    version: "V0.6.9",
+    date: "29/08/2025",
+    notes: [
+      "Trip, departures, fleet, and WebPID pages moved off the older DB collection.",
+      "PTDB backend work sped up loading and cleaned up direct consist matching.",
+      "WebPID bumped to TransitAlert PID 0.7 alpha.",
+    ],
+  },
+  {
+    version: "V0.6.8",
+    date: "18/08/2025",
+    notes: [
+      "Profile became the main settings area.",
+      "Alerts bubble drag and desktop opening behaviour were refined.",
+      "Admin password resets now include a visible reason for the user.",
+    ],
+  },
+  {
+    version: "V0.6.7",
+    date: "21/06/2025",
+    notes: [
+      "Searching by station code now picks the station directly.",
+      "Examples like THL now resolve to Town Hall instead of unrelated matches.",
+    ],
+  },
+  {
+    version: "V0.6.6",
+    date: "15/06/2025",
+    notes: [
+      "Major departures template refresh.",
+      "Fleet page received bigger visual upgrades.",
+      "General backend and UI cleanups rolled into the same release.",
+    ],
+  },
+        
+];
+
+const TRANSITALERT_SYSTEM_NOTES = [
+  "Independent real-time transport platform pulling together public feeds, operator data where available, and app-side logic.",
+  "Data can be delayed, incomplete, or unavailable, so the app should never be treated as an official operator source.",
+  "Usage, diagnostics, and stability logging may be collected to improve reliability, performance, and safety of the system.",
+];
+
+const PLANNER_LINES = [
+  { name: "Frankston", stations: LINES.frankston },
+  { name: "Cranbourne", stations: LINES.cranbourne },
+  { name: "Pakenham", stations: LINES.pakenham },
+  { name: "Sunbury", stations: LINES.sunbury },
+  { name: "Metro Tunnel", stations: LINES.metroTunnel },
+  { name: "Sandringham", stations: LINES.sandringham },
+  { name: "Mernda", stations: LINES.mernda },
+  { name: "Hurstbridge", stations: LINES.hurstbridge },
+  { name: "Craigieburn", stations: LINES.craigieburn },
+  { name: "Upfield", stations: LINES.upfield },
+  { name: "Belgrave", stations: LINES.belgrave },
+  { name: "Lilydale", stations: LINES.lilydale },
+  { name: "Glen Waverley", stations: LINES.glenWaverley },
+  { name: "Alamein", stations: LINES.alamein },
+  { name: "Werribee", stations: LINES.werribee },
+  { name: "Williamstown", stations: LINES.williamstown },
+] as const;
 
 const STATUS_STYLES: Record<FleetTripStatus, string> = {
   running: "bg-emerald-500/15 text-emerald-300",
@@ -205,7 +316,9 @@ function formatFleetUpdatedAt(timestamp?: string) {
 function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
   return vehicles.map((vehicle, index) => ({
     id: `${vehicle.consist}-${vehicle.tdn}-${index}`,
+    focusKey: `${vehicle.consist}::${vehicle.tdn}`,
     tdn: vehicle.tdn.startsWith("TDN") ? vehicle.tdn : `TDN ${vehicle.tdn}`,
+    tripNumber: vehicle.tdn.replace(/^TDN\s*/i, "").trim(),
     line: vehicle.line,
     route: buildFleetRoute(vehicle),
     fleet: inferFleetTypeKey(vehicle),
@@ -215,6 +328,56 @@ function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
     updatedAt: vehicle.timestamp ?? "",
     consist: vehicle.consist,
   }));
+}
+
+function addMinutesToTime(base: Date, minutes: number) {
+  return new Date(base.getTime() + minutes * 60_000);
+}
+
+function formatPlannerTimeWindow(start: Date, end: Date) {
+  const formatter = new Intl.DateTimeFormat("en-AU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  return `${formatter.format(start)}-${formatter.format(end)}`;
+}
+
+function formatPlannerDate(date: Date) {
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatPlannerDuration(totalMinutes: number) {
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${minutes}m`;
+}
+
+function getJourneyLegModeTone(mode: JourneyLeg["mode"]) {
+  switch (mode) {
+    case "train":
+      return "border-sky-400/20 bg-sky-500/10 text-sky-100";
+    case "tram":
+      return "border-lime-400/20 bg-lime-500/10 text-lime-100";
+    case "bus":
+      return "border-orange-400/20 bg-orange-500/10 text-orange-100";
+    default:
+      return "border-white/10 bg-white/5 text-white/80";
+  }
+}
+
+function journeyLegsOrigin(display: JourneyDisplay) {
+  return display.legs[0]?.from ?? "Unknown";
+}
+
+function journeyLegsDestination(display: JourneyDisplay) {
+  return display.legs[display.legs.length - 1]?.to ?? "Unknown";
 }
 
 function areStringArraysEqual(left: string[], right: string[]) {
@@ -303,6 +466,71 @@ function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
   );
 }
 
+function VersionModal({ isOpen, onClose }: VersionModalProps) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="absolute inset-0 z-[120] flex items-center justify-center bg-black/55 px-4 py-6 backdrop-blur-sm">
+      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/96 shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4 sm:px-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-300/80">TransitAlert Melbourne</p>
+            <h2 className="mt-2 text-2xl font-semibold text-white">TransitAlert updates</h2>
+            <p className="mt-1 text-sm text-white/65">
+              System notes, version history, and recent release changes for the planner and live tools.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="hidden rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white/70 sm:block">
+              TransitAlert Web Version {TRANSITALERT_WEB_VERSION}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-y-auto px-5 py-5 sm:px-6">
+          <div className="rounded-[1.35rem] border border-white/10 bg-white/5 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-300/85">About This System</p>
+            <div className="mt-3 grid gap-2">
+              {TRANSITALERT_SYSTEM_NOTES.map((note) => (
+                <div key={note} className="rounded-2xl border border-white/5 bg-black/20 px-3 py-2 text-sm text-white/80">
+                  {note}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            {VERSION_LOG.map((entry) => (
+              <div key={`${entry.version}-${entry.date}`} className="rounded-[1.35rem] border border-white/10 bg-white/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-base font-semibold text-white">{entry.version}</p>
+                  <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200">
+                    {entry.date}
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  {entry.notes.map((note) => (
+                    <div key={note} className="rounded-2xl border border-white/5 bg-black/20 px-3 py-2 text-sm text-white/80">
+                      {note}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DockedPanelSheet({ isOpen, onToggle, eyebrow, title, summary, children }: DockedPanelSheetProps) {
   return (
     <div
@@ -336,7 +564,6 @@ function DockedPanelSheet({ isOpen, onToggle, eyebrow, title, summary, children 
 export default function Home() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { data: botStatus } = useGetTelegramStatus();
   const { data: liveFleetVehicles = [], isFetching: isFleetRefreshing } = useQuery({
     queryKey: ["live-fleet-board"],
     queryFn: fetchLiveTrains,
@@ -350,20 +577,24 @@ export default function Home() {
     retry: false,
     staleTime: 60_000,
   });
-  const isAuthenticated = authSession?.authenticated ?? false;
-  const [activeTab, setActiveTab] = useState<"map" | "telegram" | "fleets" | "admin">("map");
-  const [isAddDrawerOpen, setIsAddDrawerOpen] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [isPlannerOpen, setIsPlannerOpen] = useState(false);
+    const isAuthenticated = authSession?.authenticated ?? false;
+    const [activeTab, setActiveTab] = useState<"map" | "fleets" | "admin">("map");
+    const [isAddDrawerOpen, setIsAddDrawerOpen] = useState(false);
+    const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [isUtilityPanelOpen, setIsUtilityPanelOpen] = useState(true);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isVersionOpen, setIsVersionOpen] = useState(false);
   const [userMenuMessage, setUserMenuMessage] = useState("");
   const [selectedFleetType, setSelectedFleetType] = useState<FleetTypeKey | null>(null);
+  const [focusedVehicleKey, setFocusedVehicleKey] = useState<string | null>(null);
   const [journeyOrigin, setJourneyOrigin] = useState<string>("Flinders Street");
   const [journeyDestination, setJourneyDestination] = useState<string>("Sandringham");
   const [journeyRoute, setJourneyRoute] = useState<Station[]>([]);
   const [journeySummary, setJourneySummary] = useState<string>("Plan a journey using the fields below.");
   const [journeyBoardingAdvice, setJourneyBoardingAdvice] = useState<string>("");
+  const [journeyDisplay, setJourneyDisplay] = useState<JourneyDisplay | null>(null);
+  const [currentLocationOrigin, setCurrentLocationOrigin] = useState<string | null>(null);
+  const [originPickerMessage, setOriginPickerMessage] = useState("");
   const [isOriginPickerOpen, setIsOriginPickerOpen] = useState(false);
   const [originSearch, setOriginSearch] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
@@ -493,6 +724,34 @@ export default function Home() {
     return uniqueStations.filter((station) => station.name.toLowerCase().includes(query)).slice(0, 24);
   }, [originSearch, uniqueStations]);
 
+  const openLiveTrainOnMap = useCallback((trip: FleetTrip) => {
+    setFocusedVehicleKey(trip.focusKey);
+    setActiveTab("map");
+    setIsPlannerOpen(true);
+  }, []);
+
+  const useCurrentLocationForOrigin = () => {
+    if (!navigator.geolocation) {
+      setOriginPickerMessage("Current location is not available in this browser.");
+      return;
+    }
+
+    setOriginPickerMessage("Finding your current location...");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const label = `${CURRENT_LOCATION_LABEL} · ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`;
+        setCurrentLocationOrigin(label);
+        setJourneyOrigin(label);
+        setOriginPickerMessage("Current location ready.");
+        setIsOriginPickerOpen(false);
+      },
+      () => {
+        setOriginPickerMessage("Couldn't fetch your current location just now.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  };
+
   useEffect(() => {
     if (activeTab === "admin" && !isAdmin) {
       setActiveTab("map");
@@ -582,24 +841,118 @@ export default function Home() {
     return "Middle cars: usually the safest all-round pick for concourse access, stairs, and flexible transfers.";
   };
 
-  const applyJourneyPlan = (route: Station[], summary: string) => {
+  const buildJourneyDisplay = (
+    route: Station[],
+    summary: string,
+    legs: JourneyLeg[],
+    pattern: string,
+    typeLabel = "Metro train",
+  ): JourneyDisplay => {
+    const start = new Date();
+    const totalMinutes = Math.max(route.length * 3, legs.length * 8, 9);
+    const end = addMinutesToTime(start, totalMinutes);
+
+    return {
+      summary,
+      pattern,
+      typeLabel,
+      window: formatPlannerTimeWindow(start, end),
+      duration: formatPlannerDuration(totalMinutes),
+      date: formatPlannerDate(start),
+      stopCountLabel: `${Math.max(route.length - 1, 0)} stops`,
+      legs,
+    };
+  };
+
+  const applyJourneyPlan = (route: Station[], summary: string, display?: JourneyDisplay) => {
     setJourneyRoute(route);
     setJourneySummary(summary);
     setJourneyBoardingAdvice(getJourneyBoardingAdvice(route, summary));
+    setJourneyDisplay(display ?? null);
   };
 
   const computeJourneyRoute = () => {
+    const isHomeOrigin = journeyOrigin === HOME_ORIGIN_LABEL;
+    const isCurrentLocationOrigin = currentLocationOrigin !== null && journeyOrigin === currentLocationOrigin;
     const origin = ALL_STATIONS.find((station) => station.name === journeyOrigin);
     const destination = ALL_STATIONS.find((station) => station.name === journeyDestination);
+
+    if ((isHomeOrigin || isCurrentLocationOrigin) && journeyDestination === "Arden") {
+      const stateLibrary = ALL_STATIONS.find((station) => station.name === "State Library");
+      const arden = ALL_STATIONS.find((station) => station.name === "Arden");
+
+      if (stateLibrary && arden) {
+        const metroTunnelLeg = getLineSegment(LINES.metroTunnel, "State Library", "Arden");
+        const legs: JourneyLeg[] = [
+          {
+            mode: "bus",
+            title: "Route 630 bus",
+            from: "15 Louise St, Brighton East",
+            to: "Elsternwick / Hawthorn Rd",
+            detail: "Orbital feeder toward the tram corridor",
+            badge: "Bus",
+          },
+          {
+            mode: "tram",
+            title: "Route 64 tram",
+            from: "Hawthorn Rd",
+            to: "State Library",
+            detail: "Cross-city tram run into the CBD",
+            badge: "Tram",
+          },
+          {
+            mode: "train",
+            title: "Metro Tunnel",
+            from: "State Library",
+            to: "Arden",
+            detail: "Metro Tunnel platforms 1 / 2 to Arden",
+            badge: "Train",
+          },
+        ];
+        applyJourneyPlan(
+          metroTunnelLeg,
+          `Change at State Library from Route 64 tram to Metro Tunnel services for Arden. ${isHomeOrigin ? "Home" : "Current location"} starts are now supported, and Route 630 bus has been added as a future orbital option in the planner.`,
+          buildJourneyDisplay(
+            metroTunnelLeg,
+            `Change at State Library from Route 64 tram to Metro Tunnel services for Arden.`,
+            legs,
+            "Bus + tram + Metro Tunnel",
+            "Multi-modal journey",
+          ),
+        );
+        return;
+      }
+    }
+
     if (!origin || !destination) {
-      setJourneyRoute([]);
-      setJourneySummary("Select valid stations to plan a route.");
-      setJourneyBoardingAdvice("");
+      applyJourneyPlan(
+        [],
+        "Select a valid station destination. Home and current location starts now work for the Arden example too.",
+      );
       return;
     }
 
     if (origin.name === destination.name) {
-      applyJourneyPlan([origin], "You're already at your destination.");
+      applyJourneyPlan(
+        [origin],
+        "You're already at your destination.",
+        buildJourneyDisplay(
+          [origin],
+          "You're already at your destination.",
+          [
+            {
+              mode: "walk",
+              title: "You have arrived",
+              from: origin.name,
+              to: destination.name,
+              detail: "No travel needed",
+              badge: "Stay put",
+            },
+          ],
+          "Already there",
+          "Station access",
+        ),
+      );
       return;
     }
 
@@ -620,13 +973,32 @@ export default function Home() {
 
     if (commonLine) {
       const segment = getLineSegment(commonLine.stations, origin.name, destination.name);
-      applyJourneyPlan(segment, `Direct journey via the ${commonLine.name} line (${segment.length} stops).`);
+      applyJourneyPlan(
+        segment,
+        `Direct journey via the ${commonLine.name} line (${segment.length} stops).`,
+        buildJourneyDisplay(
+          segment,
+          `Direct journey via the ${commonLine.name} line.`,
+          [
+            {
+              mode: "train",
+              title: `${commonLine.name} line`,
+              from: origin.name,
+              to: destination.name,
+              detail: `${Math.max(segment.length - 1, 0)} stops direct`,
+              badge: "Train",
+            },
+          ],
+          "Stops all stations",
+        ),
+      );
       return;
     }
 
     const transferStations = ["South Yarra", "Flinders Street", "Southern Cross"];
     let bestRoute: Station[] = [];
     let bestSummary = "No direct connection available.";
+    let bestDisplay: JourneyDisplay | null = null;
 
     for (const transfer of transferStations) {
       const originLine = originLines.find((line) => line.stations.some((station) => station.name === transfer));
@@ -636,18 +1008,61 @@ export default function Home() {
       const firstLeg = getLineSegment(originLine.stations, origin.name, transfer);
       const secondLeg = getLineSegment(destinationLine.stations, transfer, destination.name).slice(1);
       const route = [...firstLeg, ...secondLeg];
+      const legs: JourneyLeg[] = [
+        {
+          mode: "train",
+          title: `${originLine.name} line`,
+          from: origin.name,
+          to: transfer,
+          detail: `${Math.max(firstLeg.length - 1, 0)} stops to interchange`,
+          badge: "Train",
+        },
+        {
+          mode: "train",
+          title: `${destinationLine.name} line`,
+          from: transfer,
+          to: destination.name,
+          detail: `${Math.max(secondLeg.length, 0)} stops after changing`,
+          badge: "Train",
+        },
+      ];
       if (!bestRoute.length || route.length < bestRoute.length) {
         bestRoute = route;
         bestSummary = `Change at ${transfer} from ${originLine.name} line to ${destinationLine.name} line (${route.length} stops).`;
+        bestDisplay = buildJourneyDisplay(
+          route,
+          `Change at ${transfer} from ${originLine.name} line to ${destinationLine.name} line.`,
+          legs,
+          `Change at ${transfer}`,
+        );
       }
     }
 
     if (bestRoute.length) {
-      applyJourneyPlan(bestRoute, bestSummary);
+      applyJourneyPlan(bestRoute, bestSummary, bestDisplay ?? undefined);
       return;
     }
 
-    applyJourneyPlan([origin, destination], "Fallback route: start and end markers shown, with no route connection found.");
+    applyJourneyPlan(
+      [origin, destination],
+      "Fallback route: start and end markers shown, with no route connection found.",
+      buildJourneyDisplay(
+        [origin, destination],
+        "Fallback route: start and end markers shown, with no route connection found.",
+        [
+          {
+            mode: "walk",
+            title: "Manual transfer",
+            from: origin.name,
+            to: destination.name,
+            detail: "No clean line match found yet",
+            badge: "Fallback",
+          },
+        ],
+        "Check services manually",
+        "Fallback route",
+      ),
+    );
   };
 
   const loadStationDraft = (stationName: string) => {
@@ -689,6 +1104,37 @@ export default function Home() {
     },
     [isAuthenticated, isGuest],
   );
+
+  useEffect(() => {
+    const currentModes = Array.isArray(preferences.transportModes) ? preferences.transportModes : [];
+    const appPreferences = preferences.appPreferences ?? {};
+    const hasMigratedTransportModes = appPreferences.transportModesMigrated === true;
+
+    if (hasMigratedTransportModes) {
+      return;
+    }
+
+    const isLegacyTrainOnly = currentModes.length === 1 && currentModes[0] === "train";
+    const hasInvalidModes = currentModes.length === 0;
+
+    if (isLegacyTrainOnly || hasInvalidModes) {
+      updatePreferences({
+        transportModes: [...DEFAULT_TRANSPORT_MODES],
+        appPreferences: {
+          ...appPreferences,
+          transportModesMigrated: true,
+        },
+      });
+      return;
+    }
+
+    updatePreferences({
+      appPreferences: {
+        ...appPreferences,
+        transportModesMigrated: true,
+      },
+    });
+  }, [preferences.appPreferences, preferences.transportModes, updatePreferences]);
 
   const layerState = preferences.selectedMapFilters as Partial<LayerState>;
 
@@ -739,12 +1185,12 @@ export default function Home() {
   };
 
   const togglePlannerTransportMode = useCallback((mode: TransportMode) => {
-    const currentModes = (preferences.transportModes as TransportMode[]) || ["train"];
+    const currentModes = (preferences.transportModes as TransportMode[]) || [...DEFAULT_TRANSPORT_MODES];
     const nextModes = currentModes.includes(mode)
       ? currentModes.filter((item) => item !== mode)
       : [...currentModes, mode];
-    updatePreferences({ transportModes: nextModes.length > 0 ? nextModes : ["train"] });
-  },[]);
+    updatePreferences({ transportModes: nextModes.length > 0 ? nextModes : [...DEFAULT_TRANSPORT_MODES] });
+  }, [preferences.transportModes, updatePreferences]);
 
   const togglePlannerServiceFilter = useCallback((filter: ServiceFilterKey) => {
     if (filter === "vline") return;
@@ -843,16 +1289,6 @@ export default function Home() {
   };
 
   const utilitySheetCopy = useMemo(() => {
-    if (activeTab === "telegram") {
-      return {
-        eyebrow: "Telegram",
-        title: "Bot panel and live tracker",
-        summary: botStatus?.connected
-          ? `Connected as @${botStatus.username}`
-          : "Peek into bot status, tracker access, and push notification setup.",
-      };
-    }
-
     if (activeTab === "fleets") {
       return {
         eyebrow: "Fleets",
@@ -870,7 +1306,7 @@ export default function Home() {
         ? "Station positions, line assignments, and admin drafting tools."
         : "Admin-only tools live here once your account has permission.",
     };
-  }, [activeTab, botStatus, isAdmin, selectedFleetConfig]);
+  }, [activeTab, isAdmin, selectedFleetConfig]);
 
   const handleTabChange = (value: string) => {
     if (isGuest && value !== "map") {
@@ -878,7 +1314,7 @@ export default function Home() {
       setIsUserMenuOpen(true);
       return;
     }
-    setActiveTab(value as "map" | "telegram" | "fleets" | "admin");
+    setActiveTab(value as "map" | "fleets" | "admin");
     setIsUtilityPanelOpen(value === "map" ? isUtilityPanelOpen : true);
   };
 
@@ -917,17 +1353,10 @@ export default function Home() {
 
   return (
     <main className="relative h-[100dvh] w-full overflow-hidden bg-background">
-      <TopBar
-        onOpenChat={() => {
-          if (isGuest) {
-            setUserMenuMessage("Register an account to use live bot, chat, and tracker tools.");
-            setIsUserMenuOpen(true);
-            return;
-          }
-          setIsChatOpen(true);
-        }}
-        onOpenAlerts={() => setLocation("/alerts/today")}
-        onOpenUserMenu={() => {
+        <TopBar
+          onOpenVersion={() => setIsVersionOpen(true)}
+          onOpenAlerts={() => setLocation("/alerts/today")}
+          onOpenUserMenu={() => {
           if (isGuest) {
             setLocation("/login");
             return;
@@ -940,10 +1369,9 @@ export default function Home() {
       <Tabs value={activeTab} onValueChange={handleTabChange}>
       <div className="pointer-events-none absolute inset-x-0 top-[4.85rem] z-[55] flex justify-center px-2.5 sm:top-5 sm:px-6">
         <TabsList className="pointer-events-auto flex w-full max-w-[calc(100%-0.75rem)] justify-start gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-card/80 p-1 shadow-xl backdrop-blur-xl sm:w-auto sm:max-w-xl sm:justify-center">
-          <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="map">Journey Planner</TabsTrigger>
-          {!isGuest && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="telegram">Telegram</TabsTrigger>}
-          {!isGuest && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="fleets">Fleets</TabsTrigger>}
-          {isAdmin && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="admin">Admin</TabsTrigger>}
+            <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="map">Journey Planner</TabsTrigger>
+            {!isGuest && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="fleets">Fleets</TabsTrigger>}
+            {isAdmin && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="admin">Admin</TabsTrigger>}
         </TabsList>
       </div>
 
@@ -1022,6 +1450,50 @@ export default function Home() {
               <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-4">
                 <p className="text-lg font-semibold text-white">Stops Near</p>
                 <p className="mt-1 text-sm text-white/60">Quick-start stations for testing departures and route planning.</p>
+                <div className="mt-4 space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJourneyOrigin(HOME_ORIGIN_LABEL);
+                      setOriginPickerMessage("");
+                      setIsOriginPickerOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-4 text-left transition hover:bg-white/10"
+                  >
+                    <div className="flex items-center gap-3">
+                      <MapPin className="h-5 w-5 text-blue-300" />
+                      <div>
+                        <p className="text-base font-semibold text-white">Home · 15 Louise St, Brighton East</p>
+                        <p className="text-xs text-white/55">Saved Tyler origin</p>
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
+                      Home
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={useCurrentLocationForOrigin}
+                    className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-4 text-left transition hover:bg-white/10"
+                  >
+                    <div className="flex items-center gap-3">
+                      <MapPin className="h-5 w-5 text-cyan-300" />
+                      <div>
+                        <p className="text-base font-semibold text-white">Select your current location now</p>
+                        <p className="text-xs text-white/55">Use live GPS as your trip origin</p>
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-cyan-500/15 px-3 py-1 text-xs font-semibold text-cyan-200">
+                      GPS
+                    </span>
+                  </button>
+                </div>
+                {originPickerMessage && (
+                  <p className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/65">
+                    {originPickerMessage}
+                  </p>
+                )}
                 <div className="mt-4 space-y-3">
                   {nearbyOriginStations.map((station, index) => (
                     <button
@@ -1108,9 +1580,11 @@ export default function Home() {
         transportModes={preferences.transportModes as Array<"train" | "tram" | "bus" | "vline">}
         onTransportModesChange={(transportModes) => updatePreferences({ transportModes })}
         persistedLayerState={preferences.selectedMapFilters}
-        onLayerStateChange={(selectedMapFilters) => updatePreferences({ selectedMapFilters })}
+        onLayerStateChange={(selectedMapFilters) => updatePreferences({ selectedMapFilters: selectedMapFilters as Record<string, boolean> })}
         isAdmin={isAdmin}
         showFilterRail={false}
+        focusedVehicleKey={focusedVehicleKey}
+        onFocusedVehicleHandled={() => setFocusedVehicleKey(null)}
       />
 
       {activeTab === "map" && <RiskyRoutes />}
@@ -1161,15 +1635,58 @@ export default function Home() {
                   </label>
                 </div>
 
-                <div className="rounded-[1.75rem] border border-white/10 bg-slate-900/75 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-white">Map filters</p>
-                      <p className="mt-1 text-xs text-white/60">
-                        Toggle transport modes and line groups without leaving the planner.
-                      </p>
-                    </div>
-                    {isAdmin && (
+                <div className="rounded-[1.9rem] border border-white/10 bg-[#0f1730]/92 p-4 shadow-2xl">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">Service filters</p>
+
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {visiblePlannerFilters
+                      .filter((filter) => isPlannerFilterActive(filter.key))
+                      .map((filter) => (
+                        <span
+                          key={`active-chip-${filter.key}`}
+                          className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${filter.tone}`}
+                        >
+                          {filter.label}
+                        </span>
+                      ))}
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {([
+                      { key: "train", icon: "Train", activeClass: "border-blue-400/40 bg-blue-500 text-white shadow-lg shadow-blue-950/40" },
+                      { key: "tram", icon: tramButtonIcon, activeClass: "border-[#78BE20]/50 bg-[#78BE20] text-white shadow-lg shadow-[#78BE20]/25", isImage: true },
+                      { key: "vline", icon: "V/Line", activeClass: "border-purple-400/40 bg-purple-500 text-white shadow-lg shadow-purple-950/40" },
+                      { key: "bus", icon: busButtonIcon, activeClass: "border-[#FF8200]/55 bg-[#FF8200] text-white shadow-lg shadow-[#FF8200]/25", isImage: true },
+                    ] as Array<{ key: TransportMode; icon: string; activeClass: string; isImage?: boolean }>).map((mode) => {
+                      const active = (preferences.transportModes as TransportMode[]).includes(mode.key);
+                      const disabled = mode.key === "vline";
+                      return (
+                        <button
+                          key={mode.key}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => !disabled && togglePlannerTransportMode(mode.key)}
+                          className={`flex h-14 w-14 items-center justify-center rounded-full border text-[11px] font-bold transition ${
+                            disabled
+                              ? "cursor-not-allowed border-purple-400/20 bg-purple-500/8 text-purple-200/50 opacity-70"
+                              : active
+                                ? mode.activeClass
+                                : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
+                          }`}
+                          aria-label={mode.key}
+                        >
+                          {mode.isImage ? (
+                            <img src={mode.icon} alt="" className="h-10 w-10 rounded-full object-contain" />
+                          ) : (
+                            mode.icon
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {isAdmin && (
+                    <div className="mt-4 flex justify-end">
                       <button
                         type="button"
                         onClick={() => setActiveTab("admin")}
@@ -1177,88 +1694,60 @@ export default function Home() {
                       >
                         Admin tools
                       </button>
-                    )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-[1.9rem] border border-emerald-400/20 bg-emerald-500/8 p-4 shadow-2xl">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-200/85">Live trains now</p>
+                      <h3 className="mt-2 text-lg font-semibold text-white">
+                        {liveFleetTrips.length > 0
+                          ? `${liveFleetTrips.length} live train${liveFleetTrips.length === 1 ? "" : "s"} on the map`
+                          : "No live trains returned right now"}
+                      </h3>
+                      <p className="mt-1 text-sm text-white/65">
+                        Press any service below to jump to its live marker and trip details.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                      Live tracker
+                    </span>
                   </div>
 
-                  <div className="mt-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">Transport modes</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      {([
-                        { key: "train", label: "Trains", activeClass: "border-blue-400/40 bg-blue-500/12 text-blue-100" },
-                        { key: "tram", label: "Trams", activeClass: "border-[#78BE20]/50 bg-[#78BE20]/15 text-[#d9ffb7]" },
-                        { key: "bus", label: "Buses", activeClass: "border-[#FF8200]/55 bg-[#FF8200]/15 text-[#ffd4a3]" },
-                        { key: "vline", label: "V/Line", activeClass: "border-purple-400/40 bg-purple-500/12 text-purple-100" },
-                      ] as Array<{ key: TransportMode; label: string; activeClass: string }>).map((mode) => {
-                        const active = (preferences.transportModes as TransportMode[]).includes(mode.key);
-                        const disabled = mode.key === "vline";
-                        return (
-                          <button
-                            key={mode.key}
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => !disabled && togglePlannerTransportMode(mode.key)}
-                            className={`rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition ${
-                              disabled
-                                ? "cursor-not-allowed border-purple-400/20 bg-purple-500/8 text-purple-200/50 opacity-70"
-                                : active
-                                  ? mode.activeClass
-                                  : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
-                            }`}
-                          >
-                            {mode.label}
-                          </button>
-                        );
-                      })}
+                  {liveFleetTrips.length > 0 ? (
+                    <div className="mt-4 grid gap-2">
+                      {liveFleetTrips.slice(0, 6).map((trip) => (
+                        <button
+                          key={`map-live-${trip.id}`}
+                          type="button"
+                          onClick={() => openLiveTrainOnMap(trip)}
+                          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-left transition hover:border-emerald-300/30 hover:bg-white/10"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                                TDN / Trip {trip.tripNumber}
+                              </span>
+                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${trip.lineColor}`}>
+                                {trip.line}
+                              </span>
+                            </div>
+                            <p className="mt-2 truncate text-sm font-semibold text-white">{trip.route}</p>
+                            <p className="mt-1 text-xs text-white/55">{trip.statusLabel}</p>
+                          </div>
+                          <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/80">
+                            Track
+                          </span>
+                        </button>
+                      ))}
                     </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">Service filters</p>
-                    <div className="mt-2 grid grid-cols-1 gap-2">
-                      {visiblePlannerFilters.map((filter) => {
-                        const active = isPlannerFilterActive(filter.key);
-                        const disabled = filter.key === "vline";
-                        const chips = getFilterChips(filter.key);
-                        return (
-                          <button
-                            key={filter.key}
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => !disabled && togglePlannerServiceFilter(filter.key)}
-                            className={`rounded-2xl border px-3 py-2.5 text-left transition ${
-                              disabled
-                                ? "cursor-not-allowed border-purple-400/20 bg-purple-500/8 text-purple-200/55 opacity-70"
-                                : active
-                                  ? filter.tone
-                                  : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
-                            }`}
-                          >
-                            <div className="text-sm font-semibold">{filter.label}</div>
-                            {filter.description && (
-                              <div className="mt-0.5 text-xs leading-4 text-current/75">{filter.description}</div>
-                            )}
-                            {chips.length > 0 && (
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {chips.map((chip) => (
-                                  <span
-                                    key={`${filter.key}-${chip}`}
-                                    className="rounded-full border border-current/20 bg-black/15 px-2 py-0.5 text-[10px] font-semibold text-current/85"
-                                  >
-                                    {chip}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            {disabled && (
-                              <div className="mt-1 text-[10px] leading-4 text-current/65">
-                                Unavailable right now while live V/Line is still being debugged.
-                              </div>
-                            )}
-                          </button>
-                        );
-                      })}
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-slate-950/55 px-4 py-5 text-sm text-white/60">
+                      The live train overlay is still enabled, but the feed did not return active services on this refresh.
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <datalist id="station-options">
@@ -1278,13 +1767,13 @@ export default function Home() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-white">
-                        {journeyRoute.length > 0 ? "Route summary" : "Ready when you are"}
+                        {journeyRoute.length > 0 ? "Journey board" : "Ready when you are"}
                       </p>
                       <p className="mt-1 text-sm">{journeySummary}</p>
                     </div>
-                    {journeyRoute.length > 0 && (
+                    {journeyDisplay && journeyRoute.length > 0 && (
                       <div className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200">
-                        {journeyRoute.length} stops
+                        {journeyDisplay.stopCountLabel}
                       </div>
                     )}
                   </div>
@@ -1298,27 +1787,75 @@ export default function Home() {
                     </div>
                   )}
 
-                  {journeyRoute.length > 0 && (
-                    <div className="mt-4 grid gap-2">
-                      {journeyRoute.map((station, index) => (
-                        <div
-                          key={`${station.name}-${index}`}
-                          className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/5 px-3 py-2.5"
-                        >
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white/80">
-                            {index + 1}
-                          </span>
-                          <span className="text-sm text-white">{station.name}</span>
+                  {journeyDisplay && journeyRoute.length > 0 && (
+                    <div className="mt-4 space-y-4">
+                      <div className="rounded-[1.7rem] border border-white/10 bg-white/5 p-5">
+                        <div className="grid gap-4 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
+                          <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/45">
+                              Origin
+                            </p>
+                            <p className="mt-2 text-3xl font-semibold text-white">{journeyLegsOrigin(journeyDisplay)}</p>
+                          </div>
+                          <div className="flex flex-col items-center gap-3 text-center">
+                            <div className="text-lg font-semibold text-emerald-300">{"\u2014  \u2192  \u2014"}</div>
+                            <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                              {journeyDisplay.pattern}
+                            </span>
+                          </div>
+                          <div className="text-left lg:text-right">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/45">
+                              Destination
+                            </p>
+                            <p className="mt-2 text-3xl font-semibold text-white">{journeyLegsDestination(journeyDisplay)}</p>
+                          </div>
                         </div>
-                      ))}
+
+                        <div className="mt-5 h-px bg-white/10" />
+
+                        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold uppercase tracking-[0.16em] text-white/55">
+                          <span>Type <span className="ml-2 text-sm normal-case tracking-normal text-white">{journeyDisplay.typeLabel}</span></span>
+                          <span>Window <span className="ml-2 text-sm normal-case tracking-normal text-white">{journeyDisplay.window}</span></span>
+                          <span>Duration <span className="ml-2 text-sm normal-case tracking-normal text-white">{journeyDisplay.duration}</span></span>
+                          <span>Date <span className="ml-2 text-sm normal-case tracking-normal text-white">{journeyDisplay.date}</span></span>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3">
+                        {journeyDisplay.legs.map((leg, index) => (
+                          <div
+                            key={`${leg.title}-${leg.from}-${leg.to}-${index}`}
+                            className={`rounded-[1.35rem] border px-4 py-4 ${getJourneyLegModeTone(leg.mode)}`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-current/70">
+                                  Leg {index + 1} · {leg.badge}
+                                </p>
+                                <p className="mt-2 text-lg font-semibold text-white">{leg.title}</p>
+                                <p className="mt-1 text-sm text-current/90">
+                                  {leg.from} to {leg.to}
+                                </p>
+                              </div>
+                              <span className="rounded-full border border-current/25 bg-black/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-current">
+                                {leg.mode}
+                              </span>
+                            </div>
+                            <p className="mt-3 text-sm text-current/80">{leg.detail}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
+
               </div>
             </PlannerSheet>
           </div>
         </div>
       )}
+
+      <VersionModal isOpen={isVersionOpen} onClose={() => setIsVersionOpen(false)} />
 
       {activeTab !== "map" && (
         <div className="absolute inset-x-0 bottom-0 z-40 pointer-events-none">
@@ -1331,72 +1868,6 @@ export default function Home() {
               summary={utilitySheetCopy.summary}
             >
               <div className="rounded-[2rem] border border-white/10 bg-card/55 p-5 text-white shadow-2xl sm:p-6">
-            {activeTab === "telegram" && (
-              <div className="flex flex-col gap-4">
-                <h2 className="text-lg font-semibold">Telegram Bot Integration</h2>
-                <p className="text-sm text-muted-foreground">
-                  Use the in-site 430M tracker panel or connect with Telegram for push notifications on your phone.
-                </p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold">Bot status</p>
-                      {botStatus?.connected ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-yellow-500" />
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {botStatus?.connected
-                        ? `Connected as @${botStatus.username}`
-                        : "Bot not configured. Set TELEGRAM_BOT_TOKEN in your local environment."}
-                    </p>
-                    {botStatus?.connected && (
-                      <a
-                        href={`https://t.me/${botStatus.username}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-blue-400 transition hover:text-blue-300"
-                      >
-                        Open in Telegram <Send className="h-3 w-3" />
-                      </a>
-                    )}
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-sm font-semibold">Usage Instructions</p>
-                    <ul className="mt-2 flex list-disc list-inside flex-col gap-1 text-xs text-muted-foreground">
-                      <li>Open the top-right tracker button to view the 430M web bot panel</li>
-                      <li>Use <code className="text-white/80">/status</code> in Telegram to get current consist info</li>
-                      <li>Add the Telegram bot to a channel if you want push alerts later</li>
-                    </ul>
-                  </div>
-                </div>
-
-                <div className="rounded-[1.6rem] border border-cyan-400/15 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-300/80">
-                        Tracked consist
-                      </p>
-                      <p className="mt-2 text-lg font-semibold text-white">430M live tracker</p>
-                      <p className="mt-1 text-sm text-white/65">
-                        Open the dedicated 430M panel for the current trip, next trip, stop estimate, and alerts.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsChatOpen(true)}
-                      className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
-                    >
-                      Open 430M tracker
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {activeTab === "fleets" && (
               <div className="rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_rgba(15,23,42,0.96)_45%,_rgba(10,15,25,1)_100%)] p-4 shadow-2xl sm:p-6">
                 <div className="flex flex-col gap-6">
@@ -1478,7 +1949,7 @@ export default function Home() {
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <span className="rounded-full bg-blue-500 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
-                                    {trip.tdn}
+                                    TDN / Trip {trip.tripNumber}
                                   </span>
                                   <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${trip.lineColor}`}>
                                     {trip.line}
@@ -1489,7 +1960,7 @@ export default function Home() {
                                   </span>
                                 </div>
                                 <p className="mt-3 text-xl font-semibold tracking-tight text-white">{trip.route}</p>
-                                <p className="mt-1 text-sm text-white/55">Consist {trip.consist}</p>
+                                <p className="mt-1 text-sm text-white/55">Trip {trip.tdn} · Consist {trip.consist}</p>
                               </div>
                             </div>
 
@@ -1501,6 +1972,7 @@ export default function Home() {
                                 <span className="text-sm font-semibold text-white/85">{trip.statusLabel}</span>
                                 <button
                                   type="button"
+                                  onClick={() => openLiveTrainOnMap(trip)}
                                   className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
                                 >
                                   Live track
@@ -1761,9 +2233,8 @@ export default function Home() {
         TransitAlert is an independent project. We are not operated by, affiliated with, or endorsed by the Department of Transport and Planning, Transport Victoria, PTV, or Metro Trains Melbourne.
       </div>
 
-      <AddReportDrawer isOpen={isAddDrawerOpen} onClose={() => setIsAddDrawerOpen(false)} />
-      <ChatPanel isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
-    </main>
-  );
-}
+        <AddReportDrawer isOpen={isAddDrawerOpen} onClose={() => setIsAddDrawerOpen(false)} />
+      </main>
+    );
+  }
 

@@ -28,6 +28,12 @@ function getAlertCategory(alert: MetroNotifyAlert) {
   if (searchable.includes("bus replacement") || searchable.includes("coach replacement")) {
     return "Bus Replacement";
   }
+  if (searchable.includes("planned work")) {
+    return "Planned Works";
+  }
+  if (searchable.includes("station detour") || searchable.includes("access") || searchable.includes("exit")) {
+    return "Station detour";
+  }
   if (searchable.includes("work") || searchable.includes("maintenance")) {
     return "Works Alert";
   }
@@ -228,9 +234,20 @@ export default function TodaysAlerts() {
                           rel="noreferrer"
                           className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
                         >
-                          Details
+                          Read more
                           <ExternalLink className="h-4 w-4" />
                         </a>
+                        {alert.addToCalendarUrl && (
+                          <a
+                            href={alert.addToCalendarUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                          >
+                            Add to calendar
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -283,6 +300,31 @@ export default function TodaysAlerts() {
                         Updated {formatDistanceToNow(new Date(alert.updatedAt), { addSuffix: true })}
                       </p>
                     )}
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {alert.url && (
+                        <a
+                          href={alert.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/10"
+                        >
+                          Read more
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                      {alert.addToCalendarUrl && (
+                        <a
+                          href={alert.addToCalendarUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/10"
+                        >
+                          Add to calendar
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                    </div>
                   </article>
                 ))
               )}

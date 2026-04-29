@@ -22,6 +22,23 @@ type LiveTrainResponse =
       trains?: LiveTrain[];
     };
 
+function normaliseConsistLabel(value: unknown) {
+  if (typeof value !== "string") {
+    return "Unknown";
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "Unknown";
+  }
+
+  if (/^aus:vic:vic-02-[A-Z0-9]+:/i.test(trimmed) || /^vic-02-[A-Z0-9]+:/i.test(trimmed)) {
+    return "Unknown";
+  }
+
+  return trimmed;
+}
+
 function normaliseLiveTrain(raw: Partial<LiveTrain> & Record<string, unknown>, index: number): LiveTrain | null {
   if (typeof raw.lat !== "number" || typeof raw.lng !== "number") {
     return null;
@@ -55,7 +72,7 @@ function normaliseLiveTrain(raw: Partial<LiveTrain> & Record<string, unknown>, i
         : "down",
     heading: typeof raw.heading === "number" ? raw.heading : undefined,
     trainType: typeof raw.trainType === "string" && raw.trainType.trim() ? raw.trainType : "Metro Train",
-    consist: typeof raw.consist === "string" && raw.consist.trim() ? raw.consist : "Unknown",
+    consist: normaliseConsistLabel(raw.consist),
     serviceDescription,
   };
 }
@@ -196,7 +213,15 @@ async function fetchTrackedConsistFallback(): Promise<LiveTrain[]> {
 }
 
 export async function fetchLiveTrains(): Promise<LiveTrain[]> {
-  const response = await fetch("/api/ptv/live-trains");
+  let response: Response;
+  try {
+    response = await fetch("/api/ptv/live-trains");
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return [];
+    }
+    throw error;
+  }
 
   if (response.status === 404) {
     return [];

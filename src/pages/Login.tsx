@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LockKeyhole, Sparkles, TrainFront, UserPlus } from "lucide-react";
+import { LockKeyhole, Sparkles, UserPlus } from "lucide-react";
 import { continueAsGuest, fetchAuthSession, fetchRoles, loginWithPassword, registerAccount } from "@/lib/auth";
 
 type AuthMode = "sign-in" | "register";
@@ -118,7 +118,11 @@ export default function Login() {
           <section className="order-2 rounded-[2rem] border border-white/10 bg-card/70 p-5 shadow-2xl backdrop-blur-2xl sm:p-8 lg:order-1">
             <div className="hidden lg:block">
               <div className="inline-flex items-center gap-3 rounded-full border border-blue-400/20 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-200">
-                <TrainFront className="h-4 w-4" />
+                <img
+                  src={`${import.meta.env.BASE_URL}app-logo.svg`}
+                  alt="X'Trapolis 2.0"
+                  className="h-5 w-5 rounded-md object-cover"
+                />
                 TransitAlert Melbourne
               </div>
 
@@ -203,7 +207,11 @@ export default function Login() {
           <section className="order-1 rounded-[2rem] border border-white/10 bg-slate-950/85 p-5 shadow-2xl backdrop-blur-2xl sm:p-8 lg:order-2">
             <div className="mb-5 lg:hidden">
               <div className="inline-flex items-center gap-3 rounded-full border border-blue-400/20 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-200">
-                <TrainFront className="h-4 w-4" />
+                <img
+                  src={`${import.meta.env.BASE_URL}app-logo.svg`}
+                  alt="X'Trapolis 2.0"
+                  className="h-5 w-5 rounded-md object-cover"
+                />
                 TransitAlert Melbourne
               </div>
 
