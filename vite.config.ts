@@ -9,7 +9,20 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 const require = createRequire(import.meta.url);
 const GtfsRealtimeBindings = require("./vendor/ptv/gtfs-realtime.cjs");
 
-const PTV_BASE_URL = "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/metro";
+const PTV_FEEDS = [
+  {
+    key: "metro",
+    baseUrl: "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/metro",
+    defaultLine: "Metro",
+    trainType: "Metro Train",
+  },
+  {
+    key: "vline",
+    baseUrl: "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/vline",
+    defaultLine: "V/Line",
+    trainType: "V/Line Train",
+  },
+] as const;
 const TRANSPORTVIC_BASE_URL = "https://transportvic.me";
 
 const ROLE_OPTIONS = [
@@ -546,12 +559,16 @@ async function loadConsistSnapshot(consist: string) {
   return { data, alerts, stops, position, gps, lastRun };
 }
 
-async function fetchFeed(feedPath: "/vehicle-positions" | "/service-alerts", ptvSubscriptionKey?: string) {
+async function fetchFeed(
+  baseUrl: string,
+  feedPath: "/vehicle-positions" | "/service-alerts",
+  ptvSubscriptionKey?: string,
+) {
   if (!ptvSubscriptionKey) {
     throw new Error("Missing PTV_SUBSCRIPTION_KEY");
   }
 
-  const response = await fetch(`${PTV_BASE_URL}${feedPath}`, {
+  const response = await fetch(`${baseUrl}${feedPath}`, {
     headers: {
       "KeyID": ptvSubscriptionKey,
       "Ocp-Apim-Subscription-Key": ptvSubscriptionKey,
@@ -636,22 +653,34 @@ function buildTransportVicMetroAlerts() {
 }
 
 function normalisePtvRouteId(routeId: string) {
-  const code = routeId.match(/vic-02-([A-Z0-9]+):/i)?.[1]?.toUpperCase() ?? routeId.toUpperCase();
+  const code = routeId.match(/vic-0[12]-([A-Z0-9]+):/i)?.[1]?.toUpperCase() ?? routeId.toUpperCase();
   const routeMap: Record<string, string> = {
     ALM: "Alamein",
+    ARA: "Ararat",
     BEG: "Belgrave",
+    BAT: "Ballarat",
+    BEN: "Bendigo",
+    BNS: "Bairnsdale",
     CBE: "Cranbourne",
     CGB: "Craigieburn",
+    ECH: "Echuca",
     FKN: "Frankston",
+    GEO: "Geelong",
     GWY: "Glen Waverley",
     HBE: "Hurstbridge",
     LIL: "Lilydale",
+    MBR: "Maryborough",
     MDD: "Mernda",
     PKM: "Pakenham",
     SHM: "Sandringham",
+    SHL: "Swan Hill",
+    SHP: "Shepparton",
+    SEY: "Seymour",
     STY: "Stony Point",
     SUY: "Sunbury",
+    TRN: "Traralgon",
     UFD: "Upfield",
+    WAR: "Warrnambool",
     WER: "Werribee",
     WIL: "Williamstown",
   };
@@ -659,7 +688,7 @@ function normalisePtvRouteId(routeId: string) {
   return routeMap[code] ?? routeId;
 }
 
-function buildPtvLiveTrains(feed: Awaited<ReturnType<typeof fetchFeed>>) {
+function buildPtvLiveTrains(feed: Awaited<ReturnType<typeof fetchFeed>>, source: (typeof PTV_FEEDS)[number]) {
   return (feed.entity ?? [])
     .map((entity) => {
       const vehicle = entity.vehicle;
@@ -674,22 +703,22 @@ function buildPtvLiveTrains(feed: Awaited<ReturnType<typeof fetchFeed>>) {
       const timestamp = toNumber(vehicle.timestamp);
       const routeId = vehicle.trip?.routeId || "Metro";
       const lineName = normalisePtvRouteId(routeId);
-      const destination = lineName;
+      const destination = lineName && lineName !== routeId ? lineName : source.defaultLine;
       const label = vehicle.vehicle?.label || vehicle.vehicle?.id || entity.id || routeId;
 
       return {
         tdn: label,
         lat: latitude,
         lng: longitude,
-        line: lineName,
+        line: destination,
         destination,
         status: "on_time",
         timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
         direction: directionId === 0 ? "up" : "down",
         heading: typeof position.bearing === "number" ? position.bearing : undefined,
-        trainType: "Metro Train",
+        trainType: source.trainType,
         consist: vehicle.vehicle?.id || label,
-        serviceDescription: lineName,
+        serviceDescription: destination,
       };
     })
     .filter(Boolean);
@@ -995,8 +1024,15 @@ function ptvRealtimePlugin(runtimeConfig: RuntimeConfig): Plugin {
           const trackedTrains = await buildTransportVicLiveTrains(trackedConsists);
           let ptvTrains: Array<Record<string, unknown>> = [];
           if (ptvSubscriptionKey) {
-            const feed = await fetchFeed("/vehicle-positions", ptvSubscriptionKey);
-            ptvTrains = buildPtvLiveTrains(feed);
+            const responses = await Promise.allSettled(
+              PTV_FEEDS.map(async (source) => {
+                const feed = await fetchFeed(source.baseUrl, "/vehicle-positions", ptvSubscriptionKey);
+                return buildPtvLiveTrains(feed, source);
+              }),
+            );
+            ptvTrains = responses
+              .filter((result): result is PromiseFulfilledResult<Array<Record<string, unknown>>> => result.status === "fulfilled")
+              .flatMap((result) => result.value);
           }
           const trains = mergeLiveTrainLists(ptvTrains, trackedTrains);
           sendJson(res, 200, { trains });
@@ -1068,7 +1104,7 @@ function ptvRealtimePlugin(runtimeConfig: RuntimeConfig): Plugin {
             return;
           }
 
-          const feed = await fetchFeed("/service-alerts", ptvSubscriptionKey);
+          const feed = await fetchFeed(PTV_FEEDS[0].baseUrl, "/service-alerts", ptvSubscriptionKey);
           sendJson(res, 200, { alerts: buildMetroAlerts(feed) });
           return;
         }
