@@ -1159,7 +1159,7 @@ export default function Home() {
   const isPlannerFilterActive = (filter: ServiceFilterKey) => {
     switch (filter) {
       case "vline":
-        return false;
+        return (preferences.transportModes as TransportMode[]).includes("vline");
       case "metroTunnelServices":
         return Boolean(layerState.metroTunnel || layerState.sunburyLine || layerState.cranbourneLine || layerState.pakenhamLine);
       case "crossCityPink":
@@ -1193,7 +1193,10 @@ export default function Home() {
   }, [preferences.transportModes, updatePreferences]);
 
   const togglePlannerServiceFilter = useCallback((filter: ServiceFilterKey) => {
-    if (filter === "vline") return;
+    if (filter === "vline") {
+      togglePlannerTransportMode("vline");
+      return;
+    }
     const prev = layerState;
     let next: Partial<LayerState> = { ...prev };
 
@@ -1277,7 +1280,7 @@ export default function Home() {
     }
 
     updatePreferences({ selectedMapFilters: next as Record<string, boolean> });
-  },[]);
+  }, [layerState, togglePlannerTransportMode, updatePreferences]);
 
   const toggleFavouriteStop = (stationName: string) => {
     const exists = preferences.favouriteStops.includes(stationName);
@@ -1389,22 +1392,30 @@ export default function Home() {
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">{authSession.user?.role}</p>
             </div>
             <div className="mt-3 flex flex-col gap-2">
-              {[
-                "Settings",
-                "UI Settings",
-                "Change App Icon",
-              ].map((item) => (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsUserMenuOpen(false);
+                  setUserMenuMessage("");
+                  setLocation("/settings");
+                }}
+                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                Open settings
+              </button>
+              {isAdmin && (
                 <button
-                  key={item}
                   type="button"
                   onClick={() => {
-                    setUserMenuMessage(`${item} is ready for the next pass.`);
+                    setIsUserMenuOpen(false);
+                    setUserMenuMessage("");
+                    setLocation("/settings");
                   }}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-semibold text-white transition hover:bg-white/10"
+                  className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-left text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/15"
                 >
-                  {item}
+                  Admin settings
                 </button>
-              ))}
+              )}
               <button
                 type="button"
                 onClick={() => signOutMutation.mutate()}
@@ -1659,19 +1670,15 @@ export default function Home() {
                       { key: "bus", icon: busButtonIcon, activeClass: "border-[#FF8200]/55 bg-[#FF8200] text-white shadow-lg shadow-[#FF8200]/25", isImage: true },
                     ] as Array<{ key: TransportMode; icon: string; activeClass: string; isImage?: boolean }>).map((mode) => {
                       const active = (preferences.transportModes as TransportMode[]).includes(mode.key);
-                      const disabled = mode.key === "vline";
                       return (
                         <button
                           key={mode.key}
                           type="button"
-                          disabled={disabled}
-                          onClick={() => !disabled && togglePlannerTransportMode(mode.key)}
+                          onClick={() => togglePlannerTransportMode(mode.key)}
                           className={`flex h-14 w-14 items-center justify-center rounded-full border text-[11px] font-bold transition ${
-                            disabled
-                              ? "cursor-not-allowed border-purple-400/20 bg-purple-500/8 text-purple-200/50 opacity-70"
-                              : active
-                                ? mode.activeClass
-                                : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
+                            active
+                              ? mode.activeClass
+                              : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
                           }`}
                           aria-label={mode.key}
                         >

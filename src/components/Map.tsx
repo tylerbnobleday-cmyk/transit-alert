@@ -9,6 +9,7 @@ import {
   Polyline,
   CircleMarker,
   useMap,
+  Pane,
 } from "react-leaflet";
 import L from "leaflet";
 import { formatDistanceToNow } from "date-fns";
@@ -22,7 +23,7 @@ import xtrapolisIcon from "@/assets/icons/xtrapolis.svg";
 import siemensIcon from "@/assets/icons/siemens.svg";
 import southsideComengIcon from "@/assets/icons/ss-comeng.svg";
 import northsideComengIcon from "@/assets/icons/ns-comeng.svg";
-import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
+import { fetchLiveTrains, isVlineLiveTrain, type LiveTrain } from "@/lib/live-trains";
 import { fetchLiveBuses, type LiveBus } from "@/lib/live-buses";
 import { findStationCoordinate } from "@/lib/station-coordinates";
 import { fetchConsistSnapshot, type ConsistSnapshot } from "@/lib/transportvic-bot";
@@ -242,6 +243,8 @@ function getLiveLineColor(line: string): string {
     sunbury: "#279FD5",
     cranbourne: "#279FD5",
     pakenham: "#279FD5",
+    "v/line": "#7c3aed",
+    vline: "#7c3aed",
   };
 
   return colorMap[line.toLowerCase()] ?? "#3b82f6";
@@ -260,6 +263,66 @@ function getDirectionArrow(direction: LiveTrain["direction"]) {
   }
 }
 
+function getMarkerServiceCode(line: string) {
+  const normalized = line.trim().toLowerCase();
+
+  switch (normalized) {
+    case "lilydale":
+      return "LIL";
+    case "belgrave":
+      return "BEL";
+    case "glen waverley":
+      return "GWY";
+    case "alamein":
+      return "ALA";
+    case "mernda":
+      return "MER";
+    case "hurstbridge":
+      return "HBE";
+    case "frankston":
+      return "FKN";
+    case "sandringham":
+      return "SDM";
+    case "williamstown":
+      return "WIL";
+    case "werribee":
+      return "WER";
+    case "sunbury":
+      return "SUN";
+    case "cranbourne":
+      return "CRA";
+    case "pakenham":
+      return "PAK";
+    case "craigieburn":
+      return "CBN";
+    case "upfield":
+      return "UPF";
+    case "metro tunnel":
+      return "MTL";
+    case "v/line":
+      return "VLI";
+    default:
+      return line.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase() || "SRV";
+  }
+}
+
+function getMarkerServiceTime(timestamp?: string) {
+  if (!timestamp) {
+    return "--:--";
+  }
+
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) {
+    return "--:--";
+  }
+
+  return parsed.toLocaleTimeString("en-AU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 function createLiveTrainIcon(vehicle: LiveTrain) {
   const color = getLiveLineColor(vehicle.line);
   const arrow = "▲";
@@ -274,7 +337,8 @@ function createLiveTrainIcon(vehicle: LiveTrain) {
   const isTrackedConsist = vehicle.consist === "430M";
   const outerSize = isTrackedConsist ? 68 : 54;
   const innerSize = isTrackedConsist ? 34 : 26;
-  const badgeLabel = isTrackedConsist ? "430M" : getDisplayConsist(vehicle.tdn) ?? vehicle.tdn;
+  const badgePrimaryLabel = `${getMarkerServiceTime(vehicle.timestamp)} ${getMarkerServiceCode(vehicle.line)} Service`;
+  const badgeSecondaryLabel = `TDN ${vehicle.tdn}`;
   const destinationLabel = vehicle.destination
     .replace(/\bStreet\b/gi, "St")
     .replace(/\bStation\b/gi, "")
@@ -312,38 +376,49 @@ function createLiveTrainIcon(vehicle: LiveTrain) {
 
         <div style="
           position:absolute;
-          top:${isTrackedConsist ? "-10px" : "-8px"};
+          top:${isTrackedConsist ? "-18px" : "-16px"};
           left:50%;
           transform:translateX(-50%);
-          background:#0f172a;
+          background:linear-gradient(180deg, rgba(15,23,42,0.98), rgba(30,41,59,0.95));
           color:white;
           font-size:${isTrackedConsist ? "10px" : "9px"};
           font-weight:700;
-          padding:${isTrackedConsist ? "3px 6px" : "2px 5px"};
-          border-radius:6px;
-          border:1px solid rgba(255,255,255,0.15);
-          box-shadow:0 4px 10px rgba(0,0,0,0.4);
-          white-space:nowrap;
+          padding:${isTrackedConsist ? "5px 8px" : "4px 7px"};
+          border-radius:10px;
+          border:1px solid rgba(255,255,255,0.16);
+          box-shadow:0 10px 24px rgba(0,0,0,0.42);
+          white-space:normal;
+          min-width:${isTrackedConsist ? "138px" : "126px"};
+          max-width:${isTrackedConsist ? "150px" : "136px"};
+          text-align:center;
+          line-height:1.12;
+          backdrop-filter: blur(10px);
         ">
-          ${badgeLabel}
+          <div style="font-size:${isTrackedConsist ? "9px" : "8px"};font-weight:800;letter-spacing:0.03em;text-transform:uppercase;">
+            ${badgePrimaryLabel}
+          </div>
+          <div style="margin-top:3px;font-size:${isTrackedConsist ? "8px" : "7px"};font-weight:700;opacity:0.78;letter-spacing:0.08em;text-transform:uppercase;">
+            ${badgeSecondaryLabel}
+          </div>
         </div>
         <div style="
           position:absolute;
           left:50%;
-          bottom:${isTrackedConsist ? "-18px" : "-16px"};
+          bottom:${isTrackedConsist ? "-23px" : "-21px"};
           transform:translateX(-50%);
-          background:rgba(15,23,42,0.92);
+          background:rgba(15,23,42,0.95);
           color:white;
           font-size:${isTrackedConsist ? "10px" : "9px"};
           font-weight:700;
-          padding:${isTrackedConsist ? "3px 7px" : "2px 6px"};
+          padding:${isTrackedConsist ? "4px 9px" : "3px 8px"};
           border-radius:9999px;
           border:1px solid rgba(255,255,255,0.14);
-          box-shadow:0 4px 10px rgba(0,0,0,0.35);
+          box-shadow:0 8px 18px rgba(0,0,0,0.35);
           white-space:nowrap;
-          max-width:120px;
+          max-width:132px;
           overflow:hidden;
           text-overflow:ellipsis;
+          backdrop-filter: blur(8px);
         ">
           ${destinationLabel}
         </div>
@@ -1497,12 +1572,22 @@ type PlatformBoardEntry = {
 type DepartureBoardColumn = {
   title: string;
   accent: string;
-  services: Array<{
-    scheduledTime: string;
-    destination: string;
-    via: string;
-    minuteBadge: string;
-  }>;
+  platform: string;
+  scheduledTime: string;
+  departingTime: string;
+  status: string;
+  via: string;
+  stops: string[];
+};
+
+type FreightMovement = {
+  operator: string;
+  serviceId: string;
+  movement: string;
+  timeLabel: string;
+  lineLabel: string;
+  statusLabel: string;
+  note?: string;
 };
 
 const SOUTH_YARRA_PLATFORM_BOARD: PlatformBoardEntry[] = [
@@ -1785,6 +1870,165 @@ const MALVERN_PLATFORM_BOARD: PlatformBoardEntry[] = [
         statusLabel: "On Time",
         originLabel: "Platform 3",
         viaLabel: "Metro Tunnel",
+      },
+    ],
+  },
+];
+
+const CAULFIELD_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 · City Loop",
+    tone: "bg-slate-500/12 border-slate-400/20 text-slate-100",
+    services: [
+      {
+        destination: "City Loop",
+        etaLabel: "10:05",
+        tdnLabel: "TDN 4860",
+        statusLabel: "2m late",
+        originLabel: "Origin Caulfield",
+        viaLabel: "Stops all via City Loop",
+      },
+      {
+        destination: "City Loop",
+        etaLabel: "10:14",
+        tdnLabel: "TDN 4862",
+        statusLabel: "3m late",
+        originLabel: "Origin Caulfield",
+        viaLabel: "Stops all via City Loop",
+      },
+      {
+        destination: "City Loop",
+        etaLabel: "10:24",
+        tdnLabel: "TDN 4864",
+        statusLabel: "2m late",
+        originLabel: "Origin Caulfield",
+        viaLabel: "Stops all via City Loop",
+      },
+      {
+        destination: "City Loop",
+        etaLabel: "10:34",
+        tdnLabel: "TDN 4866",
+        statusLabel: "2m late",
+        originLabel: "Origin Caulfield",
+        viaLabel: "Stops all via City Loop",
+      },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 · Frankston / Dandenong / Sunbury",
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
+    services: [
+      {
+        destination: "Frankston",
+        etaLabel: "10:04",
+        tdnLabel: "TDN 4367",
+        statusLabel: "On Time",
+        originLabel: "Origin Flinders Street",
+        viaLabel: "Frankston line",
+      },
+      {
+        destination: "Frankston",
+        etaLabel: "10:24",
+        tdnLabel: "TDN 4371",
+        statusLabel: "On Time",
+        originLabel: "Origin Flinders Street",
+        viaLabel: "Frankston line",
+      },
+      {
+        destination: "Frankston",
+        etaLabel: "10:34",
+        tdnLabel: "TDN 4373",
+        statusLabel: "On Time",
+        originLabel: "Origin Flinders Street",
+        viaLabel: "Frankston line",
+      },
+      {
+        destination: "Town Hall → Sunbury",
+        etaLabel: "10:40",
+        tdnLabel: "TDN C456 → Z047",
+        statusLabel: "On Time",
+        originLabel: "Origin Cranbourne / Pakenham",
+        viaLabel: "Metro Tunnel",
+      },
+    ],
+  },
+  {
+    platform: "3",
+    label: "Platform 3 · Cranbourne / Pakenham / Watergardens",
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+    services: [
+      {
+        destination: "Town Hall → Sunbury",
+        etaLabel: "10:00",
+        tdnLabel: "TDN C452 → Z043",
+        statusLabel: "2m late",
+        originLabel: "Origin Pakenham corridor",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "East Pakenham",
+        etaLabel: "10:09",
+        tdnLabel: "TDN C041",
+        statusLabel: "On Time",
+        originLabel: "Origin Town Hall",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "Cranbourne",
+        etaLabel: "10:19",
+        tdnLabel: "TDN C441",
+        statusLabel: "On Time",
+        originLabel: "Origin Town Hall",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "Town Hall → Watergardens",
+        etaLabel: "10:30",
+        tdnLabel: "TDN C054 → Z443",
+        statusLabel: "1m late",
+        originLabel: "Origin Cranbourne / Pakenham",
+        viaLabel: "Metro Tunnel",
+      },
+    ],
+  },
+  {
+    platform: "4",
+    label: "Platform 4 · Gippsland / City Loop / Frankston",
+    tone: "bg-violet-500/12 border-violet-400/20 text-violet-100",
+    services: [
+      {
+        destination: "Traralgon",
+        etaLabel: "10:04",
+        tdnLabel: "TDN 8415",
+        statusLabel: "1m late",
+        originLabel: "V/Line",
+        viaLabel: "Gippsland line",
+      },
+      {
+        destination: "City Loop",
+        etaLabel: "10:14",
+        tdnLabel: "TDN 4862",
+        statusLabel: "3m late",
+        originLabel: "Origin Caulfield",
+        viaLabel: "Stops all via City Loop",
+      },
+      {
+        destination: "Town Hall → Sunbury",
+        etaLabel: "10:20",
+        tdnLabel: "TDN C454 → Z045",
+        statusLabel: "On Time",
+        originLabel: "Origin Cranbourne / Pakenham",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "Frankston",
+        etaLabel: "10:34",
+        tdnLabel: "TDN 4373",
+        statusLabel: "On Time",
+        originLabel: "Origin Flinders Street",
+        viaLabel: "Frankston line",
       },
     ],
   },
@@ -2177,96 +2421,229 @@ const NORTH_MELBOURNE_PLATFORM_BOARD: PlatformBoardEntry[] = [
 
 const SOUTHERN_CROSS_DEPARTURE_BOARD: DepartureBoardColumn[] = [
   {
-    title: "Metro outbound",
-    accent: "bg-blue-500",
-    services: [
-      {
-        scheduledTime: "09:42",
-        destination: "Williamstown",
-        via: "Stops all via Newport",
-        minuteBadge: "3 min",
-      },
-      {
-        scheduledTime: "09:47",
-        destination: "Craigieburn",
-        via: "Stops all via North Melbourne",
-        minuteBadge: "8 min",
-      },
-      {
-        scheduledTime: "09:52",
-        destination: "Sandringham",
-        via: "Stops all via Flinders Street",
-        minuteBadge: "13 min",
-      },
-      {
-        scheduledTime: "09:56",
-        destination: "Sunbury",
-        via: "Metro Tunnel service",
-        minuteBadge: "17 min",
-      },
-    ],
+    title: "Waurn Ponds",
+    accent: "bg-[#7c3aed]",
+    platform: "2A",
+    scheduledTime: "12:18",
+    departingTime: "Now",
+    status: "Geelong corridor",
+    via: "via Geelong",
+    stops: ["Southern Cross", "Footscray", "Tarneit", "Wyndham Vale", "Geelong", "Waurn Ponds"],
   },
   {
-    title: "Regional & coaches",
-    accent: "bg-[#7d5cff]",
-    services: [
-      {
-        scheduledTime: "09:52",
-        destination: "Traralgon",
-        via: "V/Line via Pakenham corridor",
-        minuteBadge: "13 min",
-      },
-      {
-        scheduledTime: "10:12",
-        destination: "Southern Cross coach bay",
-        via: "Coach connection boarding",
-        minuteBadge: "33 min",
-      },
-      {
-        scheduledTime: "10:18",
-        destination: "Albury / Sydney XPT",
-        via: "Long-distance platform call",
-        minuteBadge: "39 min",
-      },
-      {
-        scheduledTime: "Live",
-        destination: "Replacement buses",
-        via: "Check active disruptions and coach bays",
-        minuteBadge: "Now",
-      },
-    ],
+    title: "Wendouree",
+    accent: "bg-[#7c3aed]",
+    platform: "2B",
+    scheduledTime: "12:24",
+    departingTime: "12:24",
+    status: "Ballarat line",
+    via: "via Sunshine and Ballarat",
+    stops: ["Southern Cross", "Sunshine", "Melton", "Ballarat", "Wendouree"],
+  },
+  {
+    title: "Bendigo",
+    accent: "bg-[#7c3aed]",
+    platform: "3A",
+    scheduledTime: "12:32",
+    departingTime: "12:32",
+    status: "Bendigo line",
+    via: "via Sunbury and Castlemaine",
+    stops: ["Southern Cross", "Sunbury", "Castlemaine", "Bendigo"],
+  },
+  {
+    title: "Shepparton",
+    accent: "bg-[#7c3aed]",
+    platform: "3B",
+    scheduledTime: "12:40",
+    departingTime: "12:40",
+    status: "Seymour corridor",
+    via: "via Broadmeadows and Seymour",
+    stops: ["Southern Cross", "Broadmeadows", "Seymour", "Nagambie", "Murchison East", "Shepparton"],
+  },
+  {
+    title: "Traralgon",
+    accent: "bg-[#7c3aed]",
+    platform: "4A",
+    scheduledTime: "12:49",
+    departingTime: "12:49",
+    status: "Gippsland line",
+    via: "via Pakenham and Moe",
+    stops: ["Southern Cross", "Richmond", "Pakenham", "Moe", "Morwell", "Traralgon"],
+  },
+  {
+    title: "Warrnambool",
+    accent: "bg-[#7c3aed]",
+    platform: "7A",
+    scheduledTime: "13:02",
+    departingTime: "13:02",
+    status: "South West line",
+    via: "via Geelong and Colac",
+    stops: ["Southern Cross", "Geelong", "Colac", "Camperdown", "Warrnambool"],
+  },
+  {
+    title: "Bacchus Marsh",
+    accent: "bg-[#7c3aed]",
+    platform: "8A",
+    scheduledTime: "13:10",
+    departingTime: "13:10",
+    status: "Western regional",
+    via: "via Sunshine and Melton",
+    stops: ["Southern Cross", "Sunshine", "Caroline Springs", "Melton", "Bacchus Marsh"],
   },
 ];
 
 const SOUTHERN_CROSS_PLATFORM_1_SERVICES = [
   {
-    runId: "622",
-    destination: "Central",
-    lineLabel: "7(X)",
-    consist: "ST22",
+    runId: "621",
+    destination: "Sydney Central",
+    lineLabel: "NSW TrainLink XPT",
+    consist: "XP set",
     departureLabel: "7:50pm",
     dayLabel: "Tonight",
     statusLabel: "Timetabled",
   },
   {
-    runId: "624",
-    destination: "Central",
-    lineLabel: "7(X)",
-    consist: "ST24",
+    runId: "623",
+    destination: "Sydney Central",
+    lineLabel: "NSW TrainLink XPT",
+    consist: "XP set",
     departureLabel: "8:30am",
     dayLabel: "Tomorrow",
     statusLabel: "Timetabled",
   },
   {
-    runId: "622",
-    destination: "Central",
-    lineLabel: "7(X)",
-    consist: "ST22",
-    departureLabel: "7:50pm",
-    dayLabel: "Tomorrow",
+    runId: "XPT",
+    destination: "Albury / Sydney Central",
+    lineLabel: "NSW TrainLink XPT",
+    consist: "Long distance",
+    departureLabel: "Check boards",
+    dayLabel: "Updates live",
     statusLabel: "Timetabled",
   },
 ];
+
+const FREIGHT_MOVEMENT_BOARD: Record<string, FreightMovement[]> = {
+  "North Melbourne": [
+    {
+      operator: "Pacific National",
+      serviceId: "3MC1",
+      movement: "Dynon -> Melbourne Freight Terminal",
+      timeLabel: "18:42",
+      lineLabel: "Broad gauge freight roads",
+      statusLabel: "Due",
+      note: "Interstate handoff",
+    },
+    {
+      operator: "SCT Logistics",
+      serviceId: "6PM7",
+      movement: "Westbound interstate",
+      timeLabel: "19:03",
+      lineLabel: "Standard gauge main line",
+      statusLabel: "Path set",
+      note: "Through movement with no passenger boarding",
+    },
+  ],
+  "South Kensington": [
+    {
+      operator: "Qube",
+      serviceId: "9142",
+      movement: "Appleton Dock transfer",
+      timeLabel: "18:36",
+      lineLabel: "Dock corridor",
+      statusLabel: "Approaching",
+      note: "Container shuttle",
+    },
+    {
+      operator: "Pacific National",
+      serviceId: "9791",
+      movement: "Dynon -> Tottenham",
+      timeLabel: "18:58",
+      lineLabel: "Freight bypass",
+      statusLabel: "Due",
+      note: "Through movement",
+    },
+  ],
+  Footscray: [
+    {
+      operator: "SCT Logistics",
+      serviceId: "7MA8",
+      movement: "Westbound interstate",
+      timeLabel: "18:47",
+      lineLabel: "Independent goods lines",
+      statusLabel: "Due",
+      note: "Runs clear of metro platforms",
+    },
+    {
+      operator: "Pacific National",
+      serviceId: "8246",
+      movement: "Tottenham transfer",
+      timeLabel: "19:12",
+      lineLabel: "Freight corridor",
+      statusLabel: "Path set",
+      note: "Local terminal move",
+    },
+  ],
+  Sunshine: [
+    {
+      operator: "Pacific National",
+      serviceId: "9146",
+      movement: "Maryvale paper train",
+      timeLabel: "18:51",
+      lineLabel: "Ballarat corridor",
+      statusLabel: "Due",
+      note: "Westbound freight path",
+    },
+    {
+      operator: "SSR",
+      serviceId: "7924",
+      movement: "Grain working",
+      timeLabel: "19:24",
+      lineLabel: "Regional freight corridor",
+      statusLabel: "Timetabled",
+      note: "Indicative path",
+    },
+  ],
+  Newport: [
+    {
+      operator: "Pacific National",
+      serviceId: "8452",
+      movement: "Appleton Dock -> Geelong",
+      timeLabel: "18:40",
+      lineLabel: "Western freight route",
+      statusLabel: "Due",
+      note: "Through freight road",
+    },
+    {
+      operator: "Qube",
+      serviceId: "9031",
+      movement: "Port shuttle",
+      timeLabel: "19:06",
+      lineLabel: "Dock transfer corridor",
+      statusLabel: "Approaching",
+      note: "No passenger boarding",
+    },
+  ],
+  Dandenong: [
+    {
+      operator: "Pacific National",
+      serviceId: "9461",
+      movement: "Long Island steel",
+      timeLabel: "18:55",
+      lineLabel: "South-east freight corridor",
+      statusLabel: "Due",
+      note: "Freight road movement",
+    },
+    {
+      operator: "Qube",
+      serviceId: "8810",
+      movement: "Lyndhurst intermodal",
+      timeLabel: "19:21",
+      lineLabel: "Industrial branch path",
+      statusLabel: "Timetabled",
+      note: "Indicative path",
+    },
+  ],
+};
 
 const LINE_PLATFORM_PRESETS: Record<
   (typeof PLATFORM_PRESET_PRIORITY)[number],
@@ -2420,8 +2797,13 @@ function getStationDetails(station: Station): string {
     details.push(station.barriers ? "Myki barriers" : "No barriers");
   }
   if (station.zone) details.push(`Zone ${station.zone}`);
+  if (FREIGHT_MOVEMENT_BOARD[station.name]?.length) details.push("Freight corridor");
 
   return details.length ? details.join(" · ") : "Metro station";
+}
+
+function getFreightMovements(stationName: string) {
+  return FREIGHT_MOVEMENT_BOARD[stationName] ?? [];
 }
 
 function getStationLineMemberships(stationName: string) {
@@ -2445,6 +2827,9 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
   }
   if (station.name === "Malvern") {
     return MALVERN_PLATFORM_BOARD;
+  }
+  if (station.name === "Caulfield") {
+    return CAULFIELD_PLATFORM_BOARD;
   }
   if (station.name === "Flinders Street") {
     return FLINDERS_STREET_PLATFORM_BOARD;
@@ -2928,7 +3313,8 @@ function renderStationMarkers(
           key={`${station.name}-${station.position[0]}-${station.position[1]}`}
           position={markerPosition}
           icon={createCityLoopPillIcon(strokeColor, markerName)}
-          zIndexOffset={900}
+          pane="stationPane"
+          zIndexOffset={3400}
           eventHandlers={{
             click: () => onSelectStation(resolvedStation),
           }}
@@ -2949,6 +3335,7 @@ function renderStationMarkers(
       <CircleMarker
         key={`${station.name}-${station.position[0]}-${station.position[1]}`}
         center={resolvedStation.position}
+        pane="stationPane"
         radius={5}
         pathOptions={{
           color: isSharedCaulfieldMetroStation ? "#0f172a" : strokeColor,
@@ -3087,11 +3474,60 @@ function getVehicleOriginFallback(vehicle: LiveTrain) {
     return match[1].trim();
   }
 
-  if (/city|flinders street|southern cross/i.test(vehicle.destination)) {
-    return `${vehicle.line} line`;
+  const normalizedLine = vehicle.line.trim().toLowerCase();
+  const headingToCity = /city|flinders street|southern cross|parliament|melbourne central|flagstaff|town hall|state library/i.test(
+    vehicle.destination,
+  );
+
+  if (headingToCity) {
+    switch (normalizedLine) {
+      case "lilydale":
+        return "Lilydale";
+      case "belgrave":
+        return "Belgrave";
+      case "glen waverley":
+        return "Glen Waverley";
+      case "alamein":
+        return "Alamein";
+      case "mernda":
+        return "Mernda";
+      case "hurstbridge":
+        return "Hurstbridge";
+      case "frankston":
+        return "Frankston";
+      case "sandringham":
+        return "Sandringham";
+      case "williamstown":
+        return "Williamstown";
+      case "werribee":
+        return "Werribee";
+      case "sunbury":
+        return "Sunbury";
+      case "cranbourne":
+        return "Cranbourne";
+      case "pakenham":
+        return "Pakenham";
+      case "craigieburn":
+        return "Craigieburn";
+      case "upfield":
+        return "Upfield";
+      case "metro tunnel":
+        return "Cranbourne / Pakenham";
+      case "v/line":
+        return "Regional origin";
+      default:
+        return `${vehicle.line} origin`;
+    }
   }
 
-  return "Live position";
+  switch (normalizedLine) {
+    case "metro tunnel":
+      return "Sunbury / Watergardens";
+    case "v/line":
+      return "Southern Cross";
+    default:
+      return "Flinders Street";
+  }
 }
 
 function getVehicleStoppingPattern(vehicle: LiveTrain) {
@@ -3254,16 +3690,19 @@ function getVehicleFormation(vehicle: LiveTrain) {
 
   let family: string | null = null;
 
+  const hasXtrapolisTrailer = /12\d{2}T|13\d{2}T|14\d{2}T|15\d{2}T|16\d{2}T/.test(joinedCars);
+  const hasSiemensTrailer = /25\d{2}T/.test(joinedCars);
+  const hasComengTrailer = /10\d{2}T|11\d{2}T/.test(joinedCars);
+
   if (/HCMT/.test(upperTrainType) || /HCMT/.test(upperConsist) || /HCMT/.test(joinedCars)) {
     family = "HCMT";
-  } else if (/SIEMENS/.test(upperTrainType) || /25\d{2}T/.test(joinedCars) || /7\d{2}M|8\d{2}M/.test(joinedCars)) {
-    family = "Siemens Nexas";
-  } else if (/X['’]?TRAPOLIS|XTRAPOLIS/.test(upperTrainType) || /13\d{2}T|14\d{2}T|16\d{2}T/.test(joinedCars)) {
+  } else if (/X['’]?TRAPOLIS|XTRAPOLIS/.test(upperTrainType) || hasXtrapolisTrailer) {
     family = "X’Trapolis 100";
-  } else if (/COMENG/.test(upperTrainType) || /10\d{2}T|11\d{2}T/.test(joinedCars) || /3\d{2}M|4\d{2}M|5\d{2}M|6\d{2}M/.test(joinedCars)) {
+  } else if (/SIEMENS/.test(upperTrainType) || hasSiemensTrailer) {
+    family = "Siemens Nexas";
+  } else if (/COMENG/.test(upperTrainType) || hasComengTrailer || /3\d{2}M|4\d{2}M|5\d{2}M|6\d{2}M/.test(joinedCars)) {
     family = inferComengVariant(vehicle);
   }
-
   return {
     family,
     cars: inferredCarCount,
@@ -3686,6 +4125,17 @@ export function Map({
         ? `Next: ${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
         : getVehicleStoppingPattern(selectedVehicle)
     : "";
+  const selectedVehiclePositionEstimateLabel = selectedVehicle
+    ? selectedVehicleSnapshot?.position
+      ? selectedVehicleSnapshot.position.vehicle_stop_status === "STOPPED_AT"
+        ? `Stopped at ${selectedVehicleSnapshot.position.current_stop} at ${formatRouteWindow(selectedVehicleSnapshot.position.current_stop_time)}`
+        : `Between ${selectedVehicleSnapshot.position.current_stop} and ${selectedVehicleSnapshot.position.next_stop ?? "the next stop"}`
+      : selectedVehicleSnapshot?.current_trip
+        ? `Running ${selectedVehicleSnapshot.current_trip.origin} to ${selectedVehicleSnapshot.current_trip.destination}`
+        : selectedVehicleSnapshot?.next_trip
+          ? `Waiting to form ${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
+          : `Following ${selectedVehicleOriginLabel} to ${selectedVehicleDestinationLabel}`
+    : "";
   const featuredConsistLiveVehicle = useMemo(
     () => liveVehicles.find((vehicle) => vehicle.consist === FEATURED_CONSIST) ?? null,
     [liveVehicles],
@@ -3705,6 +4155,14 @@ export function Map({
   const regularLiveVehicles = useMemo(
     () => liveVehicles.filter((vehicle) => vehicle.consist !== FEATURED_CONSIST),
     [liveVehicles],
+  );
+  const metroLiveVehicles = useMemo(
+    () => regularLiveVehicles.filter((vehicle) => !isVlineLiveTrain(vehicle)),
+    [regularLiveVehicles],
+  );
+  const vlineLiveVehicles = useMemo(
+    () => regularLiveVehicles.filter((vehicle) => isVlineLiveTrain(vehicle)),
+    [regularLiveVehicles],
   );
   const selectedSurfaceStopLiveBuses = useMemo(() => {
     if (!selectedSurfaceStop || !selectedSurfaceStop.modes.includes("bus")) {
@@ -3912,10 +4370,16 @@ const [layers, setLayers] = useState<LayerState>({
   const renderedStationKeys = new Set<string>();
 
   const toggleServiceFilter = useCallback((filter: ServiceFilterKey) => {
+    if (filter === "vline") {
+      const nextModes = transportModes.includes("vline")
+        ? transportModes.filter((mode) => mode !== "vline")
+        : [...transportModes, "vline"];
+      onTransportModesChange?.(nextModes.length > 0 ? nextModes : [...DEFAULT_TRANSPORT_MODES]);
+      return;
+    }
+
     setLayers((prev) => {
       switch (filter) {
-        case "vline":
-          return prev;
         case "metroTunnelServices":
           return {
             ...prev,
@@ -3980,12 +4444,12 @@ const [layers, setLayers] = useState<LayerState>({
           return prev;
       }
     });
-  }, []);
+  }, [onTransportModesChange, transportModes]);
 
   const isServiceFilterActive = useCallback((filter: ServiceFilterKey) => {
     switch (filter) {
       case "vline":
-        return false;
+        return transportModes.includes("vline");
       case "metroTunnelServices":
         return layers.metroTunnel || layers.sunburyLine || layers.cranbourneLine || layers.pakenhamLine;
       case "crossCityPink":
@@ -4008,7 +4472,7 @@ const [layers, setLayers] = useState<LayerState>({
       default:
         return false;
     }
-  }, [layers]);
+  }, [layers, transportModes]);
 
   const visibleReports = reports.filter((report) => {
     if (report.reportType === "inspector" && !layers.inspectors) return false;
@@ -4180,6 +4644,7 @@ const [layers, setLayers] = useState<LayerState>({
           if (mapInstance) mapRef.current = mapInstance;
         }}
       >
+        <Pane name="stationPane" style={{ zIndex: 950 }} />
         {consistData?.active && consistData.currentTrip?.estimatedPos && (
           <Marker
             position={consistData.currentTrip.estimatedPos as [number, number]}
@@ -4705,7 +5170,23 @@ const [layers, setLayers] = useState<LayerState>({
           </Marker>
         )}
         {modeIsTrainVisible &&
-          regularLiveVehicles.map((vehicle) => (
+          metroLiveVehicles.map((vehicle) => (
+            <Marker
+              key={`${vehicle.consist}-${vehicle.tdn}`}
+              position={[vehicle.lat, vehicle.lng]}
+              icon={createLiveTrainIcon(vehicle)}
+              zIndexOffset={1200}
+              riseOnHover
+              eventHandlers={{
+                mousedown: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                touchstart: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                click: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                popupopen: () => setSelectedDetail({ type: "vehicle", vehicle }),
+              }}
+            />
+          ))}
+        {modeIsVlineVisible &&
+          vlineLiveVehicles.map((vehicle) => (
             <Marker
               key={`${vehicle.consist}-${vehicle.tdn}`}
               position={[vehicle.lat, vehicle.lng]}
@@ -4995,22 +5476,16 @@ const [layers, setLayers] = useState<LayerState>({
           <div className="mt-2.5 flex flex-col gap-1.5 sm:mt-3 sm:gap-2">
             {visibleServiceFilters.map((filter) => {
               const active = isServiceFilterActive(filter.key);
-              const isDisabled = filter.key === "vline";
               const chips = getFilterChips(filter.key);
               return (
                 <div key={filter.key} className="flex flex-col">
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!isDisabled) toggleServiceFilter(filter.key);
-                    }}
-                    disabled={isDisabled}
+                    onClick={() => toggleServiceFilter(filter.key)}
                     className={`rounded-xl border px-2 py-1.5 text-left transition sm:px-3 sm:py-2 ${
-                      isDisabled
-                        ? "cursor-not-allowed border-purple-400/20 bg-purple-500/8 text-purple-200/55 opacity-70"
-                        : active
-                          ? filter.tone
-                          : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                      active
+                        ? filter.tone
+                        : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
                     }`}
                   >
                     <div className="text-[11px] font-semibold leading-tight sm:text-xs">{filter.label}</div>
@@ -5029,11 +5504,6 @@ const [layers, setLayers] = useState<LayerState>({
                             {chip}
                           </span>
                         ))}
-                      </div>
-                    )}
-                    {isDisabled && (
-                      <div className="mt-1 text-[9px] font-medium leading-3.5 text-current/65 sm:text-[10px] sm:leading-4">
-                        Unavailable right now while live V/Line is still being debugged.
                       </div>
                     )}
                   </button>
@@ -5093,6 +5563,12 @@ const [layers, setLayers] = useState<LayerState>({
               <p className="mt-1 text-xs text-white/55">
                 TDN {selectedVehicleSnapshot?.current_trip?.id ?? selectedVehicleSnapshot?.next_trip?.id ?? selectedDetail.vehicle.tdn}
               </p>
+              <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Stopping pattern</p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {selectedVehiclePatternLabel}
+                </p>
+              </div>
             </div>
             <button
               type="button"
@@ -5169,14 +5645,10 @@ const [layers, setLayers] = useState<LayerState>({
                 <p className="mt-1 text-sm font-semibold text-white">{getVehicleDisplayType(selectedDetail.vehicle)}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Stopping pattern</p>
-                <p className="mt-1 text-sm font-semibold text-white">
-                  {selectedVehiclePatternLabel}
-                </p>
-              </div>
-              <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Operator</p>
-                <p className="mt-1 text-sm font-semibold text-white">Metro Trains Melbourne</p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {isVlineLiveTrain(selectedDetail.vehicle) ? "V/Line" : "Metro Trains Melbourne"}
+                </p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Window</p>
@@ -5228,11 +5700,7 @@ const [layers, setLayers] = useState<LayerState>({
                 Position estimate
               </p>
               <p className="mt-2.5 text-sm text-white/85">
-                {selectedVehicleSnapshot?.position
-                  ? selectedVehicleSnapshot.position.vehicle_stop_status === "STOPPED_AT"
-                    ? `Stopped at ${selectedVehicleSnapshot.position.current_stop} at ${formatRouteWindow(selectedVehicleSnapshot.position.current_stop_time)}`
-                    : `Between ${selectedVehicleSnapshot.position.current_stop} and ${selectedVehicleSnapshot.position.next_stop ?? "the next stop"}`
-                  : "No stop-level estimate available right now."}
+                {selectedVehiclePositionEstimateLabel}
               </p>
               {selectedVehicleSnapshot?.network_alerts?.length ? (
                 <div className="mt-3 rounded-[1.1rem] border border-amber-400/20 bg-amber-500/10 p-3 text-sm text-amber-50/95">
@@ -5285,6 +5753,9 @@ const [layers, setLayers] = useState<LayerState>({
                       <p className="mt-1 text-xs text-white/55">
                         Styled like the concourse screens for a quick glance.
                       </p>
+                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">
+                        Updated {new Date().toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                      </p>
                     </div>
                     <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
                       Southern Cross
@@ -5297,8 +5768,15 @@ const [layers, setLayers] = useState<LayerState>({
                         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
                           Southern Cross
                         </p>
-                        <p className="mt-1 text-lg font-semibold text-white">Platform 1</p>
-                        <p className="mt-1 text-xs text-white/55">Regional departures can vary. Check platform displays.</p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <img
+                            src="/images/xpt.svg"
+                            alt="XPT icon"
+                            className="h-8 w-8 rounded-md object-contain"
+                          />
+                          <p className="text-lg font-semibold text-white">Platform 1 · XPT</p>
+                        </div>
+                        <p className="mt-1 text-xs text-white/55">NSW TrainLink long-distance services. Check station displays for final boarding advice.</p>
                       </div>
 
                       <div className="divide-y divide-slate-800/90">
@@ -5338,31 +5816,43 @@ const [layers, setLayers] = useState<LayerState>({
                       </div>
                     </div>
 
-                    <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
                       {SOUTHERN_CROSS_DEPARTURE_BOARD.map((column) => (
                         <div
                           key={column.title}
-                          className="overflow-hidden rounded-[1.25rem] border border-white/10 bg-slate-900/85 shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
+                          className="min-w-0 overflow-hidden rounded-[1.25rem] border border-white/10 bg-[#202020] shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
                         >
                           <div className={`h-1.5 w-full ${column.accent}`} />
-                          <div className="divide-y divide-slate-800/90">
-                            {column.services.map((service) => (
-                              <div
-                                key={`${column.title}-${service.destination}-${service.scheduledTime}`}
-                                className="flex items-start justify-between gap-3 bg-white px-4 py-3 text-slate-950"
-                              >
-                                <div className="min-w-0">
-                                  <p className="text-lg font-semibold leading-tight">{service.destination}</p>
-                                  <p className="mt-1 text-sm text-slate-700">{service.via}</p>
-                                  <p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-                                    {service.scheduledTime}
-                                  </p>
-                                </div>
-                                <span className="shrink-0 rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white shadow-sm">
-                                  {service.minuteBadge}
-                                </span>
+                          <div className="bg-[#202020] px-5 py-4 text-white">
+                            <div className="flex items-start justify-between gap-4">
+                              <p className="min-w-0 flex-1 pr-2 text-[1.15rem] font-semibold leading-[1.12] text-white [overflow-wrap:anywhere]">{column.title}</p>
+                              <div className="shrink-0 rounded-sm bg-white px-2 py-1 text-[1rem] font-bold leading-none text-slate-950">
+                                {column.platform}
                               </div>
-                            ))}
+                            </div>
+                            <div className="mt-4 grid grid-cols-3 gap-3 border-t border-white/10 pt-3 text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
+                              <div>
+                                <p>Scheduled</p>
+                                <p className="mt-1.5 text-[1.35rem] font-semibold tracking-normal text-white">{column.scheduledTime}</p>
+                              </div>
+                              <div>
+                                <p>Departing</p>
+                                <p className="mt-1.5 text-[1.35rem] font-semibold tracking-normal text-white">{column.departingTime}</p>
+                              </div>
+                              <div>
+                                <p>Platform</p>
+                                <p className="mt-1.5 text-[1.35rem] font-semibold tracking-normal text-white">{column.platform}</p>
+                              </div>
+                            </div>
+                            <div className="mt-4 border-t border-white/10 pt-3">
+                              <p className="text-[1.05rem] font-semibold text-white">{column.status}</p>
+                              {column.via ? <p className="mt-1.5 text-sm text-white/70">{column.via}</p> : null}
+                            </div>
+                            <div className="mt-4 space-y-1.5 text-[1.05rem] leading-snug text-white/95">
+                              {column.stops.map((stop) => (
+                                <p key={`${column.title}-${stop}`}>{stop}</p>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -5377,6 +5867,7 @@ const [layers, setLayers] = useState<LayerState>({
                     selectedDetail.station.name === "Melbourne Central" ||
                     selectedDetail.station.name === "State Library";
                   const platformBoard = buildPlatformBoard(selectedDetail.station);
+                  const freightMovements = getFreightMovements(selectedDetail.station.name);
                   const connectedStationName =
                     selectedDetail.station.name === "Melbourne Central"
                       ? "State Library"
@@ -5437,6 +5928,59 @@ const [layers, setLayers] = useState<LayerState>({
                             renderPlatformBoardCard(selectedDetail.station.name, platform, index),
                           )}
                         </div>
+
+                        {freightMovements.length > 0 && (
+                          <div className="mt-3 rounded-[1.1rem] border border-amber-400/15 bg-amber-500/[0.06] p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-200/85">
+                                  Freight movements
+                                </p>
+                                <p className="mt-1 max-w-[48ch] text-xs leading-relaxed text-white/55">
+                                  Indicative freight paths through {selectedDetail.station.name}. These are corridor timings, not passenger departures.
+                                </p>
+                              </div>
+                              <span className="rounded-full border border-amber-300/15 bg-black/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-100/85">
+                                Through corridor
+                              </span>
+                            </div>
+
+                            <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                              {freightMovements.map((movement) => (
+                                <div
+                                  key={`${selectedDetail.station.name}-${movement.serviceId}-${movement.timeLabel}`}
+                                  className="rounded-[0.95rem] border border-white/10 bg-black/20 p-3"
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="rounded-md bg-amber-300/15 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-amber-100">
+                                          {movement.serviceId}
+                                        </span>
+                                        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70">
+                                          {movement.operator}
+                                        </span>
+                                      </div>
+                                      <p className="mt-2 text-sm font-semibold leading-snug text-white">
+                                        {movement.movement}
+                                      </p>
+                                      <p className="mt-1 text-xs leading-relaxed text-white/60">{movement.lineLabel}</p>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-base font-semibold text-white">{movement.timeLabel}</p>
+                                      <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-amber-100/80">
+                                        {movement.statusLabel}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  {movement.note ? (
+                                    <p className="mt-2 border-t border-white/10 pt-2 text-xs leading-relaxed text-white/55">{movement.note}</p>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                     </div>

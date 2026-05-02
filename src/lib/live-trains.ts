@@ -16,6 +16,27 @@ export type LiveTrain = {
   serviceDescription?: string;
 };
 
+const VLINE_KEYWORDS = [
+  "v/line",
+  "vline",
+  "waurn ponds",
+  "wendouree",
+  "ballarat",
+  "bendigo",
+  "echuca",
+  "swan hill",
+  "ararat",
+  "maryborough",
+  "geelong",
+  "warrnambool",
+  "seymour",
+  "shepparton",
+  "albury",
+  "traralgon",
+  "bairnsdale",
+  "stony point",
+];
+
 type LiveTrainResponse =
   | LiveTrain[]
   | {
@@ -120,6 +141,7 @@ function inferLineFromText(...values: Array<string | null | undefined>) {
     .toLowerCase();
 
   if (!joined) return "Metro";
+  if (VLINE_KEYWORDS.some((keyword) => joined.includes(keyword))) return "V/Line";
   if (/(werribee|williamstown|newport|laverton|altona)/i.test(joined)) return "Williamstown";
   if (/(sandringham)/i.test(joined)) return "Sandringham";
   if (/(frankston|stony point)/i.test(joined)) return "Frankston";
@@ -136,6 +158,11 @@ function inferLineFromText(...values: Array<string | null | undefined>) {
   if (/(pakenham)/i.test(joined)) return "Pakenham";
   if (/(metro tunnel|munnel)/i.test(joined)) return "Metro Tunnel";
   return "Metro";
+}
+
+export function isVlineLiveTrain(train: Pick<LiveTrain, "line" | "destination" | "serviceDescription" | "trainType">) {
+  const joined = `${train.line} ${train.destination} ${train.serviceDescription ?? ""} ${train.trainType}`.toLowerCase();
+  return train.line.trim().toLowerCase() === "v/line" || VLINE_KEYWORDS.some((keyword) => joined.includes(keyword));
 }
 
 function calculateBearing(from: [number, number], to: [number, number]) {
