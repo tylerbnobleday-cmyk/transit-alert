@@ -62,6 +62,11 @@ function getFallbackAdminUser() {
   };
 }
 
+function logDbFallback(scope, error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(`[transitalert-auth] ${scope} falling back: ${message}`);
+}
+
 function base64url(value) {
   return Buffer.from(value).toString("base64url");
 }
@@ -171,22 +176,26 @@ export function sanitizeUser(user) {
 }
 
 export async function ensureAdminAccount() {
-  const context = await loadDbContext();
-  if (!context) return;
-  const { db, appUsersTable } = context;
-  if (!db) return;
-  const existing = await db.query.appUsersTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.username, adminUsername),
-  });
-
-  if (!existing) {
-    await db.insert(appUsersTable).values({
-      username: adminUsername,
-      email: adminEmail,
-      passwordHash: createPasswordHash(adminPassword),
-      role: "Admin",
-      isAdmin: true,
+  try {
+    const context = await loadDbContext();
+    if (!context) return;
+    const { db, appUsersTable } = context;
+    if (!db) return;
+    const existing = await db.query.appUsersTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.username, adminUsername),
     });
+
+    if (!existing) {
+      await db.insert(appUsersTable).values({
+        username: adminUsername,
+        email: adminEmail,
+        passwordHash: createPasswordHash(adminPassword),
+        role: "Admin",
+        isAdmin: true,
+      });
+    }
+  } catch (error) {
+    logDbFallback("ensureAdminAccount", error);
   }
 }
 
@@ -196,9 +205,21 @@ export async function getSessionUser(req) {
   const parsed = readSignedSession(cookies[SESSION_COOKIE] || "");
   if (!parsed?.id) return null;
 
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+
+    const user = await db.query.appUsersTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.id, parsed.id),
+    });
+    if (!user) return null;
+
+    return sanitizeUser(user);
+  } catch (error) {
+    logDbFallback("getSessionUser", error);
     if (parsed.id === "guest-session" || parsed.role === "Guest") {
       return {
         id: "guest-session",
@@ -216,30 +237,28 @@ export async function getSessionUser(req) {
     }
     return null;
   }
-
-  const user = await db.query.appUsersTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.id, parsed.id),
-  });
-  if (!user) return null;
-
-  return sanitizeUser(user);
 }
 
 export async function authenticateUser(username, password) {
   await ensureAdminAccount();
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const user = await db.query.appUsersTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.username, username),
+    });
+    if (!user) return null;
+    return verifyPassword(password, user.passwordHash) ? sanitizeUser(user) : null;
+  } catch (error) {
+    logDbFallback("authenticateUser", error);
     if (username.trim().toLowerCase() === adminUsername.toLowerCase() && password === adminPassword) {
       return getFallbackAdminUser();
     }
     return null;
   }
-  const user = await db.query.appUsersTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.username, username),
-  });
-  if (!user) return null;
-  return verifyPassword(password, user.passwordHash) ? sanitizeUser(user) : null;
 }
 
 export async function registerUser(input) {
@@ -269,45 +288,87 @@ export async function registerUser(input) {
 }
 
 export async function getUserByUsernameOrEmail(username, email) {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const existingByUsername = await db.query.appUsersTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.username, username),
+    });
+    if (existingByUsername) return existingByUsername;
+
+    return db.query.appUsersTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.email, email),
+    });
+  } catch (error) {
+    logDbFallback("getUserByUsernameOrEmail", error);
     const matchesAdmin =
       username.trim().toLowerCase() === adminUsername.toLowerCase() ||
       email.trim().toLowerCase() === adminEmail.toLowerCase();
     return matchesAdmin ? getFallbackAdminUser() : null;
   }
-  const existingByUsername = await db.query.appUsersTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.username, username),
-  });
-  if (existingByUsername) return existingByUsername;
-
-  return db.query.appUsersTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.email, email),
-  });
 }
 
 export async function getUserPreferences(userId) {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const { userPreferencesTable } = context;
+    const existing = await db.query.userPreferencesTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.userId, userId),
+    });
+
+    if (existing) return existing;
+
+    const [created] = await db.insert(userPreferencesTable).values({ userId }).returning();
+    return created;
+  } catch (error) {
+    logDbFallback("getUserPreferences", error);
     return { ...defaultPreferences, userId };
   }
-  const { userPreferencesTable } = context;
-  const existing = await db.query.userPreferencesTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.userId, userId),
-  });
-
-  if (existing) return existing;
-
-  const [created] = await db.insert(userPreferencesTable).values({ userId }).returning();
-  return created;
 }
 
 export async function upsertUserPreferences(userId, patch) {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const { userPreferencesTable } = context;
+    const existing = await getUserPreferences(userId);
+    const [updated] = await db
+      .insert(userPreferencesTable)
+      .values({
+        userId,
+        favouriteStops: patch.favouriteStops ?? existing.favouriteStops,
+        favouriteRoutes: patch.favouriteRoutes ?? existing.favouriteRoutes,
+        selectedMapFilters: patch.selectedMapFilters ?? existing.selectedMapFilters,
+        transportModes: patch.transportModes ?? existing.transportModes,
+        appPreferences: patch.appPreferences ?? existing.appPreferences,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: userPreferencesTable.userId,
+        set: {
+          favouriteStops: patch.favouriteStops ?? existing.favouriteStops,
+          favouriteRoutes: patch.favouriteRoutes ?? existing.favouriteRoutes,
+          selectedMapFilters: patch.selectedMapFilters ?? existing.selectedMapFilters,
+          transportModes: patch.transportModes ?? existing.transportModes,
+          appPreferences: patch.appPreferences ?? existing.appPreferences,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    return updated;
+  } catch (error) {
+    logDbFallback("upsertUserPreferences", error);
     return {
       userId,
       favouriteStops: patch.favouriteStops ?? defaultPreferences.favouriteStops,
@@ -318,74 +379,96 @@ export async function upsertUserPreferences(userId, patch) {
       updatedAt: new Date(),
     };
   }
-  const { userPreferencesTable } = context;
-  const existing = await getUserPreferences(userId);
-  const [updated] = await db
-    .insert(userPreferencesTable)
-    .values({
-      userId,
-      favouriteStops: patch.favouriteStops ?? existing.favouriteStops,
-      favouriteRoutes: patch.favouriteRoutes ?? existing.favouriteRoutes,
-      selectedMapFilters: patch.selectedMapFilters ?? existing.selectedMapFilters,
-      transportModes: patch.transportModes ?? existing.transportModes,
-      appPreferences: patch.appPreferences ?? existing.appPreferences,
-      updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: userPreferencesTable.userId,
-      set: {
-        favouriteStops: patch.favouriteStops ?? existing.favouriteStops,
-        favouriteRoutes: patch.favouriteRoutes ?? existing.favouriteRoutes,
-        selectedMapFilters: patch.selectedMapFilters ?? existing.selectedMapFilters,
-        transportModes: patch.transportModes ?? existing.transportModes,
-        appPreferences: patch.appPreferences ?? existing.appPreferences,
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
-
-  return updated;
 }
 
 export async function getAppConfig() {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) return {};
-  const { appConfigTable } = context;
-  const rows = await db.select().from(appConfigTable);
-  return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) return {};
+    const { appConfigTable } = context;
+    const rows = await db.select().from(appConfigTable);
+    return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  } catch (error) {
+    logDbFallback("getAppConfig", error);
+    return {};
+  }
 }
 
 export async function setAppConfigValue(key, value, updatedBy) {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const { appConfigTable } = context;
+    const [row] = await db
+      .insert(appConfigTable)
+      .values({ key, value, updatedBy, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: appConfigTable.key,
+        set: { value, updatedBy, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  } catch (error) {
+    logDbFallback("setAppConfigValue", error);
     return { key, value, updatedBy, updatedAt: new Date() };
   }
-  const { appConfigTable } = context;
-  const [row] = await db
-    .insert(appConfigTable)
-    .values({ key, value, updatedBy, updatedAt: new Date() })
-    .onConflictDoUpdate({
-      target: appConfigTable.key,
-      set: { value, updatedBy, updatedAt: new Date() },
-    })
-    .returning();
-  return row;
 }
 
 export async function listMarkerOverrides() {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) return [];
-  const { markerOverridesTable } = context;
-  return db.select().from(markerOverridesTable);
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) return [];
+    const { markerOverridesTable } = context;
+    return db.select().from(markerOverridesTable);
+  } catch (error) {
+    logDbFallback("listMarkerOverrides", error);
+    return [];
+  }
 }
 
 export async function saveMarkerOverrides(overrides, updatedBy) {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const { markerOverridesTable } = context;
+    const saved = [];
+    for (const override of overrides) {
+      const [row] = await db
+        .insert(markerOverridesTable)
+        .values({
+          markerName: override.markerName,
+          markerType: override.markerType ?? "station",
+          lat: override.lat,
+          lng: override.lng,
+          metadata: override.metadata ?? {},
+          updatedBy,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: markerOverridesTable.markerName,
+          set: {
+            lat: override.lat,
+            lng: override.lng,
+            markerType: override.markerType ?? "station",
+            metadata: override.metadata ?? {},
+            updatedBy,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+      saved.push(row);
+    }
+    return saved;
+  } catch (error) {
+    logDbFallback("saveMarkerOverrides", error);
     return overrides.map((override, index) => ({
       id: index + 1,
       markerName: override.markerName,
@@ -397,33 +480,4 @@ export async function saveMarkerOverrides(overrides, updatedBy) {
       updatedAt: new Date(),
     }));
   }
-  const { markerOverridesTable } = context;
-  const saved = [];
-  for (const override of overrides) {
-    const [row] = await db
-      .insert(markerOverridesTable)
-      .values({
-        markerName: override.markerName,
-        markerType: override.markerType ?? "station",
-        lat: override.lat,
-        lng: override.lng,
-        metadata: override.metadata ?? {},
-        updatedBy,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: markerOverridesTable.markerName,
-        set: {
-          lat: override.lat,
-          lng: override.lng,
-          markerType: override.markerType ?? "station",
-          metadata: override.metadata ?? {},
-          updatedBy,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    saved.push(row);
-  }
-  return saved;
 }
