@@ -7874,7 +7874,12 @@ export function Map({
           if (mapInstance) mapRef.current = mapInstance;
         }}
       >
-        <ZoomListener onZoomChange={setMapZoom} />
+        <ViewportListener
+          onViewportChange={(zoom, bounds) => {
+            setMapZoom(zoom);
+            setMapBounds(bounds);
+          }}
+        />
         <Pane name="stationPane" style={{ zIndex: 950 }} />
         {consistData?.active && consistData.currentTrip?.estimatedPos && (
           <Marker
