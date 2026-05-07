@@ -17,6 +17,9 @@ importers:
       drizzle-orm:
         specifier: ^0.44.6
         version: 0.44.7(pg@8.20.0)
+      drizzle-zod:
+        specifier: ^0.8.3
+        version: 0.8.3(drizzle-orm@0.44.7(pg@8.20.0))(zod@3.25.76)
       gtfs-realtime-bindings:
         specifier: ^1.1.1
         version: 1.1.1
@@ -1794,6 +1797,12 @@ packages:
         optional: true
       sqlite3:
         optional: true
+
+  drizzle-zod@0.8.3:
+    resolution: {integrity: sha512-66yVOuvGhKJnTdiqj1/Xaaz9/qzOdRJADpDa68enqS6g3t0kpNkwNYjUuaeXgZfO/UWuIM9HIhSlJ6C5ZraMww==}
+    peerDependencies:
+      drizzle-orm: '>=0.36.0'
+      zod: ^3.25.0 || ^4.0.0
 
   electron-to-chromium@1.5.336:
     resolution: {integrity: sha512-AbH9q9J455r/nLmdNZes0G0ZKcRX73FicwowalLs6ijwOmCJSRRrLX63lcAlzy9ux3dWK1w1+1nsBJEWN11hcQ==}
@@ -3912,6 +3921,11 @@ snapshots:
   drizzle-orm@0.44.7(pg@8.20.0):
     optionalDependencies:
       pg: 8.20.0
+
+  drizzle-zod@0.8.3(drizzle-orm@0.44.7(pg@8.20.0))(zod@3.25.76):
+    dependencies:
+      drizzle-orm: 0.44.7(pg@8.20.0)
+      zod: 3.25.76
 
   electron-to-chromium@1.5.336: {}
 
