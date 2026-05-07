@@ -4,7 +4,7 @@ const require = createRequire(import.meta.url);
 const GtfsRealtimeBindings = require("../../vendor/ptv/gtfs-realtime.cjs");
 
 const PTV_BASE_URL =
-  "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/bus";
+  "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/tram";
 
 function toNumber(value) {
   if (typeof value === "number") return value;
@@ -15,7 +15,7 @@ function toNumber(value) {
   return undefined;
 }
 
-function normaliseBusRoute(routeId, fallback = "Bus") {
+function normaliseRoute(routeId, fallback = "Tram") {
   if (typeof routeId !== "string") {
     return fallback;
   }
@@ -23,6 +23,11 @@ function normaliseBusRoute(routeId, fallback = "Bus") {
   const trimmed = routeId.trim();
   if (!trimmed) {
     return fallback;
+  }
+
+  const ptvRouteIdMatch = trimmed.match(/^\d{2}-([A-Z]?\d{1,4}[A-Z]?)(?:-|$)/i);
+  if (ptvRouteIdMatch?.[1]) {
+    return ptvRouteIdMatch[1].toUpperCase();
   }
 
   const routeMatch = trimmed.match(/\b([A-Z]?\d{1,4}[A-Z]?)\b/i);
@@ -41,7 +46,7 @@ function normaliseLabel(...values) {
     return trimmed;
   }
 
-  return "Bus";
+  return "Tram";
 }
 
 function normaliseDestination(...values) {
@@ -58,7 +63,7 @@ function normaliseDestination(...values) {
   return undefined;
 }
 
-function buildPtvLiveBuses(feed) {
+function buildPtvLiveTrams(feed) {
   return (feed.entity ?? [])
     .map((entity) => {
       const vehicle = entity.vehicle;
@@ -69,7 +74,7 @@ function buildPtvLiveBuses(feed) {
       const longitude = position.longitude;
       if (typeof latitude !== "number" || typeof longitude !== "number") return null;
 
-      const route = normaliseBusRoute(vehicle.trip?.routeId);
+      const route = normaliseRoute(vehicle.trip?.tripId || entity.id || vehicle.trip?.routeId);
       const timestamp = toNumber(vehicle.timestamp);
       const label = normaliseLabel(vehicle.vehicle?.label, vehicle.vehicle?.licensePlate, route);
       const destination = normaliseDestination(
@@ -88,7 +93,7 @@ function buildPtvLiveBuses(feed) {
         status: "live",
         timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
         heading: typeof position.bearing === "number" ? position.bearing : undefined,
-        operator: "PTV Bus",
+        operator: "Yarra Trams",
       };
     })
     .filter(Boolean);
@@ -102,7 +107,7 @@ export default async function handler(req, res) {
     process.env.PTV_API_KEY;
 
   if (!ptvSubscriptionKey) {
-    res.status(200).json({ buses: [] });
+    res.status(200).json({ trams: [] });
     return;
   }
 
@@ -125,10 +130,10 @@ export default async function handler(req, res) {
 
     const buffer = await response.arrayBuffer();
     const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
-    res.status(200).json({ buses: buildPtvLiveBuses(feed) });
+    res.status(200).json({ trams: buildPtvLiveTrams(feed) });
   } catch (error) {
     res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to load live buses",
+      error: error instanceof Error ? error.message : "Failed to load live trams",
     });
   }
 }

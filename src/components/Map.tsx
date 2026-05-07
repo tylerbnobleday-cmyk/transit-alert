@@ -5,6 +5,7 @@ import {
   TileLayer,
   Marker,
   Popup,
+  Tooltip,
   Circle,
   Polyline,
   CircleMarker,
@@ -25,6 +26,8 @@ import southsideComengIcon from "@/assets/icons/ss-comeng.svg";
 import northsideComengIcon from "@/assets/icons/ns-comeng.svg";
 import { fetchLiveTrains, isVlineLiveTrain, type LiveTrain } from "@/lib/live-trains";
 import { fetchLiveBuses, type LiveBus } from "@/lib/live-buses";
+import { fetchLiveTrams, type LiveTram } from "@/lib/live-trams";
+import { GENERATED_TRAM_ROUTE_BUNDLES } from "@/lib/generated-tram-routes";
 import { findStationCoordinate } from "@/lib/station-coordinates";
 import { fetchConsistSnapshot, type ConsistSnapshot } from "@/lib/transportvic-bot";
 import { fetchMarkerOverrides, saveMarkerOverrides, type MarkerOverride } from "@/lib/marker-overrides";
@@ -41,6 +44,8 @@ import {
   ArrowRight,
   ExternalLink,
   Navigation,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const MELBOURNE_CENTER: [number, number] = [-37.8136, 144.9631];
@@ -60,6 +65,14 @@ const CITY_LOOP_PILL_STATIONS = new Set([
   "State Library",
   "Town Hall",
 ]);
+const SPECIAL_PILL_STATIONS = new Set([
+  "Caulfield",
+  "Clayton",
+  "Dandenong",
+  "Pakenham",
+  "Frankston",
+  "Malvern",
+]);
 const SINGLE_RENDER_STATIONS = new Set([
   "Flinders Street",
   "Southern Cross",
@@ -77,6 +90,7 @@ const CAULFIELD_METRO_SHARED_STATIONS = new Set([
   "Malvern",
   "Caulfield",
 ]);
+const NORTHERN_SHARED_STATIONS = new Set(["North Melbourne"]);
 
 function createCityLoopPillIcon(strokeColor: string, stationName: string) {
   const isHorizontalPill =
@@ -86,6 +100,20 @@ function createCityLoopPillIcon(strokeColor: string, stationName: string) {
     stationName === "Town Hall";
   const isCompactHorizontalPill = stationName === "State Library";
   const isCombinedCentralLibrary = stationName === "Melbourne Central / State Library";
+  const pillRotation =
+    stationName === "Clayton"
+      ? "25deg"
+      : stationName === "Dandenong"
+        ? "18deg"
+        : stationName === "Pakenham"
+          ? "18deg"
+          : stationName === "Frankston"
+            ? "90deg"
+            : stationName === "Malvern"
+              ? "80deg"
+      : stationName === "Caulfield"
+        ? "80deg"
+        : "0deg";
 
   if (isCombinedCentralLibrary) {
     return L.divIcon({
@@ -111,7 +139,7 @@ html: `
 
   return L.divIcon({
     html: `
-      <div style="display:flex;align-items:center;justify-content:center;width:${isHorizontalPill ? (isCompactHorizontalPill ? "28px" : "34px") : "14px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "14px" : "16px") : "34px"};">
+      <div style="display:flex;align-items:center;justify-content:center;width:${isHorizontalPill ? (isCompactHorizontalPill ? "28px" : "34px") : "14px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "14px" : "16px") : "34px"};transform:rotate(${pillRotation});transform-origin:center;">
         <div style="width:${isHorizontalPill ? (isCompactHorizontalPill ? "22px" : "28px") : "8px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "7px" : "8px") : "28px"};border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 8px rgba(0,0,0,0.36);position:relative;overflow:hidden;">
           <div style="position:absolute;${isHorizontalPill ? `left:${isCompactHorizontalPill ? "2px" : "3px"};right:${isCompactHorizontalPill ? "2px" : "3px"};top:1px;height:2px;` : "top:3px;bottom:3px;left:1px;width:2px;"}border-radius:9999px;background:${strokeColor};opacity:0.95;"></div>
         </div>
@@ -164,6 +192,8 @@ interface MapProps {
   persistedLayerState?: Partial<LayerState>;
   onLayerStateChange?: (layers: LayerState) => void;
   isAdmin?: boolean;
+  isPremium?: boolean;
+  premiumPaypalLink?: string | null;
   showFilterRail?: boolean;
   focusedVehicleKey?: string | null;
   onFocusedVehicleHandled?: () => void;
@@ -188,6 +218,11 @@ export interface LayerState {
   metroTunnel: boolean;
   werribeeLine: boolean;
   sandringhamLine: boolean;
+  geelongRegional: boolean;
+  ballaratRegional: boolean;
+  bendigoRegional: boolean;
+  seymourRegional: boolean;
+  traralgonRegional: boolean;
   inspectors: boolean;
   delays: boolean;
   incidents: boolean;
@@ -195,7 +230,11 @@ export interface LayerState {
 }
 
 export type ServiceFilterKey =
-  | "vline"
+  | "geelongRegionalGroup"
+  | "ballaratRegionalGroup"
+  | "bendigoRegionalGroup"
+  | "seymourRegionalGroup"
+  | "traralgonRegionalGroup"
   | "metroTunnelServices"
   | "crossCityPink"
   | "werribeeWilliamstownGroup"
@@ -208,6 +247,15 @@ export type ServiceFilterKey =
   | "upfieldCraigieburnCityLoop";
 
 export type TransportMode = "train" | "tram" | "bus" | "vline";
+
+type SurfaceRouteFilter = {
+  key: string;
+  mode: Extract<TransportMode, "tram" | "bus">;
+  route: string;
+  label: string;
+  description?: string;
+  tone: string;
+};
 
 function areLayerStatesEqual(
   left?: Partial<LayerState> | null,
@@ -352,7 +400,28 @@ function getMarkerServiceTime(timestamp?: string) {
   });
 }
 
-function createLiveTrainIcon(vehicle: LiveTrain) {
+function getTrainLabelPriority(vehicle: LiveTrain) {
+  if (isVlineLiveTrain(vehicle)) {
+    return "high";
+  }
+
+  const normalizedLine = vehicle.line.trim().toLowerCase();
+  if (normalizedLine === "metro tunnel" || normalizedLine === "v/line" || normalizedLine === "traralgon") {
+    return "high";
+  }
+
+  return "normal";
+}
+
+function createLiveTrainIcon(
+  vehicle: LiveTrain,
+  options?: {
+    expanded?: boolean;
+    selected?: boolean;
+    dimmed?: boolean;
+    hideSecondaryLabel?: boolean;
+  },
+) {
   const color = getLiveLineColor(vehicle.line);
   const arrow = "▲";
   const rotation =
@@ -364,21 +433,31 @@ function createLiveTrainIcon(vehicle: LiveTrain) {
           ? 180
           : 0;
   const isTrackedConsist = vehicle.consist === "430M";
-  const outerSize = isTrackedConsist ? 68 : 54;
-  const innerSize = isTrackedConsist ? 34 : 26;
-  const badgePrimaryLabel = `${getMarkerServiceTime(vehicle.timestamp)} ${getMarkerServiceCode(vehicle.line)} Service`;
-  const badgeSecondaryLabel = `TDN ${vehicle.tdn}`;
+  const isExpanded = options?.expanded ?? false;
+  const isSelected = options?.selected ?? false;
+  const isDimmed = options?.dimmed ?? false;
+  const hideSecondaryLabel = options?.hideSecondaryLabel ?? false;
+  const outerSize = isTrackedConsist ? 70 : isSelected ? 62 : 50;
+  const innerSize = isTrackedConsist ? 34 : isSelected ? 30 : 24;
+  const markerOpacity = isDimmed ? 0.72 : 1;
+  const labelOpacity = isDimmed ? 0.5 : isSelected ? 1 : 0.92;
   const destinationLabel = vehicle.destination
     .replace(/\bStreet\b/gi, "St")
     .replace(/\bStation\b/gi, "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 18);
+  const badgePrimaryLabel = isVlineLiveTrain(vehicle)
+    ? (isExpanded ? `${getMarkerServiceTime(vehicle.timestamp)} ${destinationLabel}` : destinationLabel)
+    : isExpanded
+      ? `${getMarkerServiceTime(vehicle.timestamp)} ${getMarkerServiceCode(vehicle.line)} Service`
+      : `${getMarkerServiceTime(vehicle.timestamp)} ${getMarkerServiceCode(vehicle.line)}`;
+  const badgeSecondaryLabel = `TDN ${vehicle.tdn}`;
 
   return L.divIcon({
     html: `
-      <div style="position:relative;width:${outerSize}px;height:${outerSize}px;display:flex;align-items:center;justify-content:center;">
-        <div style="position:absolute;inset:0;border-radius:50%;background:${color};opacity:${isTrackedConsist ? "0.28" : "0.22"};animation:ping 2s infinite;"></div>
+      <div style="position:relative;width:${outerSize}px;height:${outerSize}px;display:flex;align-items:center;justify-content:center;opacity:${markerOpacity};">
+        <div style="position:absolute;inset:0;border-radius:50%;background:${color};opacity:${isSelected ? "0.34" : isTrackedConsist ? "0.28" : "0.18"};animation:ping 2s infinite;"></div>
         ${
           isTrackedConsist
             ? `<div style="position:absolute;inset:8px;border-radius:9999px;border:1px solid rgba(255,255,255,0.22);"></div>`
@@ -390,13 +469,13 @@ function createLiveTrainIcon(vehicle: LiveTrain) {
           height:${innerSize}px;
           border-radius:9999px;
           background:${color};
-          border:${isTrackedConsist ? "3px" : "2px"} solid white;
-          box-shadow:${isTrackedConsist ? "0 6px 18px rgba(0,0,0,0.72)" : "0 4px 14px rgba(0,0,0,0.6)"};
+          border:${isTrackedConsist || isSelected ? "3px" : "2px"} solid white;
+          box-shadow:${isTrackedConsist || isSelected ? "0 10px 26px rgba(0,0,0,0.78)" : "0 4px 14px rgba(0,0,0,0.58)"};
           display:flex;
           align-items:center;
           justify-content:center;
           color:white;
-          font-size:${isTrackedConsist ? "16px" : "13px"};
+          font-size:${isTrackedConsist ? "16px" : isSelected ? "14px" : "12px"};
           font-weight:700;
           transform: rotate(${rotation}deg);
         ">
@@ -405,52 +484,56 @@ function createLiveTrainIcon(vehicle: LiveTrain) {
 
         <div style="
           position:absolute;
-          top:${isTrackedConsist ? "-18px" : "-16px"};
+          top:${isTrackedConsist ? "-18px" : isExpanded ? "-16px" : "-14px"};
           left:50%;
           transform:translateX(-50%);
           background:linear-gradient(180deg, rgba(15,23,42,0.98), rgba(30,41,59,0.95));
           color:white;
-          font-size:${isTrackedConsist ? "10px" : "9px"};
+          font-size:${isTrackedConsist ? "10px" : isExpanded ? "9px" : "8px"};
           font-weight:700;
-          padding:${isTrackedConsist ? "5px 8px" : "4px 7px"};
+          padding:${isTrackedConsist ? "5px 8px" : isExpanded ? "4px 7px" : "3px 6px"};
           border-radius:10px;
-          border:1px solid rgba(255,255,255,0.16);
-          box-shadow:0 10px 24px rgba(0,0,0,0.42);
+          border:1px solid ${isSelected ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.14)"};
+          box-shadow:${isSelected ? "0 12px 30px rgba(0,0,0,0.52)" : "0 8px 20px rgba(0,0,0,0.38)"};
           white-space:normal;
-          min-width:${isTrackedConsist ? "138px" : "126px"};
-          max-width:${isTrackedConsist ? "150px" : "136px"};
+          min-width:${isTrackedConsist ? "138px" : isExpanded ? "122px" : "76px"};
+          max-width:${isTrackedConsist ? "150px" : isExpanded ? "136px" : "92px"};
           text-align:center;
           line-height:1.12;
           backdrop-filter: blur(10px);
+          opacity:${labelOpacity};
         ">
-          <div style="font-size:${isTrackedConsist ? "9px" : "8px"};font-weight:800;letter-spacing:0.03em;text-transform:uppercase;">
+          <div style="font-size:${isTrackedConsist ? "9px" : isExpanded ? "8px" : "7px"};font-weight:800;letter-spacing:${isExpanded ? "0.03em" : "0.08em"};text-transform:uppercase;">
             ${badgePrimaryLabel}
           </div>
-          <div style="margin-top:3px;font-size:${isTrackedConsist ? "8px" : "7px"};font-weight:700;opacity:0.78;letter-spacing:0.08em;text-transform:uppercase;">
-            ${badgeSecondaryLabel}
-          </div>
+          ${isExpanded && !hideSecondaryLabel
+            ? `<div style="margin-top:3px;font-size:${isTrackedConsist ? "8px" : "7px"};font-weight:700;opacity:0.78;letter-spacing:0.08em;text-transform:uppercase;">${badgeSecondaryLabel}</div>`
+            : ""}
         </div>
-        <div style="
-          position:absolute;
-          left:50%;
-          bottom:${isTrackedConsist ? "-23px" : "-21px"};
-          transform:translateX(-50%);
-          background:rgba(15,23,42,0.95);
-          color:white;
-          font-size:${isTrackedConsist ? "10px" : "9px"};
-          font-weight:700;
-          padding:${isTrackedConsist ? "4px 9px" : "3px 8px"};
-          border-radius:9999px;
-          border:1px solid rgba(255,255,255,0.14);
-          box-shadow:0 8px 18px rgba(0,0,0,0.35);
-          white-space:nowrap;
-          max-width:132px;
-          overflow:hidden;
-          text-overflow:ellipsis;
-          backdrop-filter: blur(8px);
-        ">
-          ${destinationLabel}
-        </div>
+        ${hideSecondaryLabel
+          ? ""
+          : `<div style="
+              position:absolute;
+              left:50%;
+              bottom:${isTrackedConsist ? "-23px" : "-21px"};
+              transform:translateX(-50%);
+              background:rgba(15,23,42,0.95);
+              color:white;
+              font-size:${isTrackedConsist ? "10px" : "9px"};
+              font-weight:700;
+              padding:${isTrackedConsist ? "4px 9px" : isExpanded ? "3px 8px" : "2px 7px"};
+              border-radius:9999px;
+              border:1px solid ${isSelected ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.12)"};
+              box-shadow:${isSelected ? "0 10px 24px rgba(0,0,0,0.42)" : "0 6px 14px rgba(0,0,0,0.3)"};
+              white-space:nowrap;
+              max-width:${isExpanded ? "132px" : "112px"};
+              overflow:hidden;
+              text-overflow:ellipsis;
+              backdrop-filter: blur(8px);
+              opacity:${labelOpacity};
+            ">
+              ${destinationLabel}
+            </div>`}
       </div>
     `,
     className: "bg-transparent border-none",
@@ -569,18 +652,46 @@ export const SERVICE_FILTERS: Array<{
   tone: string;
 }> = [
   {
-    key: "vline",
+    key: "metroTunnelServices",
+    category: "special",
+    label: "Pakenham, Cranbourne and Sunbury",
+    description: "Metro Tunnel services",
+    tone: "bg-[#279FD5]/15 border-[#279FD5]/40 text-[#b8e7fb]",
+  },
+  {
+    key: "geelongRegionalGroup",
     category: "regional",
-    label: "V/Line",
-    description: "Regional network",
+    label: "Geelong Line - Warrnambool",
+    description: "Geelong, Waurn Ponds, Warrnambool corridor",
     tone: "bg-purple-500/15 border-purple-400/30 text-purple-200",
   },
   {
-    key: "metroTunnelServices",
-    category: "special",
-    label: "Metro Tunnel",
-    description: "Sunbury, Cranbourne, Pakenham",
-    tone: "bg-[#279FD5]/15 border-[#279FD5]/40 text-[#b8e7fb]",
+    key: "ballaratRegionalGroup",
+    category: "regional",
+    label: "Ballarat Line - Ararat, Maryborough",
+    description: "Ballarat regional corridor",
+    tone: "bg-purple-500/15 border-purple-400/30 text-purple-200",
+  },
+  {
+    key: "bendigoRegionalGroup",
+    category: "regional",
+    label: "Bendigo Line - Swan Hill, Echuca",
+    description: "Bendigo regional corridor",
+    tone: "bg-purple-500/15 border-purple-400/30 text-purple-200",
+  },
+  {
+    key: "seymourRegionalGroup",
+    category: "regional",
+    label: "Seymour Line - Shepparton, Albury",
+    description: "Seymour regional corridor",
+    tone: "bg-purple-500/15 border-purple-400/30 text-purple-200",
+  },
+  {
+    key: "traralgonRegionalGroup",
+    category: "regional",
+    label: "Tralgon line - Bairnsdale",
+    description: "Gippsland regional corridor",
+    tone: "bg-purple-500/15 border-purple-400/30 text-purple-200",
   },
   {
     key: "crossCityPink",
@@ -639,12 +750,95 @@ export const SERVICE_FILTERS: Array<{
   },
 ];
 
+const SURFACE_ROUTE_FILTERS: SurfaceRouteFilter[] = [
+  {
+    key: "tram:1",
+    mode: "tram",
+    route: "1",
+    label: "Tram 1",
+    description: "East Coburg - South Melbourne Beach",
+    tone: "bg-[#84cc16]/15 border-[#84cc16]/40 text-[#d9f99d]",
+  },
+  {
+    key: "tram:3",
+    mode: "tram",
+    route: "3",
+    label: "Tram 3",
+    description: "Melbourne University - East Malvern",
+    tone: "bg-[#7dd3fc]/15 border-[#7dd3fc]/40 text-[#d7f3ff]",
+  },
+  {
+    key: "tram:5",
+    mode: "tram",
+    route: "5",
+    label: "Tram 5",
+    description: "Melbourne University - Malvern",
+    tone: "bg-red-500/15 border-red-400/40 text-red-200",
+  },
+  {
+    key: "tram:6",
+    mode: "tram",
+    route: "6",
+    label: "Tram 6",
+    description: "Moreland - Glen Iris",
+    tone: "bg-[#166534]/15 border-[#166534]/40 text-[#bbf7d0]",
+  },
+  {
+    key: "tram:11",
+    mode: "tram",
+    route: "11",
+    label: "Tram 11",
+    description: "West Preston - Docklands",
+    tone: "bg-[#0f766e]/15 border-[#0f766e]/40 text-[#99f6e4]",
+  },
+  {
+    key: "tram:16",
+    mode: "tram",
+    route: "16",
+    label: "Tram 16",
+    description: "Melbourne University - Kew",
+    tone: "bg-[#d4a017]/15 border-[#d4a017]/40 text-[#fde68a]",
+  },
+  {
+    key: "tram:64",
+    mode: "tram",
+    route: "64",
+    label: "Tram 64",
+    description: "Melbourne University - East Brighton",
+    tone: "bg-[#38bdf8]/15 border-[#38bdf8]/40 text-[#dbeafe]",
+  },
+  {
+    key: "tram:67",
+    mode: "tram",
+    route: "67",
+    label: "Tram 67",
+    description: "Melbourne University - Carnegie",
+    tone: "bg-[#8b5e3c]/15 border-[#8b5e3c]/40 text-[#e7d3c6]",
+  },
+  {
+    key: "tram:96",
+    mode: "tram",
+    route: "96",
+    label: "Tram 96",
+    description: "East Brunswick - St Kilda Beach",
+    tone: "bg-[#d946ef]/15 border-[#d946ef]/40 text-[#f5d0fe]",
+  },
+  {
+    key: "bus:630",
+    mode: "bus",
+    route: "630",
+    label: "Bus 630",
+    description: "Monash University - Elwood",
+    tone: "bg-orange-500/15 border-orange-400/40 text-orange-200",
+  },
+];
+
 // =========================
 // Station Data
 // =========================
 const MERNDA_STATIONS: Station[] = [
   { name: "Flinders Street", position: [-37.8184161, 144.9664779] },
-  { name: "Jolimont", position: [-37.8163, 144.9840] },
+  { name: "Jolimont", position: [-37.816492790989656, 144.983959764190870] },
   { name: "West Richmond", position: [-37.814925027573054, 144.991454748502189] },
   { name: "North Richmond", position: [-37.8103479913108, 144.99248203456145] },
   { name: "Collingwood", position: [-37.80446558539445, 144.99373364780257] },
@@ -691,13 +885,13 @@ const HURSTBRIDGE_STATIONS: Station[] = [
 ];
 
 const CLIFTONHILLGROUPLOOP_STATIONS: Station[] = [
-  { name: "Jolimont", position: [-37.8163, 144.9840] },
+  { name: "Jolimont", position: [-37.816492790989656, 144.983959764190870] },
   { name: "Flinders Street", position: [-37.8184161, 144.9664779] },
   { name: "Southern Cross", position: [-37.8176, 144.9522] },
   { name: "Flagstaff", position: [-37.81196029877101, 144.9566610145156] },
   { name: "Melbourne Central", position: [-37.8101, 144.9626] },
   { name: "Parliament", position: [-37.81123787494798, 144.97303582934072] },
-  { name: "Jolimont", position: [-37.8163, 144.9840] },
+  { name: "Jolimont", position: [-37.816492790989656, 144.983959764190870] },
 ];
 const FRANKSTON_STATIONS: Station[] = [
   { name: "Frankston", position: [-38.1426676, 145.1262003] },
@@ -745,22 +939,23 @@ const CRAIGIEBURN_STATIONS: Station[] = [
   { name: "Kensington", position: [-37.7947, 144.9306] },
   { name: "North Melbourne", position: [-37.8073, 144.9426] },
 ];
+const CRAIGIEBURN_LINE_STATION_NAMES = new Set(CRAIGIEBURN_STATIONS.map((station) => station.name));
 
 const UPFIELD_STATIONS: Station[] = [
-  { name: "Upfield", position: [-37.6699, 144.9501] },
-  { name: "Gowrie", position: [-37.7000, 144.9434] },
-  { name: "Fawkner", position: [-37.7149, 144.9608] },
-  { name: "Merlynston", position: [-37.7209, 144.9617] },
-  { name: "Batman", position: [-37.7334, 144.9613] },
-  { name: "Coburg", position: [-37.7428, 144.9638] },
-  { name: "Moreland", position: [-37.7549, 144.9619] },
-  { name: "Anstey", position: [-37.7614, 144.9608] },
-  { name: "Brunswick", position: [-37.7677, 144.9587] },
-  { name: "Jewell", position: [-37.7740, 144.9574] },
-  { name: "Royal Park", position: [-37.7817, 144.9523] },
-  { name: "Flemington Bridge", position: [-37.7888, 144.9390] },
-  { name: "Macaulay", position: [-37.7943, 144.9364] },
-  { name: "North Melbourne", position: [-37.8073, 144.9426] },
+  { name: "Upfield", position: [-37.66596335944676, 144.9467666568411] },
+  { name: "Gowrie", position: [-37.700488788558154, 144.9587638475899] },
+  { name: "Fawkner", position: [-37.714619680600784, 144.96043443278583] },
+  { name: "Merlynston", position: [-37.720838587789075, 144.96132813911086] },
+  { name: "Batman", position: [-37.733495074613145, 144.9628250960023] },
+  { name: "Coburg", position: [-37.7424037808555, 144.96335891081486] },
+  { name: "Moreland", position: [-37.75444459188999, 144.9620055682174] },
+  { name: "Anstey", position: [-37.76069196371862, 144.96087713383022] },
+  { name: "Brunswick", position: [-37.76758492900192, 144.9596657557033] },
+  { name: "Jewell", position: [-37.77484767387166, 144.95885347284442] },
+  { name: "Royal Park", position: [-37.781197766101826, 144.95165987191965] },
+  { name: "Flemington Bridge", position: [-37.788102966652666, 144.93926769062355] },
+  { name: "Macaulay", position: [-37.79496835285672, 144.9361473868707] },
+  { name: "North Melbourne", position: [-37.80632077425195, 144.94148671559594] },
 ];
 const LILYDALE_STATIONS: Station[] = [
   { name: "Richmond", position: [-37.82359625345165, 144.9891977969667] },
@@ -940,7 +1135,7 @@ const CAUFIELDLOOP_STATIONS: Station[] = [
 const NORTHERNGROUPLOOP_STATIONS: Station[] = [
   { name: "North Melbourne", position: [-37.8073, 144.9426] },
   { name: "Southern Cross", position: [-37.8176, 144.9522] },
-  { name: "Flinders Street", position: [-37.8184161, 144.9664779] },
+  { name: "Flinders Street", position: [-37.81840600875998, 144.96599046643283] },
   { name: "Parliament", position: [-37.81123787494798, 144.97303582934072] },
   { name: "Melbourne Central", position: [-37.8101, 144.9626] },
   { name: "Flagstaff", position: [-37.81196029877101, 144.9566610145156] },
@@ -1083,7 +1278,6 @@ const GIPPSLAND_STATIONS: Station[] = [
   { name: "Flinders Street", position: [-37.8184161, 144.9664779], vline: true, zone: "1" },
   { name: "Richmond", position: [-37.82359625345165, 144.9891977969667], vline: true, zone: "1" },
   { name: "Caulfield", position: [-37.8770, 145.0424], vline: true, zone: "1" },
-  { name: "Oakleigh", position: [-37.89990717509454, 145.08866232252472], vline: true, zone: "1" },
   { name: "Clayton", position: [-37.9247726501578, 145.12035310256484], vline: true, zone: "1" },
   { name: "Dandenong", position: [-37.98797563248677, 145.21479109451644], vline: true, zone: "2" },
   { name: "Berwick", position: [-38.031330253111215, 145.34417492481994], vline: true, zone: "2" },
@@ -1104,6 +1298,7 @@ const MELBOURNE_CENTRAL_TO_STATE_LIBRARY: [number, number][] = [
 const CLIFTON_HILL_POSITION: [number, number] = [-37.78831003762462, 144.9955664605472];
 
 const CAUFIELD_LOOP: [number, number][] = [
+  [-37.8188437593049, 144.97790945754892],
   [-37.8181727321212, 144.9775078452675], // last point
   [-37.81768238193436, 144.9769297210735], //  richmond portal cfd 
   [-37.81746731800017, 144.97667222901444],
@@ -1113,15 +1308,16 @@ const CAUFIELD_LOOP: [number, number][] = [
   [-37.8146221302977, 144.9746103166069],
   [-37.8136177452875, 144.97416238769392],
   [-37.81266738107811, 144.97371982320394],
-  [-37.81135153908839, 144.97310562093975], // parliment station 
-  [-37.8097774115991, 144.9723515455121],
+  [-37.81139915013397, 144.97313845175165], // parliment station 
+  [-37.809766246687126, 144.97238334592595],
   [-37.808744134445945, 144.97188076367107],
-  [-37.80832878772909, 144.97139260164244],
+  [-37.80814758671704, 144.97105262471715],
+  [-37.808443204354354, 144.97155687999603],
   [-37.807998203978606, 144.9706362187189],
-  [-37.807934630000915, 144.96947213999889], // cureve 12
-  [-37.80854493784609, 144.9671010672232],
-  [-37.8098884449785, 144.96247693886204], //  Melbourne Centreral Stzatiopn
-  [-37.81174049518193, 144.9561415611667], // FLAGstaff station 
+  [-37.80783501193112, 144.96928433538403], // cureve 12
+  [-37.808498781192675, 144.96706891082312],
+  [-37.80986347281194, 144.9624031365788], //  Melbourne Centreral Stzatiopn
+  [-37.8117198114853, 144.95609063535503], // FLAGstaff station 
   [-37.813109401599526, 144.95152276827767],
   [-37.813305239346434, 144.9508467242103], // latrobe street 
   [-37.81346098414173, 144.95054430515134],
@@ -1144,8 +1340,8 @@ const CAUFIELD_LOOP: [number, number][] = [
 [-37.820945852394416, 144.95783796247386], // Southern Cross Via Duct Curve 9
 [-37.82063439405348, 144.95870029266104], // Southern Cross Via Duct Curve 10
 [-37.8202689728552, 144.95961065802055], // Southern Cross Via Duct Curve 11
-[-37.819702844842155, 144.96130771961023], // Southern Cross Via Duct Curve 12
-[-37.819561944810225, 144.96199034180128], // Southern Cross Via Duct Curve 13
+  [-37.81978957119074, 144.9609187795137], // Southern Cross Via Duct Curve 12
+  [-37.81968257183936, 144.9619151979514], // Southern Cross Via Duct Curve 13
 [-37.81938608424239, 144.96263273086195], // Southern Cross Via Duct Curve 14
 [-37.819158312401186, 144.96355675186595], // Southern Cross Via Duct Curve 15
 [-37.81896761915805, 144.96448747839776],
@@ -1193,8 +1389,10 @@ const NORTHERN_LOOP: [number, number][] = [
 
   // heading north-east under La Trobe St toward Flagstaff
   [-37.81247065691958, 144.94693600775102], // approaching Flagstaff
-  [-37.81335215689385, 144.9507340157454], // Flagstaff area
+  [-37.81332250616509, 144.95006210136958],
 
+  [-37.81335215689385, 144.9507340157454], // Flagstaff area
+[-37.813197486324185, 144.95145685001907],
   // curve east toward Melbourne Central
   [-37.81196029877101, 144.9566610145156], // Flagstaff → Melbourne Central curve
   [-37.8101, 144.9626], // Melbourne Central
@@ -1212,17 +1410,23 @@ const NORTHERN_LOOP: [number, number][] = [
   // turn south toward Jolimont / Richmond portal
   [-37.8147653441898, 144.97416778728817], // exiting Parliament
   [-37.815923183065, 144.97346658889202], // Parliament → Jolimont curve
-  [-37.81778485426324, 144.96826388056115], // Jolimont / MCG side
-  [-37.8184161, 144.9664779], // eastern portal (toward Richmond / Flinders)
+  [-37.81763600460815, 144.9681709646954], // Jolimont / MCG side
+  [-37.81832010684088, 144.96587601682907], //flidners 
 
   // swing back west toward Flinders Street
   [-37.819578159795725, 144.9610791331353], // viaduct toward Flinders
 
   // continue west back toward Southern Cross
+  [-37.82100744345243, 144.95730565300772],
+  [-37.82104875922244, 144.9572225045253],
   [-37.82109536715535, 144.95707701757522], // Flinders → Southern Cross curve
+  [-37.82105330977752, 144.95720748873785],
+   [-37.8212923531196, 144.95643129110326],
  [-37.821328429885675, 144.95581637936937],
   [-37.8211906937223, 144.95500906362312], // viaduct mid-section
    [-37.82098307302916, 144.95440017298998],
+   [-37.820287292816374, 144.95337319911047],
+   [-37.819882604979846, 144.95296282113222],
   [-37.81973721503802, 144.95279892337976], // approaching Southern Cross
   [-37.81934099941143, 144.9524609650515], // Southern Cross approach
   [-37.816853698443914, 144.95049612250577],
@@ -1230,39 +1434,39 @@ const NORTHERN_LOOP: [number, number][] = [
 [-37.81219780049446, 144.9464798395072],
 ];
 const SANDRINGHAM_LINE: [number, number][] = [
-  [-37.818821008246935, 144.96515822429285], // Flinders Street
-  [-37.81835676092435, 144.96680614367563],
-  [-37.81818831342351, 144.96738684195435],
-  [-37.81760105905219, 144.9693011010421],
-  [-37.817251447015174, 144.97037800795056],
-  [-37.81701469145709, 144.97145403934510],
-  [-37.81689547670335, 144.97178214437636],
-  [-37.81680860273319, 144.97319298632365],
-  [-37.81709253191024, 144.97503700501213],
-  [-37.81755762249785, 144.9762976432565],
-  [-37.817884985183525, 144.9769521022641],
-  [-37.81840304161592, 144.97781711467150],
-  [-37.81914992638664, 144.97898924001413],
-  [-37.820086435044686, 144.9804389739665],
-  [-37.820795612786206, 144.98150645039166],
-  [-37.82134372863181, 144.98236427924510],
-  [-37.82233635555369, 144.9841989101896],
-  [-37.82239792870241, 144.9843463614976],
-  [-37.82285451103584, 144.98566198503144],
-  [-37.8232686852728, 144.9869941790775],
-  [-37.82381954341726, 144.9891573806168], // Richmond
+  [-37.81932100824693, 144.96515822429285], // Flinders Street
+  [-37.81885676092435, 144.96680614367563],
+  [-37.81868831342351, 144.96738684195435],
+  [-37.81810105905219, 144.9693011010421],
+  [-37.81775144701517, 144.97037800795056],
+  [-37.817514691457086, 144.9714540393451],
+  [-37.81739547670335, 144.97178214437636],
+  [-37.81730860273319, 144.97319298632365],
+  [-37.81759253191024, 144.97503700501213],
+  [-37.81805762249785, 144.9762976432565],
+  [-37.81838498518352, 144.9769521022641],
+  [-37.818903041615916, 144.9778171146715],
+  [-37.81964992638664, 144.97898924001413],
+  [-37.82058643504468, 144.9804389739665],
+  [-37.8212956127862, 144.98150645039166],
+  [-37.821843728631805, 144.9823642792451],
+  [-37.822836355553684, 144.9841989101896],
+  [-37.82289792870241, 144.9843463614976],
+  [-37.82335451103584, 144.98566198503144],
+  [-37.823768685272795, 144.9869941790775],
+  [-37.82431954341726, 144.9891573806168], // Richmond
 
   // South Yarra → Richmond curves
-  [-37.825565758588816, 144.99270326773168], // Richmond to South Yarra curve
-  [-37.82548101345592, 144.99258525053799], // Richmond to South Yarra curve 2
-  [-37.827184389560315, 144.99390491980614], // Richmond to South Yarra curve 3
-  [-37.83209166656431, 144.9935008513864], // Richmond to South Yarra curve 4
-  [-37.83444244894703, 144.9930213092438], // Richmond to South Yarra curve 5
-  [-37.83566353672182, 144.9928552912536], // Richmond to South Yarra curve 6
-  [-37.83874201898154, 144.99204952288912], // South Yarra
-  [-37.839008708445924, 144.99201319177607], // South Yarra bridge
-  [-37.83922265048852, 144.9919246788808], // South Yarra entrance curve
-  [-37.83981681301816, 144.99176776965538], // South Yarra entrance curve 2
+  [-37.82606575858881, 144.99270326773168], // Richmond to South Yarra curve
+  [-37.82598101345592, 144.99258525053799], // Richmond to South Yarra curve 2
+  [-37.82768438956031, 144.99390491980614], // Richmond to South Yarra curve 3
+  [-37.83259166656431, 144.9935008513864], // Richmond to South Yarra curve 4
+  [-37.834942448947026, 144.9930213092438], // Richmond to South Yarra curve 5
+  [-37.836163536721816, 144.9928552912536], // Richmond to South Yarra curve 6
+  [-37.839242018981536, 144.99204952288912], // South Yarra
+  [-37.83950870844592, 144.99201319177607], // South Yarra bridge
+  [-37.83972265048852, 144.9919246788808], // South Yarra entrance curve
+  [-37.84031681301816, 144.99176776965538], // South Yarra entrance curve 2
   [-37.84948088240228, 144.98989704452956], // pharsanhn station
   [-37.85156784714275, 144.9895675847279],
   [-37.85397372002226, 144.99008256884602],
@@ -1294,13 +1498,13 @@ const HURSTBRIDGE_LINE = HURSTBRIDGE_STATIONS.map((s) => s.position);
 const MERNDA_BRANCH_LINE = MERNDA_STATIONS.slice(MERNDA_STATIONS.findIndex((station) => station.name === "Clifton Hill")).map((s) => s.position);
 const HURSTBRIDGE_BRANCH_LINE: [number, number][] = [CLIFTON_HILL_POSITION, ...HURSTBRIDGE_LINE];
 const CLIFTONHILL_LOOP: [number, number][] = [
-  [-37.8163, 144.9840], // Jolimont
-    [-37.815808751063095, 144.9778546912331],
-    [-37.815624405906064, 144.9750759227291],// exiting Parliament
-  [-37.815743064919, 144.97438123057663], 
-  [-37.81632152482936, 144.97277458741638], // Parliament -> Jolimont curve
-  [-37.81778485426324, 144.96826388056115], // Jolimont / MCG side
-  [-37.8184161, 144.9664779], // Flinders Street
+  [-37.816492790989656, 144.983959764190870], // Jolimont
+    [-37.815823035935786, 144.97785563825553],
+    [-37.81527440590607, 144.9750759227291],// exiting Parliament
+  [-37.815393064919005, 144.97438123057663], 
+  [-37.816131603788584, 144.9733437265942], // Parliament -> Jolimont curve
+  [-37.817634854263244, 144.96826388056115], // Jolimont / MCG side
+  [-37.81830019553066, 144.9661902038941], // Flinders Street
   [-37.81962871794242, 144.96119376026797],
   [-37.82032716362383, 144.9590835338242],
   [-37.82129915764358, 144.95648876990828],
@@ -1308,20 +1512,26 @@ const CLIFTONHILL_LOOP: [number, number][] = [
   [-37.820114282704075, 144.95311576000708],
   [-37.819330859301594, 144.95242620896954], // Southern Cross
   [-37.81764785079244, 144.95110717843116],
-  [-37.81599729363393, 144.94993645307727],
-  [-37.814110931438485, 144.94997936721836],
-  [-37.81335866395033, 144.9505774926714],
+    [-37.816004158290546, 144.94992174254918],
+  [-37.81527949037888, 144.94975812780976],
+  [-37.814138418282056, 144.95003974441732],
+  [-37.81371465922187, 144.9502663584635],
   [-37.81336091942794, 144.950829264709],
   [-37.811699102585074, 144.95654834454922], // Flagstaff
   [-37.809961702457514, 144.9625342832056], // Melbourne Central
-  [-37.80852193098466, 144.96753397933662],
+  [-37.811704369421705, 144.95654762414082],
   [-37.808050963795516, 144.96916411750817],
-  [-37.80799744851422, 144.96995772619195],
+  [-37.807981227663504, 144.96993958540307],
+    [-37.80809697107995, 144.97061752072608],
+
   [-37.808358272498175, 144.9713049058432],
   [-37.80874077936197, 144.97177965092897],
   [-37.809237048952674, 144.97205260610428],
   [-37.81138709188395, 144.97306243861945], // Parliament
-  [-37.81418344412575, 144.97439498748966],
+  [-37.8134221337534, 144.97401646795137],
+  [-37.81391479396574, 144.97425250234232], // RIGHT TREACK 
+  [-37.81418443133632, 144.97439197721198],
+  [-37.81436242324288, 144.97449658336052],
   [-37.81431640835925, 144.97447008934023],
   [-37.814837194661806, 144.97484007119382],
   [-37.81520853710754, 144.9752652013244],
@@ -1395,58 +1605,66 @@ const FRANKSTON_TRACK: [number, number][] = [
   [-37.8506631, 145.0136792], // Toorak
   [-37.8475, 145.0084],
 [-37.8446738, 145.0019694], // Hawksburn
-[-37.8413712064182, 144.99381416666222],
-[-37.84074027756291, 144.99277197708855],
-[-37.84014541175312, 144.9924065225265],
-[-37.839508877221995, 144.9922573545601],
-[-37.83900452634713, 144.99223852217295],
-[-37.83848509035401, 144.99226495747362], // South Yarra
+[-37.8416212064182, 144.99381416666222],
+[-37.84099027756291, 144.99277197708855],
+[-37.84039541175312, 144.9924065225265],
+[-37.839758877221995, 144.9922573545601],
+[-37.83925452634713, 144.99223852217295],
+[-37.838735090354006, 144.99226495747362], // South Yarra
 
 // smooth northbound run after South Yarra
-[-37.837600, 144.992620],
-[-37.836700, 144.992780],
-[-37.835700, 144.992950],
-[-37.834600, 144.993100],
-[-37.833300, 144.993280],
-[-37.83209166656431, 144.993450],
-[-37.830200, 144.993680],
-[-37.828400, 144.993900],
-[-37.827184389560315, 144.994050],
+[-37.83792, 144.992620],
+[-37.83702, 144.992780],
+[-37.83602, 144.992950],
+[-37.83492, 144.993100],
+[-37.83362, 144.993280],
+[-37.83241166656431, 144.993450],
+[-37.83052, 144.993680],
+[-37.82872, 144.993900],
+[-37.82750438956031, 144.994050],
 
 // gentle curve into Richmond
-[-37.826300, 144.993700],
-[-37.825600, 144.993200],
-[-37.824800, 144.992100],
-[-37.824200, 144.990700],
-[-37.82381492722702, 144.989400], // Richmond
+[-37.82672, 144.993700],
+[-37.82602, 144.993200],
+[-37.82522, 144.992100],
+[-37.82462, 144.990700],
+[-37.82423492722702, 144.989400], // Richmond
 
-[-37.823516110116486, 144.98802759456223],
-[-37.82230421180452, 144.98414375600464],
-[-37.82112098337264, 144.9820521293735],
-[-37.8196908100639, 144.97988356338206],
-[-37.818742642858254, 144.9783909140706],
-[-37.818423759304906, 144.97790945754892],
-[-37.81817605752223, 144.9775121630495],
-[-37.81794590442121, 144.97726539063947], // end of tight curve
+[-37.82393611011648, 144.98802759456223],
+[-37.82272421180452, 144.98414375600464],
+[-37.82154098337264, 144.9820521293735],
+[-37.8201108100639, 144.97988356338206],
+[-37.81916264285825, 144.9783909140706],
+[-37.8188437593049, 144.97790945754892],
+[-37.818365904421206, 144.97726539063947], // end of tight curve
 
 // continue smooth toward Flinders
-[-37.81755762249785, 144.9762976432565],
-[-37.81709253191024, 144.97503700501213],
-[-37.81680860273319, 144.97319298632365],
-[-37.81701469145709, 144.97145403934510],
-[-37.817251447015174, 144.97037800795056],
-[-37.81760105905219, 144.9693011010421],
-[-37.81818831342351, 144.96738684195435],
-[-37.81835676092435, 144.96680614367563],
+[-37.817977622497846, 144.9762976432565],
+[-37.817512531910236, 144.97503700501213],
+[-37.816777252040204, 144.97346390042898],
+[-37.81697169949515, 144.97127965374332],
+[-37.81730059791522, 144.9701526942503],
+[-37.81772234068387, 144.96885853532544],
+[-37.81826608064349, 144.96703006353502],
+[-37.8185034697015, 144.96618382735207],
 
-[-37.818821008246935, 144.96515822429285], // Flinders Street
+[-37.81883627840431, 144.96497044269884], // Flinders Street
 
 ];
+const UPFIELD_DEBUG_TRACK_POINTS = offsetPolylineCoordinates(UPFIELD_LINE, "right", 0.45)
+  .map((position, index) => ({ position, index }));
 const CRANBOURNE_LINE = CRANBOURNE_STATIONS.map((station) => station.position);
 const PAKENHAM_LINE = PAKENHAM_STATIONS.map((station) => station.position);
 const PAKENHAM_PRE_HAWKSBURN_LINE = PAKENHAM_STATIONS.slice(
   0,
   PAKENHAM_STATIONS.findIndex((station) => station.name === "Hawksburn") + 1,
+).map((station) => station.position);
+const PAKENHAM_HAWKSBURN_TO_CARNEGIE_LINE = PAKENHAM_STATIONS.slice(
+  PAKENHAM_STATIONS.findIndex((station) => station.name === "Hawksburn"),
+  PAKENHAM_STATIONS.findIndex((station) => station.name === "Carnegie") + 1,
+).map((station) => station.position);
+const PAKENHAM_POST_CARNEGIE_LINE = PAKENHAM_STATIONS.slice(
+  PAKENHAM_STATIONS.findIndex((station) => station.name === "Carnegie"),
 ).map((station) => station.position);
 const PAKENHAM_POST_HAWKSBURN_LINE = PAKENHAM_STATIONS.slice(
   PAKENHAM_STATIONS.findIndex((station) => station.name === "Hawksburn"),
@@ -1457,7 +1675,140 @@ const BELGRAVE_LINE = BELGRAVE_STATIONS.map((station) => station.position);
 const ALAMEIN_LINE = ALAMEIN_STATIONS.map((station) => station.position);
 const GLEN_WAVERLEY_LINE = GLEN_WAVERLEY_STATIONS.map((station) => station.position);
 const METRO_TUNNEL_LINE = METRO_TUNNEL_STATIONS.map((station) => station.position);
-const GIPPSLAND_LINE = GIPPSLAND_STATIONS.map((station) => station.position);
+const GIPPSLAND_LINE: [number, number][] = [
+  [-37.81760709859187, 144.95075647527574], // Southern Cross PL 15 
+  [-37.82003795534144, 144.9528633468371], // other End of Southern Cross
+  [-37.82129209074471, 144.9550755519225],
+  [-37.82136837320113, 144.9559339066656],
+  [-37.82131857949724, 144.95652927526464],
+  [-37.820857746012116, 144.95761022756787],
+  [-37.820073469467914, 144.9597783875615],
+  [-37.818990477433246, 144.96368834682139],
+  [-37.818821008246935, 144.96515822429285], // Flinders Street
+  [-37.818150662566204, 144.96736131393143],
+[-37.81818831342351, 144.96738684195435],
+  [-37.817639232385886, 144.96846961450348],
+  [-37.81714544962751, 144.97007759187528],
+  [-37.81681551870191, 144.97131452441218],
+  [-37.81660939712368, 144.9731447175639],
+  [-37.81685517913301, 144.97491898208378],
+  [-37.81755762249785, 144.9762976432565],
+  [-37.81794590442121, 144.97726539063947],
+  [-37.81817605752223, 144.9775121630495],
+  [-37.818423759304906, 144.97790945754892],
+  [-37.818742642858254, 144.9783909140706],
+  [-37.8196908100639, 144.97988356338206],
+  [-37.82112098337264, 144.9820521293735],
+  [-37.82230421180452, 144.98414375600464],
+  [-37.823516110116486, 144.98802759456223],
+  [-37.823476053233385, 144.9882499129706], // Richmond
+  [-37.82399301107746, 144.9901703745477],
+  [-37.82466788109256, 144.99168870460775],
+  [-37.82663700198918, 144.9937727998178], // adsf
+  [-37.8311146308829, 144.99377198472502],
+  [-37.831791409259644, 144.99362628424882],
+  [-37.832731891109304, 144.99342654024068],
+  [-37.83392014167189, 144.99317215202188],
+  [-37.83511518438329, 144.99299724118583],
+  [-37.835784644893494, 144.99289278063767],
+  [-37.83725989427833, 144.99260545847454],
+  [-37.83792726162909, 144.99254420463757],
+  [-37.83845859357905, 144.99236423742724], // South Yarra
+[-37.83996928304227, 144.9924849986416],
+[-37.84097754580992, 144.9934720515407],
+[-37.841667764546266, 144.99487698594072],
+[-37.84332351771486, 144.9989121534479],
+  [-37.84450296093722, 145.00179929213567], // Hawksburn
+  [-37.84484397157079, 145.00257981496097], // hwksburn end 
+  [-37.8506631, 145.0136792], // Toorak
+  [-37.8562948, 145.0192436], // Armadale
+  [-37.8663425, 145.029464], // Malvern
+  [-37.8773212, 145.0423811], // Caulfield
+  [-37.88584755576908, 145.0576145973216], // Carnegie
+  [-37.889800131059374, 145.06676121081267], // Murrumbeena
+  [-37.89413917232323, 145.07620072615813], // Hughesdale
+  [-37.900458908475315, 145.08839984150381], // Oakleigh
+  [-37.91097055312629, 145.10241977630986], // Huntingdale
+  [-37.924541507360765, 145.12053998830723], // Clayton
+  [-37.937755318504934, 145.13805369881837], // Westall
+  [-37.94893771437316, 145.15307099140574], // Springvale
+  [-37.95653055647639, 145.1628965591817], // Sandown Park
+  [-37.9571, 145.1631], // Noble Park
+  [-37.9633, 145.1746], // Yarraman
+  [-37.98991938287247, 145.20988128532633], // Dandenong
+  [-37.9953, 145.2341], // Hallam
+  [-38.0136, 145.2595], // Narre Warren
+  [-38.0286, 145.2903], // Berwick
+  [-38.0436, 145.3205], // Beaconsfield
+  [-38.0653, 145.3664], // Officer
+  [-38.0795, 145.3953], // Cardinia Road
+  [-38.0735, 145.4716], // Pakenham
+  [-38.0821, 145.51], // East Pakenham
+  [-38.0954, 145.5802],
+  [-38.1088, 145.6761],
+  [-38.1217, 145.7688],
+  [-38.1348, 145.8539],
+  [-38.1489, 145.9318],
+  [-38.15965088085526, 145.92871651094258], // Warragul
+  [-38.1689, 146.0374],
+  [-38.1738, 146.1452],
+  [-38.17588027961461, 146.26083329049215], // Moe
+  [-38.1967, 146.3314],
+  [-38.2165, 146.3718],
+  [-38.23555857042696, 146.39640612076153], // Morwell
+  [-38.2206, 146.4587],
+  [-38.2058, 146.5029],
+  [-38.19489747401578, 146.5415475189243], // Traralgon
+];
+const GIPPSLAND_CARNEGIE_INDEX = GIPPSLAND_LINE.findIndex(
+  ([lat, lng]) =>
+    Math.abs(lat - -37.88584755576908) < 0.000001 &&
+    Math.abs(lng - 145.0576145973216) < 0.000001,
+);
+const GIPPSLAND_PRE_CARNEGIE_LINE =
+  GIPPSLAND_CARNEGIE_INDEX >= 0 ? GIPPSLAND_LINE.slice(0, GIPPSLAND_CARNEGIE_INDEX + 1) : GIPPSLAND_LINE;
+const GIPPSLAND_POST_CARNEGIE_LINE =
+  GIPPSLAND_CARNEGIE_INDEX >= 0 ? GIPPSLAND_LINE.slice(GIPPSLAND_CARNEGIE_INDEX) : GIPPSLAND_LINE;
+const BAIRNSDALE_DEBUG_TRACK_POINTS = [
+  ...GIPPSLAND_PRE_CARNEGIE_LINE,
+  ...offsetPolylineCoordinates(GIPPSLAND_POST_CARNEGIE_LINE, "right", 0.38).slice(1),
+].map((position, index) => ({ position, index }));
+const GEELONG_LINE: [number, number][] = [
+  [-37.79971717185788, 144.92584789732544], // South Kensington
+  [-37.801696124765726, 144.90150029345793], // Footscray
+  [-37.80244211892746, 144.89150101820428], // Middle Footscray
+  [-37.80159439768236, 144.88351876420322], // West Footscray
+  [-37.79906652439008, 144.86302968739224], // Tottenham
+  [-37.7941, 144.8474], // White City
+  [-37.78812106172095, 144.83237218696007], // Sunshine
+  [-37.7794, 144.8008], // Ardeer
+  [-37.7686, 144.7759], // Deer Park
+  [-37.745, 144.7312], // Robinsons Road Junction corridor
+  [-37.8361, 144.6948], // Tarneit
+  [-37.8646, 144.6567], // Wyndham Vale
+  [-37.8976, 144.6519], // Little River
+  [-38.0222, 144.4066], // Lara
+  [-38.0709, 144.3595], // Corio
+  [-38.0954, 144.3465], // North Shore
+  [-38.1113, 144.343], // North Geelong
+  [-38.1471, 144.3607], // Geelong
+  [-38.1608, 144.3733], // South Geelong
+  [-38.1713, 144.3792], // Geelong Racecourse corridor
+  [-38.1912, 144.3618], // Marshall
+  [-38.2143, 144.3222], // Waurn Ponds
+];
+const BALLARAT_SHARED_VLINE_TRUNK: [number, number][] = [
+  [-37.81767225337158, 144.950639128634], // Southern Cross
+  [-37.8128, 144.9469],
+  [-37.8096, 144.9443],
+  [-37.8073, 144.9426], // North Melbourne
+  [-37.8047, 144.9378],
+  [-37.8022, 144.9326],
+  [-37.8008, 144.9291],
+  [-37.79971717185788, 144.92584789732544], // South Kensington
+  [-37.801696124765726, 144.90150029345793], // Footscray
+  [-37.78812106172095, 144.83237218696007], // Sunshine
+];
 export const ALL_STATIONS: Station[] = [
     ...CLIFTONHILLGROUPLOOP_STATIONS,
   ...MERNDA_STATIONS,
@@ -1486,77 +1837,1904 @@ export const ALL_STATIONS: Station[] = [
     array.findIndex((item) => item.name === station.name) === index
 );
 
+const ROUTE_630_SURFACE_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "630", destination: "Elwood", departureLabel: "4 min", statusLabel: "Scheduled", note: "Toward Elwood" },
+  { route: "630", destination: "Elwood", departureLabel: "17 min", statusLabel: "Scheduled", note: "Via North Rd" },
+  { route: "630", destination: "Monash University", departureLabel: "29 min", statusLabel: "Scheduled", note: "Return working" },
+];
+
+const ROUTE_630_ELWOOD_STOP_DATA: Array<{
+  name: string;
+  locality: string;
+  position: [number, number];
+  platform?: string;
+}> = [
+  { name: "Monash University", locality: "Clayton", position: [-37.91464313, 145.13183523], platform: "Bay A" },
+  { name: "Princes Hwy/North Rd", locality: "Clayton", position: [-37.91441604, 145.12492487] },
+  { name: "Clayton Rd/North Rd", locality: "Clayton", position: [-37.91399193, 145.12150037] },
+  { name: "Banksia St/North Rd", locality: "Clayton", position: [-37.91366689, 145.11864213] },
+  { name: "Flora Rd/North Rd", locality: "Clayton", position: [-37.91337919, 145.11643134] },
+  { name: "Colin Rd/North Rd", locality: "Oakleigh South", position: [-37.91295282, 145.11288186] },
+  { name: "Milgate St/North Rd", locality: "Oakleigh South", position: [-37.91248923, 145.10926514] },
+  { name: "Huntingdale Station/Haughton Rd", locality: "Oakleigh", position: [-37.91086528, 145.10299383], platform: "Bay C" },
+  { name: "Windsor Ave/North Rd", locality: "Oakleigh South", position: [-37.91127333, 145.09924109] },
+  { name: "Gadd St/North Rd", locality: "Oakleigh South", position: [-37.91095915, 145.09653065] },
+  { name: "South Oakleigh Bowling Club/North Rd", locality: "Oakleigh South", position: [-37.91059896, 145.09376455] },
+  { name: "Best St/North Rd", locality: "Oakleigh South", position: [-37.91034682, 145.09155304] },
+  { name: "Cleek Ave/North Rd", locality: "Oakleigh South", position: [-37.90990941, 145.08792453] },
+  { name: "Warrigal Rd/North Rd", locality: "Bentleigh East", position: [-37.90973552, 145.08609776] },
+  { name: "White St/North Rd", locality: "Bentleigh East", position: [-37.90909080, 145.08137140] },
+  { name: "Hallow St/North Rd", locality: "Bentleigh East", position: [-37.90875727, 145.07860476] },
+  { name: "Coatesville Uniting Church/North Rd", locality: "Bentleigh East", position: [-37.90848136, 145.07661008] },
+  { name: "Poet Rd/North Rd", locality: "Bentleigh East", position: [-37.90812580, 145.07360521] },
+  { name: "Baker St/North Rd", locality: "Bentleigh East", position: [-37.90779433, 145.07097507] },
+  { name: "Marlborough St/North Rd", locality: "Bentleigh East", position: [-37.90750444, 145.06868510] },
+  { name: "Cobar St/North Rd", locality: "Bentleigh East", position: [-37.90716011, 145.06582787] },
+  { name: "East Boundary Rd/North Rd", locality: "Bentleigh East", position: [-37.90671403, 145.06226815] },
+  { name: "Murrong Ave/North Rd", locality: "Bentleigh East", position: [-37.90664972, 145.06055239] },
+  { name: "Rochford St/North Rd", locality: "Bentleigh East", position: [-37.90634592, 145.05797851] },
+  { name: "Elimatta Rd/North Rd", locality: "Bentleigh East", position: [-37.90613948, 145.05639161] },
+  { name: "Tucker Rd/North Rd", locality: "Ormond", position: [-37.90590013514765, 145.05422800990036] },
+  { name: "Collins St/North Rd", locality: "Ormond", position: [-37.90555663, 145.05166413] },
+  { name: "Bewdley St/North Rd", locality: "Ormond", position: [-37.90532965, 145.04992995] },
+  { name: "Tyrone St/North Rd", locality: "Ormond", position: [-37.90497624, 145.04709589] },
+  { name: "Dunlop Ave/North Rd", locality: "Ormond", position: [-37.90440506, 145.04255022] },
+  { name: "Ormond Station/North Rd", locality: "Ormond", position: [-37.90405375, 145.03985266] },
+  { name: "Anthony St/North Rd", locality: "Ormond", position: [-37.90373414, 145.03743861] },
+  { name: "Wheatley Rd/North Rd", locality: "Ormond", position: [-37.90349357, 145.03544330] },
+  { name: "O'Loughlan St/North Rd", locality: "Ormond", position: [-37.90309942, 145.03234888] },
+  { name: "Stewart St/North Rd", locality: "Ormond", position: [-37.90281931, 145.03014994] },
+  { name: "Thompson St/North Rd", locality: "Ormond", position: [-37.90260406, 145.02859755] },
+  { name: "Thomas St/North Rd", locality: "Brighton East", position: [-37.90232426, 145.02642138] },
+  { name: "Hodder St/North Rd", locality: "Brighton East", position: [-37.90192567, 145.02307698] },
+  { name: "Hawthorn Rd/North Rd", locality: "Brighton East", position: [-37.90141125, 145.01874626] },
+  { name: "Landcox St/North Rd", locality: "Brighton East", position: [-37.90092984, 145.01477866] },
+  { name: "North Rd/Kooyong Rd", locality: "Caulfield South", position: [-37.90001253, 145.01222170] },
+  { name: "Kooyong Rd/Gardenvale Rd", locality: "Gardenvale", position: [-37.89841358, 145.01199178] },
+  { name: "Magnolia Rd/Gardenvale Rd", locality: "Gardenvale", position: [-37.89816088, 145.00983781] },
+  { name: "Begonia Rd/Gardenvale Rd", locality: "Gardenvale", position: [-37.89786557, 145.00729834] },
+  { name: "Gardenvale Station/Martin St", locality: "Brighton", position: [-37.89744000, 145.00398910] },
+  { name: "Cochrane St/Martin St", locality: "Brighton", position: [-37.89691743, 144.99974999] },
+  { name: "Star Of The Sea College/Martin St", locality: "Brighton", position: [-37.89660293, 144.99715428] },
+  { name: "New St/Martin St", locality: "Brighton", position: [-37.89637873, 144.99510199] },
+  { name: "Martin St/Drake St", locality: "Brighton", position: [-37.89560444, 144.99197295] },
+  { name: "Cole St/Drake St", locality: "Brighton", position: [-37.89405961, 144.99227648] },
+  { name: "Head St/Drake St", locality: "Brighton", position: [-37.89213704, 144.99262437] },
+  { name: "Head St/New St", locality: "Brighton", position: [-37.89173491, 144.99546678] },
+  { name: "Elsternwick Park/Bent Ave", locality: "Brighton", position: [-37.88825917, 144.99457179] },
+  { name: "St Kilda St/Bent Ave", locality: "Brighton", position: [-37.88791540, 144.99185211] },
+];
+
+const ROUTE_630_MONASH_STOP_DATA: Array<{
+  name: string;
+  locality: string;
+  position: [number, number];
+  platform?: string;
+}> = [
+  { name: "St Kilda St/Bent Ave", locality: "Brighton", position: [-37.88791540, 144.99185211] },
+  { name: "St Kilda St/Head St", locality: "Brighton", position: [-37.89173681, 144.99135027] },
+  { name: "Head St/Drake St", locality: "Brighton", position: [-37.89226547, 144.99275734] },
+  { name: "Cole St/Drake St", locality: "Brighton", position: [-37.89378348, 144.99246593] },
+  { name: "Martin St/Drake St", locality: "Brighton", position: [-37.89573287, 144.99210592] },
+  { name: "New St/Martin St", locality: "Brighton", position: [-37.89613959, 144.99428969] },
+  { name: "Star Of The Sea College/Martin St", locality: "Brighton", position: [-37.89648622, 144.99718018] },
+  { name: "Cochrane St/Martin St", locality: "Brighton", position: [-37.89682202, 144.99996865] },
+  { name: "Gardenvale Station/Martin St", locality: "Brighton", position: [-37.89732522, 145.00412867] },
+  { name: "Begonia Rd/Gardenvale Rd", locality: "Gardenvale", position: [-37.89776037, 145.00747177] },
+  { name: "Magnolia Rd/Gardenvale Rd", locality: "Gardenvale", position: [-37.89804455, 145.00988643] },
+  { name: "Kooyong Rd/Gardenvale Rd", locality: "Gardenvale", position: [-37.89828709, 145.01197244] },
+  { name: "North Rd/Kooyong Rd", locality: "Caulfield South", position: [-37.90004244, 145.01239148] },
+  { name: "Younger Ave/North Rd", locality: "Brighton East", position: [-37.90077998, 145.01551055] },
+  { name: "Hawthorn Rd/North Rd", locality: "Brighton East", position: [-37.90127822, 145.01994399] },
+  { name: "Brighton Cemetery/North Rd", locality: "Brighton East", position: [-37.90159089, 145.02246042] },
+  { name: "Bambra Rd/North Rd", locality: "Ormond", position: [-37.90197954, 145.02574821] },
+  { name: "Spring Rd/North Rd", locality: "Ormond", position: [-37.90231010, 145.02826421] },
+  { name: "Scott St/North Rd", locality: "Ormond", position: [-37.90263966, 145.03072339] },
+  { name: "Frederick St/North Rd", locality: "Ormond", position: [-37.90294025, 145.03306964] },
+  { name: "Ormond Uniting Hall/North Rd", locality: "Ormond", position: [-37.90325340, 145.03563166] },
+  { name: "Dalmor Ave/North Rd", locality: "Ormond", position: [-37.90350411, 145.03769494] },
+  { name: "Ormond Station/North Rd", locality: "Ormond", position: [-37.90372398, 145.03953158] },
+  { name: "Ulupna Rd/North Rd", locality: "Ormond", position: [-37.90415719, 145.04281838] },
+  { name: "Nicholls Rd/North Rd", locality: "Ormond", position: [-37.90463654, 145.04671817] },
+  { name: "Wild Cherry Rd/North Rd", locality: "Bentleigh East", position: [-37.90507256, 145.05018696] },
+  { name: "Koornang Rd/North Rd", locality: "Bentleigh East", position: [-37.90533354, 145.05234106] },
+  { name: "Tara Gr/North Rd", locality: "Bentleigh East", position: [-37.90564590, 145.05488053] },
+  { name: "Elimatta Rd/North Rd", locality: "Bentleigh East", position: [-37.90580056, 145.05605932] },
+  { name: "Parkview Dr/North Rd", locality: "Bentleigh East", position: [-37.90615412, 145.05891621] },
+  { name: "Murrumbeena Rd/North Rd", locality: "Bentleigh East", position: [-37.90637403, 145.06077573] },
+  { name: "Crosbie Rd/North Rd", locality: "Bentleigh East", position: [-37.90697169, 145.06587830] },
+  { name: "Brett St/North Rd", locality: "Bentleigh East", position: [-37.90733782, 145.06841648] },
+  { name: "Reid St/North Rd", locality: "Bentleigh East", position: [-37.90780396, 145.07211223] },
+  { name: "Poath Rd/North Rd", locality: "Bentleigh East", position: [-37.90799068, 145.07360873] },
+  { name: "Brine St/North Rd", locality: "Bentleigh East", position: [-37.90835451, 145.07656789] },
+  { name: "Austin St/North Rd", locality: "Bentleigh East", position: [-37.90862494, 145.07877881] },
+  { name: "White St/North Rd", locality: "Bentleigh East", position: [-37.90896654, 145.08148837] },
+  { name: "Warrigal Rd/North Rd", locality: "Bentleigh East", position: [-37.90932042, 145.08440237] },
+  { name: "Eastgate St/North Rd", locality: "Oakleigh South", position: [-37.90976455, 145.08788279] },
+  { name: "Best St/North Rd", locality: "Oakleigh South", position: [-37.91010431, 145.09104746] },
+  { name: "Young St/North Rd", locality: "Oakleigh South", position: [-37.91046717, 145.09453005] },
+  { name: "Gadd St/North Rd", locality: "Oakleigh South", position: [-37.91068726, 145.09643529] },
+  { name: "McIntosh St/North Rd", locality: "Oakleigh South", position: [-37.91100511, 145.09937311] },
+  { name: "Huntingdale Station/Haughton Rd", locality: "Oakleigh", position: [-37.91119986, 145.10306485], platform: "Bay A" },
+  { name: "Shafton St/North Rd", locality: "Oakleigh South", position: [-37.91190920, 145.10738041] },
+  { name: "Fenton St/North Rd", locality: "Clayton", position: [-37.91219501, 145.11002341] },
+  { name: "Franklyn St/North Rd", locality: "Clayton", position: [-37.91255311, 145.11324470] },
+  { name: "Coane St/North Rd", locality: "Clayton", position: [-37.91295044, 145.11666977] },
+  { name: "Kennaugh St/North Rd", locality: "Clayton", position: [-37.91325242, 145.11921006] },
+  { name: "Clayton North Primary School/North Rd", locality: "Clayton", position: [-37.91362920, 145.12248785] },
+  { name: "Princes Hwy/North Rd", locality: "Clayton", position: [-37.91411960, 145.12611541] },
+  { name: "Monash University", locality: "Clayton", position: [-37.91464313, 145.13183523], platform: "Bay A" },
+];
+
+const ROUTE_630_SURFACE_STOPS: SurfaceStop[] = ROUTE_630_ELWOOD_STOP_DATA.map((stop, index) => ({
+  id: `route-630-elwood-${index + 1}`,
+  name: stop.name,
+  locality: stop.locality,
+  position: stop.position,
+  subtitle: stop.platform ? `630 bus stop · ${stop.platform}` : "630 bus stop",
+  modes: ["bus"],
+  routeLabel: "630",
+  departures: ROUTE_630_SURFACE_DEPARTURES,
+}));
+
+const ROUTE_630_MONASH_SURFACE_STOPS: SurfaceStop[] = ROUTE_630_MONASH_STOP_DATA.map((stop, index) => ({
+  id: `route-630-monash-${index + 1}`,
+  name: stop.name,
+  locality: stop.locality,
+  position: stop.position,
+  subtitle: stop.platform ? `630 bus stop · ${stop.platform}` : "630 bus stop",
+  modes: ["bus"],
+  routeLabel: "630",
+  departures: ROUTE_630_SURFACE_DEPARTURES,
+}));
+
+const ROUTE_64_EASTBOUND_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "64", destination: "East Brighton", departureLabel: "2 min", statusLabel: "Tram due", note: "Southbound" },
+  { route: "64", destination: "Melbourne University", departureLabel: "7 min", statusLabel: "Scheduled", note: "Northbound" },
+  { route: "64", destination: "East Brighton", departureLabel: "14 min", statusLabel: "Scheduled", note: "Via St Kilda Rd" },
+];
+
+const ROUTE_64_WESTBOUND_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "64", destination: "Melbourne University", departureLabel: "1 min", statusLabel: "Tram due", note: "Northbound" },
+  { route: "64", destination: "East Brighton", departureLabel: "8 min", statusLabel: "Scheduled", note: "Southbound" },
+  { route: "64", destination: "Melbourne University", departureLabel: "16 min", statusLabel: "Scheduled", note: "Via Swanston St" },
+];
+
+const ROUTE_64_EASTBOUND_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Melbourne University/Swanston St #1", locality: "Carlton" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Carlton" },
+  { name: "Queensberry St/Swanston St #4", locality: "Melbourne City" },
+  { name: "RMIT University/Swanston St #7", locality: "Melbourne City" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne City" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Melbourne City" },
+  { name: "City Square/Swanston St #11", locality: "Melbourne City" },
+  { name: "Federation Square/Swanston St #13", locality: "Melbourne City" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Southbank" },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "Southbank" },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "Melbourne City" },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "Melbourne City" },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "Melbourne City" },
+  { name: "Arthur St/St Kilda Rd #23", locality: "South Melbourne" },
+  { name: "Leopold St/St Kilda Rd #24", locality: "South Melbourne" },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "South Melbourne" },
+  { name: "Moubray St/St Kilda Rd #26", locality: "South Melbourne" },
+  { name: "High St/St Kilda Rd #27", locality: "St Kilda" },
+  { name: "Union St/St Kilda Rd #29", locality: "St Kilda" },
+  { name: "St Kilda Junction/St Kilda Rd #30", locality: "St Kilda" },
+  { name: "Queens Way/Queens Way #31", locality: "Windsor" },
+  { name: "Chapel St/Dandenong Rd #32", locality: "Windsor" },
+  { name: "Hornby St/Dandenong Rd #33", locality: "Windsor" },
+  { name: "The Avenue/Dandenong Rd #34", locality: "Prahran" },
+  { name: "Williams Rd/Dandenong Rd #35", locality: "Prahran" },
+  { name: "Closeburn Ave/Dandenong Rd #36", locality: "St Kilda East" },
+  { name: "Lansdowne Rd/Dandenong Rd #37", locality: "Prahran" },
+  { name: "Orrong Rd/Dandenong Rd #38", locality: "Armadale" },
+  { name: "Wattletree Rd/Dandenong Rd #40", locality: "Armadale" },
+  { name: "Kooyong Rd/Dandenong Rd #42", locality: "Armadale" },
+  { name: "Egerton Rd/Dandenong Rd #43", locality: "Armadale" },
+  { name: "Bailey Ave/Dandenong Rd #44", locality: "Caulfield North" },
+  { name: "Hawthorn Rd/Dandenong Rd #48", locality: "Caulfield North" },
+  { name: "Arthur St/Hawthorn Rd #49", locality: "Caulfield North" },
+  { name: "Inkerman Rd/Hawthorn Rd #50", locality: "Caulfield North" },
+  { name: "Balaclava Rd/Hawthorn Rd #51", locality: "Caulfield North" },
+  { name: "Halstead St/Hawthorn Rd #52", locality: "Caulfield North" },
+  { name: "Northcote Ave/Hawthorn Rd #53", locality: "Caulfield North" },
+  { name: "Glen Eira Rd/Hawthorn Rd #54", locality: "Caulfield North" },
+  { name: "Sylverly Gr/Hawthorn Rd #55", locality: "Caulfield" },
+  { name: "Briggs St/Hawthorn Rd #56", locality: "Caulfield" },
+  { name: "Glenhuntly Rd/Hawthorn Rd #57", locality: "Caulfield South" },
+  { name: "Sycamore St/Hawthorn Rd #58", locality: "Caulfield South" },
+  { name: "Princes Park/Hawthorn Rd #59", locality: "Caulfield South" },
+  { name: "Dover St/Hawthorn Rd #60", locality: "Caulfield South" },
+  { name: "Stone St/Hawthorn Rd #61", locality: "Caulfield South" },
+  { name: "Gardenvale Rd/Hawthorn Rd #62", locality: "Brighton East" },
+  { name: "North Rd/Hawthorn Rd #63", locality: "Brighton East" },
+  { name: "Taylor St/Hawthorn Rd #64", locality: "Brighton East" },
+  { name: "Davey Ave/Hawthorn Rd #65", locality: "Brighton East" },
+  { name: "Union St/Hawthorn Rd #66", locality: "Brighton East" },
+  { name: "Rogers Ave/Hawthorn Rd #67", locality: "Brighton East" },
+  { name: "East Brighton/Hawthorn Rd #68", locality: "East Brighton" },
+];
+
+const ROUTE_64_WESTBOUND_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "East Brighton/Hawthorn Rd #68", locality: "East Brighton" },
+  { name: "Howell St/Hawthorn Rd #67", locality: "Brighton East" },
+  { name: "Union St/Hawthorn Rd #66", locality: "Brighton East" },
+  { name: "Davey Ave/Hawthorn Rd #65", locality: "Brighton East" },
+  { name: "Taylor St/Hawthorn Rd #64", locality: "Brighton East" },
+  { name: "North Rd/Hawthorn Rd #63", locality: "Caulfield South" },
+  { name: "Gardenvale Rd/Hawthorn Rd #62", locality: "Caulfield South" },
+  { name: "Raynes St/Hawthorn Rd #61", locality: "Caulfield South" },
+  { name: "Dover St/Hawthorn Rd #60", locality: "Caulfield South" },
+  { name: "Princes Park/Hawthorn Rd #59", locality: "Princes Park" },
+  { name: "Sycamore St/Hawthorn Rd #58", locality: "Caulfield South" },
+  { name: "Glenhuntly Rd/Hawthorn Rd #57", locality: "Caulfield" },
+  { name: "Lockhart St/Hawthorn Rd #56", locality: "Caulfield" },
+  { name: "Sylverly Gr/Hawthorn Rd #55", locality: "Caulfield" },
+  { name: "Glen Eira Rd/Hawthorn Rd #54", locality: "Caulfield North" },
+  { name: "Crotonhurst Ave/Hawthorn Rd #53", locality: "Caulfield North" },
+  { name: "Halstead St/Hawthorn Rd #52", locality: "Caulfield North" },
+  { name: "Balaclava Rd/Hawthorn Rd #51", locality: "Caulfield North" },
+  { name: "Inkerman Rd/Hawthorn Rd #50", locality: "Caulfield North" },
+  { name: "Wanda Rd/Hawthorn Rd #49", locality: "Caulfield North" },
+  { name: "48A-Dandenong Rd/Hawthorn Rd", locality: "Caulfield North" },
+  { name: "Hawthorn Rd/Dandenong Rd #48", locality: "Armadale" },
+  { name: "Bailey Ave/Dandenong Rd #44", locality: "Armadale" },
+  { name: "Matlock Ct/Dandenong Rd #43", locality: "Armadale" },
+  { name: "Kooyong Rd/Dandenong Rd #42", locality: "Armadale" },
+  { name: "Wattletree Rd/Dandenong Rd #40", locality: "Armadale" },
+  { name: "Orrong Rd/Dandenong Rd #38", locality: "Prahran" },
+  { name: "Lansdowne Rd/Dandenong Rd #37", locality: "Prahran" },
+  { name: "Alexandra St/Dandenong Rd #36", locality: "Prahran" },
+  { name: "Williams Rd/Dandenong Rd #35", locality: "St Kilda East" },
+  { name: "Westbury St/Dandenong Rd #34", locality: "Windsor" },
+  { name: "Hornby St/Dandenong Rd #33", locality: "Windsor" },
+  { name: "Chapel St/Dandenong Rd #32", locality: "St Kilda" },
+  { name: "Queens Way/Queens Way #31", locality: "Queens Way" },
+  { name: "St Kilda Junction/St Kilda Rd #30", locality: "St Kilda Junction" },
+  { name: "Union St/St Kilda Rd #29", locality: "Melbourne City" },
+  { name: "Lorne St/St Kilda Rd #27", locality: "Melbourne City" },
+  { name: "Beatrice St/St Kilda Rd #26", locality: "Melbourne City" },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "Melbourne City" },
+  { name: "Leopold St/St Kilda Rd #24", locality: "Melbourne City" },
+  { name: "Arthur St/St Kilda Rd #23", locality: "Melbourne City" },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "Melbourne City" },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "Anzac Station" },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "Shrine of Remembrance" },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "Southbank" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Arts Precinct" },
+  { name: "Federation Square/Swanston St #13", locality: "Melbourne City" },
+  { name: "City Square/Swanston St #11", locality: "Melbourne City" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Melbourne City" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne City" },
+  { name: "RMIT University/Swanston St #7", locality: "Melbourne City" },
+  { name: "Queensberry St/Swanston St #4", locality: "Carlton" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Carlton" },
+  { name: "Melbourne University/Swanston St #1", locality: "Melbourne University" },
+];
+
+const ROUTE_64_ROUTE_LINE: [number, number][] = [
+  [-37.79775, 144.96102], // Melbourne University
+  [-37.7962, 144.9631],
+  [-37.7935, 144.9632],
+  [-37.8093, 144.9631], // Melbourne Central / Swanston
+  [-37.8139, 144.9631],
+  [-37.8169, 144.9672], // Federation Square / Flinders
+  [-37.8219, 144.9687],
+  [-37.8298, 144.9686], // Arts Centre / Shrine
+  [-37.8377, 144.9732], // Anzac
+  [-37.8449, 144.9785], // St Kilda Junction
+  [-37.8518, 144.9874],
+  [-37.8603, 145.0006],
+  [-37.8677, 145.0119],
+  [-37.8738, 145.0213], // Hawthorn / Dandenong intersection
+  [-37.8796, 145.0210],
+  [-37.8852, 145.0206],
+  [-37.8910, 145.0201],
+  [-37.8971, 145.0196],
+  [-37.9014, 145.01875], // North Rd
+  [-37.90378, 145.01881], // Taylor St
+  [-37.9076, 145.0187],
+  [-37.9112, 145.01855], // East Brighton
+];
+
+function interpolateStopsAlongPolyline(
+  polyline: [number, number][],
+  stopCount: number,
+): [number, number][] {
+  if (polyline.length === 0 || stopCount <= 0) return [];
+  if (polyline.length === 1) return Array.from({ length: stopCount }, () => polyline[0]);
+
+  const cumulativeDistances = [0];
+  for (let index = 1; index < polyline.length; index += 1) {
+    cumulativeDistances.push(
+      cumulativeDistances[index - 1] + getDistanceInMetres(polyline[index - 1], polyline[index]),
+    );
+  }
+
+  const totalDistance = cumulativeDistances[cumulativeDistances.length - 1] ?? 0;
+  if (totalDistance <= 0) return Array.from({ length: stopCount }, () => polyline[0]);
+
+  return Array.from({ length: stopCount }, (_, index) => {
+    if (index === 0) return polyline[0];
+    if (index === stopCount - 1) return polyline[polyline.length - 1];
+
+    const targetDistance = (index / (stopCount - 1)) * totalDistance;
+    let segmentIndex = 1;
+    while (segmentIndex < cumulativeDistances.length && cumulativeDistances[segmentIndex] < targetDistance) {
+      segmentIndex += 1;
+    }
+
+    const previousDistance = cumulativeDistances[segmentIndex - 1] ?? 0;
+    const nextDistance = cumulativeDistances[segmentIndex] ?? totalDistance;
+    const segmentProgress =
+      nextDistance === previousDistance ? 0 : (targetDistance - previousDistance) / (nextDistance - previousDistance);
+    const [startLat, startLng] = polyline[segmentIndex - 1] ?? polyline[0];
+    const [endLat, endLng] = polyline[segmentIndex] ?? polyline[polyline.length - 1];
+
+    return [
+      startLat + (endLat - startLat) * segmentProgress,
+      startLng + (endLng - startLng) * segmentProgress,
+    ];
+  });
+}
+
+function normaliseSurfaceRouteLabel(routeLabel: string) {
+  const trimmed = routeLabel.trim();
+  const numericMatch = trimmed.match(/^0*(\d+[A-Z]?)$/i);
+  if (numericMatch?.[1]) {
+    return numericMatch[1].toUpperCase();
+  }
+  return trimmed.toUpperCase();
+}
+
+function createLiveTramIcon(tram: LiveTram) {
+  const routeLabel = normaliseSurfaceRouteLabel(tram.route).slice(0, 6);
+  const destinationLabel = (tram.destination ?? "Live tram")
+    .replace(/^route\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 18);
+  const rotation = typeof tram.heading === "number" && Number.isFinite(tram.heading) ? tram.heading : 0;
+  const { fillColor } = getSurfaceRouteColors(routeLabel, "#00ab8e", "#065f56");
+
+  return L.divIcon({
+    html: `
+      <div style="position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;inset:0;border-radius:50%;background:${fillColor};opacity:0.2;animation:ping 2.2s infinite;"></div>
+        <div style="
+          width:28px;
+          height:28px;
+          border-radius:9999px;
+          background:${fillColor};
+          border:2px solid white;
+          box-shadow:0 4px 14px rgba(0,0,0,0.55);
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          transform:rotate(${rotation}deg);
+        ">
+          <img src="${tramIcon}" alt="" style="width:14px;height:14px;object-fit:contain;filter:brightness(0) invert(1);" />
+        </div>
+        <div style="
+          position:absolute;
+          top:-8px;
+          left:50%;
+          transform:translateX(-50%);
+          background:#0f172a;
+          color:white;
+          font-size:9px;
+          font-weight:700;
+          padding:2px 6px;
+          border-radius:6px;
+          border:1px solid rgba(255,255,255,0.15);
+          box-shadow:0 4px 10px rgba(0,0,0,0.4);
+          white-space:nowrap;
+        ">
+          ${routeLabel}
+        </div>
+        <div style="
+          position:absolute;
+          left:50%;
+          bottom:-16px;
+          transform:translateX(-50%);
+          background:rgba(15,23,42,0.92);
+          color:white;
+          font-size:9px;
+          font-weight:700;
+          padding:2px 6px;
+          border-radius:9999px;
+          border:1px solid rgba(255,255,255,0.14);
+          box-shadow:0 4px 10px rgba(0,0,0,0.35);
+          white-space:nowrap;
+          max-width:120px;
+          overflow:hidden;
+          text-overflow:ellipsis;
+        ">
+          ${destinationLabel}
+        </div>
+      </div>
+    `,
+    className: "bg-transparent border-none",
+    iconSize: [56, 56],
+    iconAnchor: [28, 28],
+    popupAnchor: [0, -22],
+  });
+}
+
+function getSurfaceRouteColors(routeLabel: string, fallbackFillColor: string, fallbackStrokeColor: string) {
+  switch (normaliseSurfaceRouteLabel(routeLabel)) {
+    case "1":
+      return { fillColor: "#84cc16", strokeColor: "#4d7c0f" };
+    case "3":
+      return { fillColor: "#7dd3fc", strokeColor: "#0369a1" };
+    case "5":
+      return { fillColor: "#dc2626", strokeColor: "#7f1d1d" };
+    case "6":
+      return { fillColor: "#166534", strokeColor: "#14532d" };
+    case "11":
+      return { fillColor: "#0f766e", strokeColor: "#134e4a" };
+    case "12":
+      return { fillColor: "#06b6d4", strokeColor: "#0e7490" };
+    case "16":
+      return { fillColor: "#d4a017", strokeColor: "#8b6b00" };
+    case "19":
+      return { fillColor: "#1e3a8a", strokeColor: "#172554" };
+    case "30":
+      return { fillColor: "#7c3aed", strokeColor: "#581c87" };
+    case "35":
+      return { fillColor: "#4b5563", strokeColor: "#1f2937" };
+    case "48":
+      return { fillColor: "#14b8a6", strokeColor: "#0f766e" };
+    case "57":
+      return { fillColor: "#5eead4", strokeColor: "#115e59" };
+    case "58":
+      return { fillColor: "#6b8e23", strokeColor: "#4d6b12" };
+    case "59":
+      return { fillColor: "#6b0f1a", strokeColor: "#450a0a" };
+    case "64":
+      return { fillColor: "#38bdf8", strokeColor: "#0369a1" };
+    case "67":
+      return { fillColor: "#8b5e3c", strokeColor: "#5b3a29" };
+    case "70":
+      return { fillColor: "#ec4899", strokeColor: "#9d174d" };
+    case "72":
+      return { fillColor: "#bfdbfe", strokeColor: "#60a5fa" };
+    case "75":
+      return { fillColor: "#2563eb", strokeColor: "#1d4ed8" };
+    case "78":
+      return { fillColor: "#c084fc", strokeColor: "#7e22ce" };
+    case "82":
+      return { fillColor: "#a3e635", strokeColor: "#4d7c0f" };
+    case "86":
+      return { fillColor: "#f97316", strokeColor: "#c2410c" };
+    case "96":
+      return { fillColor: "#d946ef", strokeColor: "#a21caf" };
+    case "109":
+      return { fillColor: "#ea580c", strokeColor: "#9a3412" };
+    default:
+      return { fillColor: fallbackFillColor, strokeColor: fallbackStrokeColor };
+  }
+}
+
+const ROUTE_64_EASTBOUND_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  ROUTE_64_ROUTE_LINE,
+  ROUTE_64_EASTBOUND_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-64-east-brighton-${index + 1}`,
+  name: ROUTE_64_EASTBOUND_STOP_DATA[index]?.name ?? `Route 64 stop ${index + 1}`,
+  locality: ROUTE_64_EASTBOUND_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 64 tram stop",
+  modes: ["tram"],
+  routeLabel: "64",
+  departures: ROUTE_64_EASTBOUND_DEPARTURES,
+}));
+
+const ROUTE_64_WESTBOUND_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  [...ROUTE_64_ROUTE_LINE].reverse() as [number, number][],
+  ROUTE_64_WESTBOUND_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-64-melbourne-university-${index + 1}`,
+  name: ROUTE_64_WESTBOUND_STOP_DATA[index]?.name ?? `Route 64 return stop ${index + 1}`,
+  locality: ROUTE_64_WESTBOUND_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 64 tram stop",
+  modes: ["tram"],
+  routeLabel: "64",
+  departures: ROUTE_64_WESTBOUND_DEPARTURES,
+}));
+
+const ROUTE_16_KEW_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "16", destination: "Kew", departureLabel: "3 min", statusLabel: "Tram due", note: "Eastbound" },
+  { route: "16", destination: "Melbourne University", departureLabel: "8 min", statusLabel: "Scheduled", note: "Westbound" },
+  { route: "16", destination: "Kew", departureLabel: "16 min", statusLabel: "Scheduled", note: "Via Glenferrie Rd" },
+];
+
+const ROUTE_16_UNIVERSITY_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "16", destination: "Melbourne University", departureLabel: "2 min", statusLabel: "Tram due", note: "Westbound" },
+  { route: "16", destination: "Kew", departureLabel: "9 min", statusLabel: "Scheduled", note: "Eastbound" },
+  { route: "16", destination: "Melbourne University", departureLabel: "18 min", statusLabel: "Scheduled", note: "Via Swanston St" },
+];
+
+const ROUTE_16_KEW_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Melbourne University/Swanston St #1", locality: "Carlton" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Carlton" },
+  { name: "Queensberry St/Swanston St #4", locality: "Melbourne City" },
+  { name: "RMIT University/Swanston St #7", locality: "Melbourne City" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne City" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Melbourne City" },
+  { name: "City Square/Swanston St #11", locality: "Melbourne City" },
+  { name: "Federation Square/Swanston St #13", locality: "Melbourne City" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Southbank" },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "Southbank" },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "Melbourne City" },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "Melbourne City" },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "Melbourne City" },
+  { name: "Arthur St/St Kilda Rd #23", locality: "South Melbourne" },
+  { name: "Leopold St/St Kilda Rd #24", locality: "South Melbourne" },
+  { name: "Moubray St/St Kilda Rd #26", locality: "South Melbourne" },
+  { name: "High St/St Kilda Rd #27", locality: "St Kilda" },
+  { name: "Union St/St Kilda Rd #29", locality: "St Kilda" },
+  { name: "St Kilda Junction/St Kilda Rd #30", locality: "St Kilda Junction" },
+  { name: "St Kilda Rd/Fitzroy St #131", locality: "St Kilda" },
+  { name: "Princes St/Fitzroy St #132", locality: "St Kilda" },
+  { name: "Canterbury Rd/Fitzroy St #133", locality: "St Kilda" },
+  { name: "Park St/Fitzroy St #134", locality: "St Kilda" },
+  { name: "Jacka Bvd/Fitzroy St #135", locality: "St Kilda" },
+  { name: "Alfred Square/The Esplanade #136", locality: "St Kilda" },
+  { name: "Luna Park/The Esplanade #138", locality: "St Kilda" },
+  { name: "Barkly St/Carlisle St #33", locality: "St Kilda" },
+  { name: "Greeves St/Carlisle St #34", locality: "St Kilda" },
+  { name: "St Kilda Rd/Carlisle St #35", locality: "St Kilda" },
+  { name: "St Kilda Town Hall/Carlisle St #36", locality: "St Kilda Town Hall" },
+  { name: "Chapel St/Carlisle St #37", locality: "Balaclava" },
+  { name: "Balaclava Station/Carlisle St #38", locality: "Balaclava Station" },
+  { name: "Orange Gr/Carlisle St #39", locality: "Balaclava" },
+  { name: "Hotham St/Carlisle St #40", locality: "St Kilda East" },
+  { name: "Empress Rd/Balaclava Rd #41", locality: "Caulfield North" },
+  { name: "Sidwell Ave/Balaclava Rd #42", locality: "Caulfield North" },
+  { name: "Orrong Rd/Balaclava Rd #43", locality: "Caulfield North" },
+  { name: "Ontario St/Balaclava Rd #44", locality: "Caulfield North" },
+  { name: "Kent Gr/Balaclava Rd #45", locality: "Caulfield North" },
+  { name: "Kooyong Rd/Balaclava Rd #46", locality: "Caulfield North" },
+  { name: "Elmhurst Rd/Balaclava Rd #47", locality: "Caulfield North" },
+  { name: "Hawthorn Rd/Balaclava Rd #51", locality: "Caulfield North" },
+  { name: "Inkerman Rd/Hawthorn Rd #50", locality: "Caulfield North" },
+  { name: "Wanda Rd/Hawthorn Rd #49", locality: "Caulfield North" },
+  { name: "48A-Dandenong Rd/Hawthorn Rd", locality: "Malvern" },
+  { name: "Hawthorn Rd/Dandenong Rd #48", locality: "Malvern" },
+  { name: "Malvern Railway Station/Glenferrie Rd #53", locality: "Malvern Railway Station" },
+  { name: "Wattletree Rd/Glenferrie Rd #54", locality: "Malvern" },
+  { name: "Llaneast St/Glenferrie Rd #55", locality: "Malvern" },
+  { name: "Malvern Tram Depot/Glenferrie Rd #56", locality: "Malvern Tram Depot" },
+  { name: "High St/Glenferrie Rd #57", locality: "Malvern" },
+  { name: "Bell St/Glenferrie Rd #58", locality: "Malvern" },
+  { name: "Malvern Rd/Glenferrie Rd #59", locality: "Malvern" },
+  { name: "Stonnington Pl/Glenferrie Rd #60", locality: "Malvern" },
+  { name: "Moorakyne Ave/Glenferrie Rd #61", locality: "Malvern" },
+  { name: "Mayfield Ave/Glenferrie Rd #62", locality: "Malvern" },
+  { name: "Toorak Rd/Glenferrie Rd #63", locality: "Kooyong" },
+  { name: "Mernda Rd/Glenferrie Rd #64", locality: "Toorak" },
+  { name: "Warra St/Glenferrie Rd #65", locality: "Toorak" },
+  { name: "Kooyong Tennis Centre/Glenferrie Rd #66", locality: "Kooyong Tennis Centre" },
+  { name: "Gardiner Rd/Glenferrie Rd #67", locality: "Hawthorn" },
+  { name: "Callantina Rd/Glenferrie Rd #68", locality: "Hawthorn" },
+  { name: "South St/Glenferrie Rd #69", locality: "Hawthorn" },
+  { name: "Riversdale Rd/Glenferrie Rd #70", locality: "Hawthorn" },
+  { name: "Urquhart St/Glenferrie Rd #71", locality: "Hawthorn" },
+  { name: "Manningtree Rd/Glenferrie Rd #72", locality: "Hawthorn" },
+  { name: "Burwood Rd/Glenferrie Rd #73", locality: "Hawthorn" },
+  { name: "Glenferrie Station/Glenferrie Rd #74", locality: "Glenferrie Station" },
+  { name: "Chrystobel Cres/Glenferrie Rd #75", locality: "Hawthorn" },
+  { name: "Johnson St/Glenferrie Rd #76", locality: "Hawthorn" },
+  { name: "Barkers Rd/Glenferrie Rd #77", locality: "Hawthorn" },
+  { name: "Fitzwilliam St/Glenferrie Rd #78", locality: "Hawthorn" },
+  { name: "Wellington St/Glenferrie Rd #79", locality: "Hawthorn" },
+  { name: "Cotham Rd/Glenferrie Rd #80", locality: "Kew" },
+];
+
+const ROUTE_16_UNIVERSITY_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Cotham Rd/Glenferrie Rd #80", locality: "Hawthorn" },
+  { name: "Wellington St/Glenferrie Rd #79", locality: "Hawthorn" },
+  { name: "Fitzwilliam St/Glenferrie Rd #78", locality: "Hawthorn" },
+  { name: "Barkers Rd/Glenferrie Rd #77", locality: "Hawthorn" },
+  { name: "Johnson St/Glenferrie Rd #76", locality: "Hawthorn" },
+  { name: "Liddiard St/Glenferrie Rd #75", locality: "Hawthorn" },
+  { name: "Glenferrie Railway Station/Glenferrie Rd #74", locality: "Glenferrie Railway Station" },
+  { name: "Burwood Rd/Glenferrie Rd #73", locality: "Hawthorn" },
+  { name: "Manningtree Rd/Glenferrie Rd #72", locality: "Hawthorn" },
+  { name: "Urquhart St/Glenferrie Rd #71", locality: "Hawthorn" },
+  { name: "Riversdale Rd/Glenferrie Rd #70", locality: "Hawthorn" },
+  { name: "South St/Glenferrie Rd #69", locality: "Hawthorn" },
+  { name: "Callantina Rd/Glenferrie Rd #68", locality: "Hawthorn" },
+  { name: "Gardiner Rd/Glenferrie Rd #67", locality: "Kooyong" },
+  { name: "Vision Australia/Glenferrie Rd #66", locality: "Vision Australia" },
+  { name: "Kooyong Railway Station/Glenferrie Rd #65", locality: "Kooyong Railway Station" },
+  { name: "Power St/Glenferrie Rd #64", locality: "Kooyong" },
+  { name: "Toorak Rd/Glenferrie Rd #63", locality: "Malvern" },
+  { name: "Mayfield Ave/Glenferrie Rd #62", locality: "Malvern" },
+  { name: "Moorakyne Ave/Glenferrie Rd #61", locality: "Malvern" },
+  { name: "Stonnington Pl/Glenferrie Rd #60", locality: "Malvern" },
+  { name: "Malvern Rd/Glenferrie Rd #59", locality: "Malvern" },
+  { name: "Sorrett Ave/Glenferrie Rd #58", locality: "Malvern" },
+  { name: "High St/Glenferrie Rd #57", locality: "Malvern" },
+  { name: "Malvern Tram Depot/Glenferrie Rd #56", locality: "Malvern Tram Depot" },
+  { name: "Edsall St/Glenferrie Rd #55", locality: "Malvern" },
+  { name: "Wattletree Rd/Glenferrie Rd #54", locality: "Malvern" },
+  { name: "Malvern Railway Station/Glenferrie Rd #53", locality: "Malvern Railway Station" },
+  { name: "Dandenong Rd/Glenferrie Rd #52", locality: "Malvern" },
+  { name: "Hawthorn Rd/Dandenong Rd #48", locality: "Caulfield North" },
+  { name: "Arthur St/Hawthorn Rd #49", locality: "Caulfield North" },
+  { name: "Inkerman Rd/Hawthorn Rd #50", locality: "Caulfield North" },
+  { name: "Balaclava Rd/Hawthorn Rd #51", locality: "Caulfield North" },
+  { name: "Caulfield Junior College/Balaclava Rd #47", locality: "Caulfield Junior College" },
+  { name: "Kooyong Rd/Balaclava Rd #46", locality: "Caulfield North" },
+  { name: "Kent Gr/Balaclava Rd #45", locality: "Caulfield North" },
+  { name: "Otira Rd/Balaclava Rd #44", locality: "Caulfield North" },
+  { name: "Orrong Rd/Balaclava Rd #43", locality: "St Kilda East" },
+  { name: "Allan Rd/Balaclava Rd #42", locality: "St Kilda East" },
+  { name: "Vadlure Ave/Balaclava Rd #41", locality: "St Kilda East" },
+  { name: "Hotham St/Balaclava Rd #40", locality: "St Kilda" },
+  { name: "Carlisle Ave/Carlisle St #39", locality: "Balaclava" },
+  { name: "Balaclava Station/Carlisle St #38", locality: "Balaclava Station" },
+  { name: "Chapel St/Carlisle St #37", locality: "St Kilda" },
+  { name: "St Kilda Town Hall/Carlisle St #36", locality: "St Kilda Town Hall" },
+  { name: "Brighton Rd/Carlisle St #35", locality: "St Kilda" },
+  { name: "Mitchell St/Carlisle St #34", locality: "St Kilda" },
+  { name: "Barkly St/Carlisle St #33", locality: "St Kilda" },
+  { name: "Havelock St/Carlisle St #32", locality: "St Kilda" },
+  { name: "Luna Park/The Esplanade #138", locality: "Luna Park" },
+  { name: "Alfred Square/The Esplanade #136", locality: "St Kilda" },
+  { name: "Acland St/Fitzroy St #135", locality: "St Kilda" },
+  { name: "Park St/Fitzroy St #134", locality: "St Kilda" },
+  { name: "Canterbury Rd/Fitzroy St #133", locality: "St Kilda" },
+  { name: "Princes St/Fitzroy St #132", locality: "St Kilda" },
+  { name: "St Kilda Rd/Fitzroy St #131", locality: "St Kilda Junction" },
+  { name: "St Kilda Junction/St Kilda Rd #30", locality: "St Kilda Junction" },
+  { name: "Union St/St Kilda Rd #29", locality: "Melbourne City" },
+  { name: "Lorne St/St Kilda Rd #27", locality: "Melbourne City" },
+  { name: "Beatrice St/St Kilda Rd #26", locality: "Melbourne City" },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "Melbourne City" },
+  { name: "Leopold St/St Kilda Rd #24", locality: "Melbourne City" },
+  { name: "Arthur St/St Kilda Rd #23", locality: "Melbourne City" },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "Melbourne City" },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "Anzac Station" },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "Shrine of Remembrance" },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "Southbank" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Arts Precinct" },
+  { name: "Federation Square/Swanston St #13", locality: "Federation Square" },
+  { name: "City Square/Swanston St #11", locality: "Melbourne City" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Melbourne City" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne Central Station" },
+  { name: "RMIT University/Swanston St #7", locality: "RMIT University" },
+  { name: "Queensberry St/Swanston St #4", locality: "Carlton" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Lincoln Square" },
+  { name: "Melbourne University/Swanston St #1", locality: "Melbourne University" },
+];
+
+const ROUTE_16_ROUTE_LINE: [number, number][] = [
+  [-37.79775, 144.96102], // Melbourne University
+  [-37.8093, 144.9631],
+  [-37.8169, 144.9672], // Federation Square
+  [-37.8298, 144.9686],
+  [-37.8377, 144.9732], // Anzac
+  [-37.8449, 144.9785], // St Kilda Junction
+  [-37.8609, 144.9790], // Fitzroy / Acland / Esplanade
+  [-37.8682, 144.9820], // Carlisle
+  [-37.8726, 144.9904], // Balaclava Rd
+  [-37.8764, 145.0022],
+  [-37.8802, 145.0146], // Hawthorn Rd / Dandenong
+  [-37.8756, 145.0200], // Glenferrie Rd south
+  [-37.8641, 145.0202],
+  [-37.8500, 145.0210],
+  [-37.8379, 145.0218], // Toorak / Kooyong
+  [-37.8229, 145.0224],
+  [-37.8073, 145.0233], // Glenferrie
+  [-37.7999, 145.0240], // Kew / Cotham
+];
+
+const ROUTE_16_KEW_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  ROUTE_16_ROUTE_LINE,
+  ROUTE_16_KEW_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-16-kew-${index + 1}`,
+  name: ROUTE_16_KEW_STOP_DATA[index]?.name ?? `Route 16 stop ${index + 1}`,
+  locality: ROUTE_16_KEW_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 16 tram stop",
+  modes: ["tram"],
+  routeLabel: "16",
+  departures: ROUTE_16_KEW_DEPARTURES,
+}));
+
+const ROUTE_16_UNIVERSITY_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  [...ROUTE_16_ROUTE_LINE].reverse() as [number, number][],
+  ROUTE_16_UNIVERSITY_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-16-university-${index + 1}`,
+  name: ROUTE_16_UNIVERSITY_STOP_DATA[index]?.name ?? `Route 16 return stop ${index + 1}`,
+  locality: ROUTE_16_UNIVERSITY_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 16 tram stop",
+  modes: ["tram"],
+  routeLabel: "16",
+  departures: ROUTE_16_UNIVERSITY_DEPARTURES,
+}));
+
+const ROUTE_3_EAST_MALVERN_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "3", destination: "East Malvern", departureLabel: "4 min", statusLabel: "Tram due", note: "Eastbound" },
+  { route: "3", destination: "Melbourne University", departureLabel: "10 min", statusLabel: "Scheduled", note: "Westbound" },
+  { route: "3", destination: "East Malvern", departureLabel: "19 min", statusLabel: "Scheduled", note: "Via Balaclava Rd" },
+];
+
+const ROUTE_3_UNIVERSITY_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "3", destination: "Melbourne University", departureLabel: "3 min", statusLabel: "Tram due", note: "Westbound" },
+  { route: "3", destination: "East Malvern", departureLabel: "9 min", statusLabel: "Scheduled", note: "Eastbound" },
+  { route: "3", destination: "Melbourne University", departureLabel: "18 min", statusLabel: "Scheduled", note: "Via Swanston St" },
+];
+
+const ROUTE_3_EAST_MALVERN_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Melbourne University/Swanston St #1", locality: "Carlton" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Carlton" },
+  { name: "Queensberry St/Swanston St #4", locality: "Melbourne City" },
+  { name: "RMIT University/Swanston St #7", locality: "Melbourne City" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne City" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Melbourne City" },
+  { name: "City Square/Swanston St #11", locality: "Melbourne City" },
+  { name: "Federation Square/Swanston St #13", locality: "Melbourne City" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Southbank" },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "Southbank" },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "Melbourne City" },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "Melbourne City" },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "Melbourne City" },
+  { name: "Arthur St/St Kilda Rd #23", locality: "South Melbourne" },
+  { name: "Leopold St/St Kilda Rd #24", locality: "South Melbourne" },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "South Melbourne" },
+  { name: "Moubray St/St Kilda Rd #26", locality: "South Melbourne" },
+  { name: "High St/St Kilda Rd #27", locality: "St Kilda" },
+  { name: "Union St/St Kilda Rd #29", locality: "St Kilda" },
+  { name: "St Kilda Junction/St Kilda Rd #30", locality: "St Kilda Junction" },
+  { name: "Barkly St/St Kilda Rd #31", locality: "St Kilda" },
+  { name: "Alma Rd/St Kilda Rd #32", locality: "St Kilda" },
+  { name: "Argyle St/St Kilda Rd #33", locality: "St Kilda" },
+  { name: "Inkerman St/St Kilda Rd #34", locality: "St Kilda" },
+  { name: "Carlisle St/St Kilda Rd #35", locality: "St Kilda" },
+  { name: "St Kilda Town Hall/Carlisle St #36", locality: "St Kilda Town Hall" },
+  { name: "Chapel St/Carlisle St #37", locality: "Balaclava" },
+  { name: "Balaclava Station/Carlisle St #38", locality: "Balaclava Station" },
+  { name: "Orange Gr/Carlisle St #39", locality: "Balaclava" },
+  { name: "Hotham St/Carlisle St #40", locality: "St Kilda East" },
+  { name: "Empress Rd/Balaclava Rd #41", locality: "Caulfield North" },
+  { name: "Sidwell Ave/Balaclava Rd #42", locality: "Caulfield North" },
+  { name: "Orrong Rd/Balaclava Rd #43", locality: "Caulfield North" },
+  { name: "Ontario St/Balaclava Rd #44", locality: "Caulfield North" },
+  { name: "Kent Gr/Balaclava Rd #45", locality: "Caulfield North" },
+  { name: "Kooyong Rd/Balaclava Rd #46", locality: "Caulfield North" },
+  { name: "Elmhurst Rd/Balaclava Rd #47", locality: "Caulfield North" },
+  { name: "Hawthorn Rd/Balaclava Rd #51", locality: "Caulfield North" },
+  { name: "Caulfield Park Bowling Club/Balaclava Rd #52", locality: "Caulfield Park Bowling Club" },
+  { name: "Caulfield Park/Balaclava Rd #53", locality: "Caulfield Park" },
+  { name: "Kambrook Rd/Balaclava Rd #54", locality: "Caulfield North" },
+  { name: "Normanby Rd/Balaclava Rd #55", locality: "Caulfield North" },
+  { name: "Caulfield Racecourse/Normanby Rd #56", locality: "Caulfield Racecourse" },
+  { name: "Caulfield Railway Station/Derby Rd #57", locality: "Caulfield Railway Station" },
+  { name: "Dandenong Rd/Derby Rd #58", locality: "Caulfield North" },
+  { name: "Dandenong Rd/Waverley Rd #59", locality: "Malvern East" },
+  { name: "Burke Rd/Waverley Rd #60", locality: "Malvern East" },
+  { name: "Tennyson St/Waverley Rd #61", locality: "Malvern East" },
+  { name: "The Avenue/Waverley Rd #62", locality: "Malvern East" },
+  { name: "Oak Gr/Waverley Rd #63", locality: "Malvern East" },
+  { name: "Darling Rd/Waverley Rd #64", locality: "Malvern East" },
+];
+
+const ROUTE_3_UNIVERSITY_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Darling Rd/Waverley Rd #64", locality: "Malvern East" },
+  { name: "Hughes St/Waverley Rd #63", locality: "Malvern East" },
+  { name: "Macgregor St/Waverley Rd #62", locality: "Malvern East" },
+  { name: "Tennyson St/Waverley Rd #61", locality: "Malvern East" },
+  { name: "Burke Rd/Waverley Rd #60", locality: "Caulfield East" },
+  { name: "Dandenong Rd/Waverley Rd #59", locality: "Caulfield East" },
+  { name: "Caulfield Railway Station/Derby Rd #57", locality: "Caulfield Railway Station" },
+  { name: "Caulfield Racecourse/Normanby Rd #56", locality: "Caulfield Racecourse" },
+  { name: "Balaclava Rd/Normanby Rd #55", locality: "Caulfield East" },
+  { name: "Kambrook Rd/Balaclava Rd #54", locality: "Caulfield North" },
+  { name: "Caulfield Park/Balaclava Rd #53", locality: "Caulfield Park" },
+  { name: "Caulfield Park Bowling Club/Balaclava Rd #52", locality: "Caulfield Park Bowling Club" },
+  { name: "Hawthorn Rd/Balaclava Rd #51", locality: "Caulfield North" },
+  { name: "Caulfield Junior College/Balaclava Rd #47", locality: "Caulfield Junior College" },
+  { name: "Kooyong Rd/Balaclava Rd #46", locality: "Caulfield North" },
+  { name: "Kent Gr/Balaclava Rd #45", locality: "Caulfield North" },
+  { name: "Otira Rd/Balaclava Rd #44", locality: "Caulfield North" },
+  { name: "Orrong Rd/Balaclava Rd #43", locality: "St Kilda East" },
+  { name: "Allan Rd/Balaclava Rd #42", locality: "St Kilda East" },
+  { name: "Vadlure Ave/Balaclava Rd #41", locality: "St Kilda East" },
+  { name: "Hotham St/Balaclava Rd #40", locality: "St Kilda" },
+  { name: "Carlisle Ave/Carlisle St #39", locality: "Balaclava" },
+  { name: "Balaclava Station/Carlisle St #38", locality: "Balaclava Station" },
+  { name: "Chapel St/Carlisle St #37", locality: "St Kilda" },
+  { name: "St Kilda Town Hall/Carlisle St #36", locality: "St Kilda Town Hall" },
+  { name: "Brighton Rd/Carlisle St #35", locality: "St Kilda" },
+  { name: "Carlisle St/St Kilda Rd #35", locality: "St Kilda" },
+  { name: "Inkerman St/St Kilda Rd #34", locality: "St Kilda" },
+  { name: "Argyle St/St Kilda Rd #33", locality: "St Kilda" },
+  { name: "Alma Rd/St Kilda Rd #32", locality: "St Kilda" },
+  { name: "Barkly St/St Kilda Rd #31", locality: "St Kilda" },
+  { name: "St Kilda Junction/St Kilda Rd #30", locality: "St Kilda Junction" },
+  { name: "Union St/St Kilda Rd #29", locality: "Melbourne City" },
+  { name: "Lorne St/St Kilda Rd #27", locality: "Melbourne City" },
+  { name: "Beatrice St/St Kilda Rd #26", locality: "Melbourne City" },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "Melbourne City" },
+  { name: "Leopold St/St Kilda Rd #24", locality: "Melbourne City" },
+  { name: "Arthur St/St Kilda Rd #23", locality: "Melbourne City" },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "Melbourne City" },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "Anzac Station" },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "Shrine of Remembrance" },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "Southbank" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Arts Precinct" },
+  { name: "Federation Square/Swanston St #13", locality: "Federation Square" },
+  { name: "City Square/Swanston St #11", locality: "Melbourne City" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Melbourne City" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne Central Station" },
+  { name: "RMIT University/Swanston St #7", locality: "RMIT University" },
+  { name: "Queensberry St/Swanston St #4", locality: "Carlton" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Lincoln Square" },
+  { name: "Melbourne University/Swanston St #1", locality: "Melbourne University" },
+];
+
+const ROUTE_3_ROUTE_LINE: [number, number][] = [
+  [-37.79775, 144.96102], // Melbourne University
+  [-37.8093, 144.9631],
+  [-37.8169, 144.9672], // Federation Square
+  [-37.8298, 144.9686],
+  [-37.8377, 144.9732], // Anzac
+  [-37.8449, 144.9785], // St Kilda Junction
+  [-37.8568, 144.9824], // Carlisle / Balaclava
+  [-37.8708, 144.9928], // Balaclava Rd
+  [-37.8738, 145.0068], // Caulfield Park / Normanby
+  [-37.8774, 145.0181], // Derby / Waverley Rd start
+  [-37.8778, 145.0325], // East Malvern
+];
+
+const ROUTE_3_EAST_MALVERN_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  ROUTE_3_ROUTE_LINE,
+  ROUTE_3_EAST_MALVERN_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-3-east-malvern-${index + 1}`,
+  name: ROUTE_3_EAST_MALVERN_STOP_DATA[index]?.name ?? `Route 3 stop ${index + 1}`,
+  locality: ROUTE_3_EAST_MALVERN_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 3 tram stop",
+  modes: ["tram"],
+  routeLabel: "3",
+  departures: ROUTE_3_EAST_MALVERN_DEPARTURES,
+}));
+
+const ROUTE_3_UNIVERSITY_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  [...ROUTE_3_ROUTE_LINE].reverse() as [number, number][],
+  ROUTE_3_UNIVERSITY_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-3-university-${index + 1}`,
+  name: ROUTE_3_UNIVERSITY_STOP_DATA[index]?.name ?? `Route 3 return stop ${index + 1}`,
+  locality: ROUTE_3_UNIVERSITY_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 3 tram stop",
+  modes: ["tram"],
+  routeLabel: "3",
+  departures: ROUTE_3_UNIVERSITY_DEPARTURES,
+}));
+
+const ROUTE_1_SOUTH_MELBOURNE_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "1", destination: "South Melbourne Beach", departureLabel: "2 min", statusLabel: "Tram due", note: "Southbound" },
+  { route: "1", destination: "East Coburg", departureLabel: "8 min", statusLabel: "Scheduled", note: "Northbound" },
+  { route: "1", destination: "South Melbourne Beach", departureLabel: "15 min", statusLabel: "Scheduled", note: "Via Sturt St" },
+];
+
+const ROUTE_1_EAST_COBURG_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "1", destination: "East Coburg", departureLabel: "3 min", statusLabel: "Tram due", note: "Northbound" },
+  { route: "1", destination: "South Melbourne Beach", departureLabel: "9 min", statusLabel: "Scheduled", note: "Southbound" },
+  { route: "1", destination: "East Coburg", departureLabel: "17 min", statusLabel: "Scheduled", note: "Via Lygon St" },
+];
+
+const ROUTE_1_SOUTH_MELBOURNE_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Bell St/Nicholson St #135", locality: "Coburg" },
+  { name: "Merribell Ave/Nicholson St #134", locality: "Coburg" },
+  { name: "Harding St/Nicholson St #133", locality: "Coburg" },
+  { name: "Crozier St/Nicholson St #132", locality: "Coburg" },
+  { name: "Rennie St/Nicholson St #131", locality: "Coburg" },
+  { name: "The Avenue/Nicholson St #130", locality: "Coburg" },
+  { name: "Moreland Rd/Nicholson St #129", locality: "Brunswick" },
+  { name: "Moreland Rd/Holmes St #129", locality: "Brunswick East" },
+  { name: "Mitchell St/Holmes St #128", locality: "Brunswick East" },
+  { name: "Albion St/Holmes St #127", locality: "Brunswick East" },
+  { name: "Stewart St/Lygon St #126", locality: "Brunswick East" },
+  { name: "Blyth St/Lygon St #125", locality: "Brunswick East" },
+  { name: "Victoria St/Lygon St #124", locality: "Brunswick East" },
+  { name: "Albert St/Lygon St #123", locality: "Brunswick East" },
+  { name: "Glenlyon Rd/Lygon St #122", locality: "Brunswick East" },
+  { name: "Weston St/Lygon St #121", locality: "Brunswick" },
+  { name: "Brunswick Rd/Lygon St #120", locality: "Carlton North" },
+  { name: "Pigdon St/Lygon St #118", locality: "Carlton North" },
+  { name: "Richardson St/Lygon St #117", locality: "Carlton North" },
+  { name: "Fenwick St/Lygon St #116", locality: "Carlton North" },
+  { name: "Melbourne Cemetery/Lygon St #115", locality: "Melbourne Cemetery" },
+  { name: "Princes St/Lygon St #114", locality: "Carlton" },
+  { name: "Lytton St/Lygon St #113", locality: "Carlton" },
+  { name: "Lygon St/Elgin St #112", locality: "Carlton" },
+  { name: "Melbourne University/Swanston St #1", locality: "Melbourne University" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Lincoln Square" },
+  { name: "Queensberry St/Swanston St #4", locality: "Melbourne City" },
+  { name: "RMIT University/Swanston St #7", locality: "RMIT University" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne Central Station" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Bourke Street Mall" },
+  { name: "City Square/Swanston St #11", locality: "Melbourne City" },
+  { name: "Federation Square/Swanston St #13", locality: "Federation Square" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Arts Precinct" },
+  { name: "Arts Precinct/Sturt St #17", locality: "Arts Precinct" },
+  { name: "Grant St/Sturt St #18", locality: "Southbank" },
+  { name: "Miles St/Sturt St #19", locality: "Southbank" },
+  { name: "Kings Way/Sturt St #20", locality: "South Melbourne" },
+  { name: "Dorcas St/Eastern Rd #22", locality: "South Melbourne" },
+  { name: "Moray St/Park St #23", locality: "South Melbourne" },
+  { name: "Clarendon St/Park St #24", locality: "South Melbourne" },
+  { name: "Cecil St/Park St #25", locality: "South Melbourne" },
+  { name: "Ferrars St/Park St #26", locality: "South Melbourne" },
+  { name: "Montague St/Park St #27", locality: "Albert Park" },
+  { name: "Bridport St/Montague St #28", locality: "Albert Park" },
+  { name: "Bridport St/Victoria Ave #29", locality: "Albert Park" },
+  { name: "Richardson St/Victoria Ave #30", locality: "Albert Park" },
+  { name: "Graham St/Victoria Ave #31", locality: "Albert Park" },
+  { name: "Beaconsfield Pde/Victoria Ave #32", locality: "Albert Park" },
+];
+
+const ROUTE_1_EAST_COBURG_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Beaconsfield Pde/Victoria Ave #32", locality: "Albert Park" },
+  { name: "Graham St/Victoria Ave #31", locality: "Albert Park" },
+  { name: "Richardson St/Victoria Ave #30", locality: "Albert Park" },
+  { name: "Bridport St/Victoria Ave #29", locality: "Albert Park" },
+  { name: "Montague St/Bridport St #28", locality: "South Melbourne" },
+  { name: "Park St/Montague St #27", locality: "South Melbourne" },
+  { name: "Ferrars St/Park St #26", locality: "South Melbourne" },
+  { name: "Cecil St/Park St #25", locality: "South Melbourne" },
+  { name: "Clarendon St/Park St #24", locality: "South Melbourne" },
+  { name: "Moray St/Park St #23", locality: "South Melbourne" },
+  { name: "Dorcas St/Eastern Rd #22", locality: "South Melbourne" },
+  { name: "Kings Way/Sturt St #20", locality: "Southbank" },
+  { name: "Miles St/Sturt St #19", locality: "Southbank" },
+  { name: "Grant St/Sturt St #18", locality: "Southbank" },
+  { name: "Arts Precinct/Sturt St #17", locality: "Arts Precinct" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Arts Precinct" },
+  { name: "Federation Square/Swanston St #13", locality: "Federation Square" },
+  { name: "City Square/Swanston St #11", locality: "Melbourne City" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Bourke Street Mall" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne Central Station" },
+  { name: "RMIT University/Swanston St #7", locality: "RMIT University" },
+  { name: "Queensberry St/Swanston St #4", locality: "Carlton" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Lincoln Square" },
+  { name: "Melbourne University/Swanston St #1", locality: "Melbourne University" },
+  { name: "Lygon St/Elgin St #112", locality: "Carlton" },
+  { name: "Lytton St/Lygon St #113", locality: "Carlton North" },
+  { name: "Princes St/Lygon St #114", locality: "Carlton North" },
+  { name: "Melbourne Cemetery/Lygon St #115", locality: "Melbourne Cemetery" },
+  { name: "Fenwick St/Lygon St #116", locality: "Carlton North" },
+  { name: "Richardson St/Lygon St #117", locality: "Carlton North" },
+  { name: "Pigdon St/Lygon St #118", locality: "Brunswick" },
+  { name: "Brunswick Rd/Lygon St #120", locality: "Brunswick East" },
+  { name: "Weston St/Lygon St #121", locality: "Brunswick East" },
+  { name: "Glenlyon Rd/Lygon St #122", locality: "Brunswick East" },
+  { name: "Albert St/Lygon St #123", locality: "Brunswick East" },
+  { name: "Victoria St/Lygon St #124", locality: "Brunswick East" },
+  { name: "Blyth St/Lygon St #125", locality: "Brunswick East" },
+  { name: "Stewart St/Lygon St #126", locality: "Brunswick East" },
+  { name: "Albion St/Lygon St #127", locality: "Brunswick East" },
+  { name: "Mitchell St/Holmes St #128", locality: "Brunswick" },
+  { name: "Moreland Rd/Holmes St #129", locality: "Coburg" },
+  { name: "The Avenue/Nicholson St #130", locality: "Coburg" },
+  { name: "Rennie St/Nicholson St #131", locality: "Coburg" },
+  { name: "Crozier St/Nicholson St #132", locality: "Coburg" },
+  { name: "Harding St/Nicholson St #133", locality: "Coburg" },
+  { name: "Merribell Ave/Nicholson St #134", locality: "Coburg" },
+  { name: "Bell St/Nicholson St #135", locality: "Coburg" },
+];
+
+const ROUTE_1_ROUTE_LINE: [number, number][] = [
+  [-37.7406, 144.9798], // East Coburg / Bell St
+  [-37.7524, 144.9801], // Moreland / Nicholson
+  [-37.7664, 144.9728], // Holmes / Lygon transition
+  [-37.7768, 144.9686], // Brunswick / Carlton North
+  [-37.7897, 144.9660], // Melbourne Cemetery / Lygon
+  [-37.79775, 144.96102], // Melbourne University
+  [-37.8093, 144.9631],
+  [-37.8169, 144.9672], // Federation Square
+  [-37.8235, 144.9690],
+  [-37.8312, 144.9705], // Sturt St
+  [-37.8362, 144.9696], // South Melbourne
+  [-37.8428, 144.9657], // Park St / Montague
+  [-37.8473, 144.9625], // Victoria Ave
+];
+
+const ROUTE_1_SOUTH_MELBOURNE_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  ROUTE_1_ROUTE_LINE,
+  ROUTE_1_SOUTH_MELBOURNE_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-1-south-melbourne-${index + 1}`,
+  name: ROUTE_1_SOUTH_MELBOURNE_STOP_DATA[index]?.name ?? `Route 1 stop ${index + 1}`,
+  locality: ROUTE_1_SOUTH_MELBOURNE_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 1 tram stop",
+  modes: ["tram"],
+  routeLabel: "1",
+  departures: ROUTE_1_SOUTH_MELBOURNE_DEPARTURES,
+}));
+
+const ROUTE_1_EAST_COBURG_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  [...ROUTE_1_ROUTE_LINE].reverse() as [number, number][],
+  ROUTE_1_EAST_COBURG_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-1-east-coburg-${index + 1}`,
+  name: ROUTE_1_EAST_COBURG_STOP_DATA[index]?.name ?? `Route 1 return stop ${index + 1}`,
+  locality: ROUTE_1_EAST_COBURG_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 1 tram stop",
+  modes: ["tram"],
+  routeLabel: "1",
+  departures: ROUTE_1_EAST_COBURG_DEPARTURES,
+}));
+
+const ROUTE_96_ST_KILDA_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "96", destination: "St Kilda Beach", departureLabel: "2 min", statusLabel: "Tram due", note: "Southbound" },
+  { route: "96", destination: "East Brunswick", departureLabel: "8 min", statusLabel: "Scheduled", note: "Northbound" },
+  { route: "96", destination: "St Kilda Beach", departureLabel: "15 min", statusLabel: "Scheduled", note: "Via Bourke St" },
+];
+
+const ROUTE_96_EAST_BRUNSWICK_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "96", destination: "East Brunswick", departureLabel: "3 min", statusLabel: "Tram due", note: "Northbound" },
+  { route: "96", destination: "St Kilda Beach", departureLabel: "9 min", statusLabel: "Scheduled", note: "Southbound" },
+  { route: "96", destination: "East Brunswick", departureLabel: "18 min", statusLabel: "Scheduled", note: "Via Nicholson St" },
+];
+
+const ROUTE_96_ST_KILDA_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Blyth St/Nicholson St #23", locality: "Brunswick East" },
+  { name: "Albert St/Nicholson St #22", locality: "Fitzroy North" },
+  { name: "Glenlyon Rd/Nicholson St #21", locality: "Fitzroy North" },
+  { name: "Miller St/Nicholson St #20", locality: "Fitzroy North" },
+  { name: "Holden St/Nicholson St #19", locality: "Fitzroy North" },
+  { name: "Scotchmer St/Nicholson St #18", locality: "Fitzroy North" },
+  { name: "Reid St/Nicholson St #17", locality: "Fitzroy North" },
+  { name: "Freeman St/Nicholson St #16", locality: "Fitzroy North" },
+  { name: "Alexandra Pde/Nicholson St #15", locality: "Fitzroy" },
+  { name: "Rose St/Nicholson St #14", locality: "Fitzroy" },
+  { name: "Johnston St/Nicholson St #13", locality: "Fitzroy" },
+  { name: "Moor St/Nicholson St #12", locality: "Fitzroy" },
+  { name: "Melbourne Museum/Nicholson St #11", locality: "Melbourne Museum" },
+  { name: "Albert St/Nicholson St #10", locality: "Melbourne City" },
+  { name: "Spring St/Bourke St #9", locality: "Melbourne City" },
+  { name: "Russell St/Bourke St #7", locality: "Melbourne City" },
+  { name: "Swanston St/Bourke St #6", locality: "Melbourne City" },
+  { name: "Elizabeth St/Bourke St #5", locality: "Melbourne City" },
+  { name: "Queen St/Bourke St #4", locality: "Melbourne City" },
+  { name: "William St/Bourke St #3", locality: "Melbourne City" },
+  { name: "Spencer St/Bourke St #1", locality: "Melbourne City" },
+  { name: "Southern Cross Railway Station/Spencer St #122", locality: "Southern Cross Railway Station" },
+  { name: "Batman Park/Spencer St #124", locality: "Batman Park" },
+  { name: "124A-Casino/MCEC/Clarendon St", locality: "Casino/MCEC" },
+  { name: "Port Junction/79 Whiteman St #125", locality: "Port Junction" },
+  { name: "City Rd/Light Rail #126", locality: "South Melbourne" },
+  { name: "South Melbourne Station/Light Rail #127", locality: "South Melbourne Station" },
+  { name: "Albert Park Station/Light Rail #128", locality: "Albert Park Station" },
+  { name: "Melbourne Sports and Aquatic Centre/Light Rail #129", locality: "Melbourne Sports and Aquatic Centre" },
+  { name: "Middle Park Station/Light Rail #130", locality: "Middle Park Station" },
+  { name: "Fraser St/Light Rail #131", locality: "St Kilda" },
+  { name: "St Kilda Station/Fitzroy St #132", locality: "St Kilda Station" },
+  { name: "Canterbury Rd/Fitzroy St #133", locality: "St Kilda" },
+  { name: "Park St/Fitzroy St #134", locality: "St Kilda" },
+  { name: "Jacka Bvd/Fitzroy St #135", locality: "St Kilda" },
+  { name: "Alfred Square/The Esplanade #136", locality: "St Kilda" },
+  { name: "Luna Park/The Esplanade #138", locality: "Luna Park" },
+  { name: "Belford St/Acland St #139", locality: "St Kilda" },
+];
+
+const ROUTE_96_EAST_BRUNSWICK_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Belford St/Acland St #139", locality: "St Kilda" },
+  { name: "Luna Park/The Esplanade #138", locality: "Luna Park" },
+  { name: "Alfred Square/The Esplanade #136", locality: "St Kilda" },
+  { name: "Acland St/Fitzroy St #135", locality: "St Kilda" },
+  { name: "Park St/Fitzroy St #134", locality: "St Kilda" },
+  { name: "Canterbury Rd/Fitzroy St #133", locality: "St Kilda" },
+  { name: "St Kilda Station/Fitzroy St #132", locality: "St Kilda Station" },
+  { name: "Fraser St/Light Rail #131", locality: "Middle Park" },
+  { name: "Middle Park Station/Light Rail #130", locality: "Middle Park Station" },
+  { name: "Melbourne Sports and Aquatic Centre/Light Rail #129", locality: "Melbourne Sports and Aquatic Centre" },
+  { name: "Albert Park Station/Light Rail #128", locality: "Albert Park Station" },
+  { name: "South Melbourne Station/Light Rail #127", locality: "South Melbourne Station" },
+  { name: "City Rd/Light Rail #126", locality: "Southbank" },
+  { name: "Clarendon St/Whiteman St #125", locality: "Casino/MCEC" },
+  { name: "Batman Park/Spencer St #124", locality: "Batman Park" },
+  { name: "Southern Cross Railway Station/Spencer St #122", locality: "Southern Cross Railway Station" },
+  { name: "Spencer St/Bourke St #1", locality: "Melbourne City" },
+  { name: "William St/Bourke St #3", locality: "Melbourne City" },
+  { name: "Queen St/Bourke St #4", locality: "Melbourne City" },
+  { name: "Elizabeth St/Bourke St #5", locality: "Melbourne City" },
+  { name: "Swanston St/Bourke St #6", locality: "Melbourne City" },
+  { name: "Russell St/Bourke St #7", locality: "Melbourne City" },
+  { name: "Spring St/Bourke St #9", locality: "East Melbourne" },
+  { name: "Albert St/Nicholson St #10", locality: "Fitzroy" },
+  { name: "Melbourne Museum/Nicholson St #11", locality: "Melbourne Museum" },
+  { name: "Moor St/Nicholson St #12", locality: "Carlton" },
+  { name: "Johnston St/Nicholson St #13", locality: "Carlton" },
+  { name: "Rose St/Nicholson St #14", locality: "Carlton" },
+  { name: "Alexandra Pde/Nicholson St #15", locality: "Fitzroy North" },
+  { name: "Freeman St/Nicholson St #16", locality: "Carlton North" },
+  { name: "Reid St/Nicholson St #17", locality: "Carlton North" },
+  { name: "Scotchmer St/Nicholson St #18", locality: "Fitzroy" },
+  { name: "Brunswick Rd/Nicholson St #19", locality: "Brunswick East" },
+  { name: "Miller St/Nicholson St #20", locality: "Brunswick East" },
+  { name: "Glenlyon Rd/Nicholson St #21", locality: "Brunswick East" },
+  { name: "Albert St/Nicholson St #22", locality: "Brunswick East" },
+  { name: "Blyth St/Nicholson St #23", locality: "Brunswick East" },
+];
+
+const ROUTE_96_ROUTE_LINE: [number, number][] = [
+  [-37.7655, 144.9788], // East Brunswick
+  [-37.7796, 144.9783], // Fitzroy North
+  [-37.7913, 144.9794], // Nicholson / Museum
+  [-37.8111, 144.9689], // Bourke St city
+  [-37.8177, 144.9522], // Southern Cross
+  [-37.8228, 144.9556], // Whiteman / Clarendon
+  [-37.8367, 144.9618], // Light rail
+  [-37.8507, 144.9700], // Fitzroy St
+  [-37.8670, 144.9817], // Acland / St Kilda Beach
+];
+
+const ROUTE_96_ST_KILDA_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  ROUTE_96_ROUTE_LINE,
+  ROUTE_96_ST_KILDA_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-96-st-kilda-${index + 1}`,
+  name: ROUTE_96_ST_KILDA_STOP_DATA[index]?.name ?? `Route 96 stop ${index + 1}`,
+  locality: ROUTE_96_ST_KILDA_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 96 tram stop",
+  modes: ["tram"],
+  routeLabel: "96",
+  departures: ROUTE_96_ST_KILDA_DEPARTURES,
+}));
+
+const ROUTE_96_EAST_BRUNSWICK_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  [...ROUTE_96_ROUTE_LINE].reverse() as [number, number][],
+  ROUTE_96_EAST_BRUNSWICK_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-96-east-brunswick-${index + 1}`,
+  name: ROUTE_96_EAST_BRUNSWICK_STOP_DATA[index]?.name ?? `Route 96 return stop ${index + 1}`,
+  locality: ROUTE_96_EAST_BRUNSWICK_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 96 tram stop",
+  modes: ["tram"],
+  routeLabel: "96",
+  departures: ROUTE_96_EAST_BRUNSWICK_DEPARTURES,
+}));
+
+const ROUTE_5_MALVERN_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "5", destination: "Malvern", departureLabel: "3 min", statusLabel: "Tram due", note: "Southbound" },
+  { route: "5", destination: "Melbourne University", departureLabel: "9 min", statusLabel: "Scheduled", note: "Northbound" },
+  { route: "5", destination: "Malvern", departureLabel: "17 min", statusLabel: "Scheduled", note: "Via Wattletree Rd" },
+];
+
+const ROUTE_5_UNIVERSITY_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "5", destination: "Melbourne University", departureLabel: "2 min", statusLabel: "Tram due", note: "Northbound" },
+  { route: "5", destination: "Malvern", departureLabel: "8 min", statusLabel: "Scheduled", note: "Southbound" },
+  { route: "5", destination: "Melbourne University", departureLabel: "16 min", statusLabel: "Scheduled", note: "Via Swanston St" },
+];
+
+const ROUTE_5_MALVERN_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Melbourne University/Swanston St #1", locality: "Melbourne University" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Lincoln Square" },
+  { name: "Queensberry St/Swanston St #4", locality: "Melbourne City" },
+  { name: "RMIT University/Swanston St #7", locality: "RMIT University" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne Central Station" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Bourke Street Mall" },
+  { name: "City Square/Swanston St #11", locality: "City Square" },
+  { name: "Federation Square/Swanston St #13", locality: "Federation Square" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Arts Precinct" },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "Grant St-Police Memorial" },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "Shrine of Remembrance" },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "Anzac Station" },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "Melbourne City" },
+  { name: "Arthur St/St Kilda Rd #23", locality: "South Melbourne" },
+  { name: "Leopold St/St Kilda Rd #24", locality: "South Melbourne" },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "South Melbourne" },
+  { name: "Moubray St/St Kilda Rd #26", locality: "South Melbourne" },
+  { name: "High St/St Kilda Rd #27", locality: "St Kilda" },
+  { name: "Union St/St Kilda Rd #29", locality: "St Kilda" },
+  { name: "St Kilda Junction/St Kilda Rd #30", locality: "St Kilda Junction" },
+  { name: "Queens Way/Queens Way #31", locality: "Queens Way" },
+  { name: "Chapel St/Dandenong Rd #32", locality: "Windsor" },
+  { name: "Hornby St/Dandenong Rd #33", locality: "Windsor" },
+  { name: "The Avenue/Dandenong Rd #34", locality: "Prahran" },
+  { name: "Williams Rd/Dandenong Rd #35", locality: "St Kilda East" },
+  { name: "Closeburn Ave/Dandenong Rd #36", locality: "St Kilda East" },
+  { name: "Lansdowne Rd/Dandenong Rd #37", locality: "Prahran" },
+  { name: "Orrong Rd/Dandenong Rd #38", locality: "Armadale" },
+  { name: "Wattletree Rd/Dandenong Rd #40", locality: "Armadale" },
+  { name: "Armadale St/Wattletree Rd #41", locality: "Armadale" },
+  { name: "Kooyong Rd/Wattletree Rd #42", locality: "Armadale" },
+  { name: "Egerton Rd/Wattletree Rd #43", locality: "Armadale" },
+  { name: "Duncraig Ave/Wattletree Rd #44", locality: "Malvern" },
+  { name: "Glenferrie Rd/Wattletree Rd #45", locality: "Malvern" },
+  { name: "Nicholls St/Wattletree Rd #46", locality: "Malvern" },
+  { name: "Cabrini Hospital/Wattletree Rd #47", locality: "Cabrini Hospital" },
+  { name: "Dixon St/Wattletree Rd #48", locality: "Malvern East" },
+  { name: "Tooronga Rd/Wattletree Rd #49", locality: "Malvern East" },
+  { name: "Vincent St/Wattletree Rd #50", locality: "Malvern East" },
+  { name: "Erica Ave/Wattletree Rd #51", locality: "Malvern East" },
+  { name: "Burke Rd/Wattletree Rd #52", locality: "Malvern East" },
+];
+
+const ROUTE_5_UNIVERSITY_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Burke Rd/Wattletree Rd #52", locality: "Malvern East" },
+  { name: "Nott St/Wattletree Rd #51", locality: "Malvern East" },
+  { name: "Anderson St/Wattletree Rd #50", locality: "Malvern East" },
+  { name: "Tooronga Rd/Wattletree Rd #49", locality: "Malvern East" },
+  { name: "Dixon St/Wattletree Rd #48", locality: "Malvern" },
+  { name: "Cabrini Hospital/Wattletree Rd #47", locality: "Cabrini Hospital" },
+  { name: "Soudan St/Wattletree Rd #46", locality: "Malvern" },
+  { name: "Glenferrie Rd/Wattletree Rd #45", locality: "Armadale" },
+  { name: "Duncraig Ave/Wattletree Rd #44", locality: "Armadale" },
+  { name: "Egerton Rd/Wattletree Rd #43", locality: "Armadale" },
+  { name: "Kooyong Rd/Wattletree Rd #42", locality: "Armadale" },
+  { name: "Wattletree Rd/Dandenong Rd #40", locality: "Armadale" },
+  { name: "Orrong Rd/Dandenong Rd #38", locality: "Prahran" },
+  { name: "Lansdowne Rd/Dandenong Rd #37", locality: "Prahran" },
+  { name: "Alexandra St/Dandenong Rd #36", locality: "Prahran" },
+  { name: "Williams Rd/Dandenong Rd #35", locality: "St Kilda East" },
+  { name: "Westbury St/Dandenong Rd #34", locality: "Windsor" },
+  { name: "Hornby St/Dandenong Rd #33", locality: "Windsor" },
+  { name: "Chapel St/Dandenong Rd #32", locality: "St Kilda" },
+  { name: "Queens Way/Queens Way #31", locality: "Queens Way" },
+  { name: "St Kilda Junction/St Kilda Rd #30", locality: "St Kilda Junction" },
+  { name: "Union St/St Kilda Rd #29", locality: "Melbourne City" },
+  { name: "Lorne St/St Kilda Rd #27", locality: "Melbourne City" },
+  { name: "Beatrice St/St Kilda Rd #26", locality: "Melbourne City" },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "Melbourne City" },
+  { name: "Leopold St/St Kilda Rd #24", locality: "Melbourne City" },
+  { name: "Arthur St/St Kilda Rd #23", locality: "Melbourne City" },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "Melbourne City" },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "Anzac Station" },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "Shrine of Remembrance" },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "Grant St-Police Memorial" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Arts Precinct" },
+  { name: "Federation Square/Swanston St #13", locality: "Federation Square" },
+  { name: "City Square/Swanston St #11", locality: "City Square" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Bourke Street Mall" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne Central Station" },
+  { name: "RMIT University/Swanston St #7", locality: "RMIT University" },
+  { name: "Queensberry St/Swanston St #4", locality: "Carlton" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Lincoln Square" },
+  { name: "Melbourne University/Swanston St #1", locality: "Melbourne University" },
+];
+
+const ROUTE_5_ROUTE_LINE: [number, number][] = [
+  [-37.79775, 144.96102],
+  [-37.8093, 144.9631],
+  [-37.8169, 144.9672],
+  [-37.8298, 144.9686],
+  [-37.8377, 144.9732],
+  [-37.8449, 144.9785],
+  [-37.8518, 144.9874],
+  [-37.8603, 145.0006],
+  [-37.8677, 145.0119],
+  [-37.8728, 145.0215],
+  [-37.8753, 145.0288],
+  [-37.8766, 145.0368],
+];
+
+const ROUTE_5_MALVERN_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  ROUTE_5_ROUTE_LINE,
+  ROUTE_5_MALVERN_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-5-malvern-${index + 1}`,
+  name: ROUTE_5_MALVERN_STOP_DATA[index]?.name ?? `Route 5 stop ${index + 1}`,
+  locality: ROUTE_5_MALVERN_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 5 tram stop",
+  modes: ["tram"],
+  routeLabel: "5",
+  departures: ROUTE_5_MALVERN_DEPARTURES,
+}));
+
+const ROUTE_5_UNIVERSITY_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  [...ROUTE_5_ROUTE_LINE].reverse() as [number, number][],
+  ROUTE_5_UNIVERSITY_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-5-university-${index + 1}`,
+  name: ROUTE_5_UNIVERSITY_STOP_DATA[index]?.name ?? `Route 5 return stop ${index + 1}`,
+  locality: ROUTE_5_UNIVERSITY_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 5 tram stop",
+  modes: ["tram"],
+  routeLabel: "5",
+  departures: ROUTE_5_UNIVERSITY_DEPARTURES,
+}));
+
+const ROUTE_6_GLEN_IRIS_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "6", destination: "Glen Iris", departureLabel: "4 min", statusLabel: "Tram due", note: "Southbound" },
+  { route: "6", destination: "Moreland", departureLabel: "11 min", statusLabel: "Scheduled", note: "Northbound" },
+  { route: "6", destination: "Glen Iris", departureLabel: "19 min", statusLabel: "Scheduled", note: "Via High St" },
+];
+
+const ROUTE_6_MORELAND_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "6", destination: "Moreland", departureLabel: "3 min", statusLabel: "Tram due", note: "Northbound" },
+  { route: "6", destination: "Glen Iris", departureLabel: "9 min", statusLabel: "Scheduled", note: "Southbound" },
+  { route: "6", destination: "Moreland", departureLabel: "17 min", statusLabel: "Scheduled", note: "Via Lygon St" },
+];
+
+const ROUTE_6_GLEN_IRIS_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Moreland Station/Cameron St #133", locality: "Moreland Station" },
+  { name: "Sydney Rd/Moreland Rd #132", locality: "Coburg" },
+  { name: "De Carle St/Moreland Rd #131", locality: "Coburg" },
+  { name: "Barrow St/Moreland Rd #130", locality: "Coburg" },
+  { name: "Moreland Rd/Holmes St #129", locality: "Brunswick" },
+  { name: "Mitchell St/Holmes St #128", locality: "Brunswick East" },
+  { name: "Albion St/Holmes St #127", locality: "Brunswick East" },
+  { name: "Stewart St/Lygon St #126", locality: "Brunswick East" },
+  { name: "Blyth St/Lygon St #125", locality: "Brunswick East" },
+  { name: "Victoria St/Lygon St #124", locality: "Brunswick East" },
+  { name: "Albert St/Lygon St #123", locality: "Brunswick East" },
+  { name: "Glenlyon Rd/Lygon St #122", locality: "Brunswick East" },
+  { name: "Weston St/Lygon St #121", locality: "Brunswick" },
+  { name: "Brunswick Rd/Lygon St #120", locality: "Carlton North" },
+  { name: "Pigdon St/Lygon St #118", locality: "Carlton North" },
+  { name: "Richardson St/Lygon St #117", locality: "Carlton North" },
+  { name: "Fenwick St/Lygon St #116", locality: "Carlton North" },
+  { name: "Melbourne Cemetery/Lygon St #115", locality: "Melbourne Cemetery" },
+  { name: "Princes St/Lygon St #114", locality: "Carlton" },
+  { name: "Lytton St/Lygon St #113", locality: "Carlton" },
+  { name: "Lygon St/Elgin St #112", locality: "Carlton" },
+  { name: "Melbourne University/Swanston St #1", locality: "Melbourne University" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Lincoln Square" },
+  { name: "Queensberry St/Swanston St #4", locality: "Melbourne City" },
+  { name: "RMIT University/Swanston St #7", locality: "RMIT University" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne Central Station" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Bourke Street Mall" },
+  { name: "City Square/Swanston St #11", locality: "City Square" },
+  { name: "Federation Square/Swanston St #13", locality: "Federation Square" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Arts Precinct" },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "Grant St-Police Memorial" },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "Shrine of Remembrance" },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "Anzac Station" },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "Melbourne City" },
+  { name: "Arthur St/St Kilda Rd #23", locality: "South Melbourne" },
+  { name: "Leopold St/St Kilda Rd #24", locality: "South Melbourne" },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "South Melbourne" },
+  { name: "Moubray St/St Kilda Rd #26", locality: "South Melbourne" },
+  { name: "High St/St Kilda Rd #27", locality: "Prahran" },
+  { name: "Punt Rd/High St #28", locality: "Prahran" },
+  { name: "Perth St/High St #29", locality: "Prahran" },
+  { name: "Prahran Station/High St #30", locality: "Prahran Station" },
+  { name: "Chapel St/High St #31", locality: "Prahran" },
+  { name: "Hornby St/High St #32", locality: "Prahran" },
+  { name: "Prahran RSL/High St #33", locality: "Prahran RSL" },
+  { name: "Lewisham Rd/High St #34", locality: "Prahran" },
+  { name: "Williams Rd/High St #35", locality: "Prahran" },
+  { name: "Chatsworth Rd/High St #36", locality: "Prahran" },
+  { name: "Airlie Ave/High St #37", locality: "Prahran" },
+  { name: "Orrong Rd/High St #38", locality: "Armadale" },
+  { name: "Auburn Gr/High St #39", locality: "Armadale" },
+  { name: "Armadale Station/High St #40", locality: "Armadale Station" },
+  { name: "Kooyong Rd/High St #41", locality: "Armadale" },
+  { name: "Huntingtower Rd/High St #42", locality: "Armadale" },
+  { name: "Mercer Rd/High St #43", locality: "Malvern" },
+  { name: "Glenferrie Rd/High St #44", locality: "Malvern" },
+  { name: "De La Salle College/High St #45", locality: "De La Salle College" },
+  { name: "Fraser St/High St #46", locality: "Malvern" },
+  { name: "Dixon St/High St #47", locality: "Glen Iris" },
+  { name: "Tooronga Rd/High St #48", locality: "Glen Iris" },
+  { name: "Harold Holt Swim Centre/High St #49", locality: "Harold Holt Swim Centre" },
+  { name: "Belmont Ave/High St #50", locality: "Glen Iris" },
+  { name: "Burke Rd/High St #51", locality: "Glen Iris" },
+  { name: "Boyanda Rd/High St #52", locality: "Glen Iris" },
+  { name: "Malvern Rd/High St #53", locality: "Glen Iris" },
+];
+
+const ROUTE_6_MORELAND_STOP_DATA: Array<{ name: string; locality: string }> = [
+  { name: "Malvern Rd/High St #53", locality: "Glen Iris" },
+  { name: "Boyanda Rd/High St #52", locality: "Glen Iris" },
+  { name: "Burke Rd/High St #51", locality: "Glen Iris" },
+  { name: "Belmont Ave/High St #50", locality: "Glen Iris" },
+  { name: "Harold Holt Swim Centre/High St #49", locality: "Harold Holt Swim Centre" },
+  { name: "Tooronga Rd/High St #48", locality: "Malvern" },
+  { name: "Dixon St/High St #47", locality: "Malvern" },
+  { name: "Fraser St/High St #46", locality: "Malvern" },
+  { name: "De La Salle College/High St #45", locality: "De La Salle College" },
+  { name: "Glenferrie Rd/High St #44", locality: "Armadale" },
+  { name: "Mercer Rd/High St #43", locality: "Armadale" },
+  { name: "Huntingtower Rd/High St #42", locality: "Armadale" },
+  { name: "Kooyong Rd/High St #41", locality: "Armadale" },
+  { name: "Armadale Station/High St #40", locality: "Armadale Station" },
+  { name: "Auburn Gr/High St #39", locality: "Armadale" },
+  { name: "Orrong Rd/High St #38", locality: "Prahran" },
+  { name: "Airlie Ave/High St #37", locality: "Prahran" },
+  { name: "Chatsworth Rd/High St #36", locality: "Prahran" },
+  { name: "Williams Rd/High St #35", locality: "Prahran" },
+  { name: "Lewisham Rd/High St #34", locality: "Prahran" },
+  { name: "Prahran RSL/High St #33", locality: "Prahran RSL" },
+  { name: "Hornby St/High St #32", locality: "Prahran" },
+  { name: "Chapel St/High St #31", locality: "Windsor" },
+  { name: "Prahran Station/High St #30", locality: "Prahran Station" },
+  { name: "Perth St/High St #29", locality: "Windsor" },
+  { name: "Punt Rd/High St #28", locality: "Melbourne City" },
+  { name: "Lorne St/St Kilda Rd #27", locality: "Melbourne City" },
+  { name: "Beatrice St/St Kilda Rd #26", locality: "Melbourne City" },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "Melbourne City" },
+  { name: "Leopold St/St Kilda Rd #24", locality: "Melbourne City" },
+  { name: "Arthur St/St Kilda Rd #23", locality: "Melbourne City" },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "Melbourne City" },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "Anzac Station" },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "Shrine of Remembrance" },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "Grant St-Police Memorial" },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "Arts Precinct" },
+  { name: "Federation Square/Swanston St #13", locality: "Federation Square" },
+  { name: "City Square/Swanston St #11", locality: "City Square" },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "Bourke Street Mall" },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "Melbourne Central Station" },
+  { name: "RMIT University/Swanston St #7", locality: "RMIT University" },
+  { name: "Queensberry St/Swanston St #4", locality: "Carlton" },
+  { name: "Lincoln Square/Swanston St #3", locality: "Lincoln Square" },
+  { name: "Melbourne University/Swanston St #1", locality: "Melbourne University" },
+  { name: "Lygon St/Elgin St #112", locality: "Carlton" },
+  { name: "Lytton St/Lygon St #113", locality: "Carlton North" },
+  { name: "Princes St/Lygon St #114", locality: "Carlton North" },
+  { name: "Melbourne Cemetery/Lygon St #115", locality: "Melbourne Cemetery" },
+  { name: "Fenwick St/Lygon St #116", locality: "Carlton North" },
+  { name: "Richardson St/Lygon St #117", locality: "Carlton North" },
+  { name: "Pigdon St/Lygon St #118", locality: "Brunswick" },
+  { name: "Brunswick Rd/Lygon St #120", locality: "Brunswick East" },
+  { name: "Weston St/Lygon St #121", locality: "Brunswick East" },
+  { name: "Glenlyon Rd/Lygon St #122", locality: "Brunswick East" },
+  { name: "Albert St/Lygon St #123", locality: "Brunswick East" },
+  { name: "Victoria St/Lygon St #124", locality: "Brunswick East" },
+  { name: "Blyth St/Lygon St #125", locality: "Brunswick East" },
+  { name: "Stewart St/Lygon St #126", locality: "Brunswick East" },
+  { name: "Albion St/Lygon St #127", locality: "Brunswick East" },
+  { name: "Mitchell St/Holmes St #128", locality: "Brunswick" },
+  { name: "Moreland Rd/Holmes St #129", locality: "Coburg" },
+  { name: "Barrow St/Moreland Rd #130", locality: "Coburg" },
+  { name: "De Carle St/Moreland Rd #131", locality: "Coburg" },
+  { name: "Sydney Rd/Moreland Rd #132", locality: "Coburg" },
+  { name: "Moreland Station/Moreland Rd #133", locality: "Moreland Station" },
+];
+
+const ROUTE_6_ROUTE_LINE: [number, number][] = [
+  [-37.7542, 144.9649], // Moreland
+  [-37.7664, 144.9728], // Holmes / Lygon
+  [-37.7768, 144.9686], // Carlton North
+  [-37.7897, 144.9660], // Cemetery / Carlton
+  [-37.79775, 144.96102],
+  [-37.8093, 144.9631],
+  [-37.8169, 144.9672],
+  [-37.8298, 144.9686],
+  [-37.8377, 144.9732],
+  [-37.8468, 144.9835], // High St / Prahran
+  [-37.8559, 145.0042], // Armadale / Malvern
+  [-37.8618, 145.0215],
+  [-37.8656, 145.0298], // Glen Iris
+];
+
+const ROUTE_6_GLEN_IRIS_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  ROUTE_6_ROUTE_LINE,
+  ROUTE_6_GLEN_IRIS_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-6-glen-iris-${index + 1}`,
+  name: ROUTE_6_GLEN_IRIS_STOP_DATA[index]?.name ?? `Route 6 stop ${index + 1}`,
+  locality: ROUTE_6_GLEN_IRIS_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 6 tram stop",
+  modes: ["tram"],
+  routeLabel: "6",
+  departures: ROUTE_6_GLEN_IRIS_DEPARTURES,
+}));
+
+const ROUTE_6_MORELAND_SURFACE_STOPS: SurfaceStop[] = interpolateStopsAlongPolyline(
+  [...ROUTE_6_ROUTE_LINE].reverse() as [number, number][],
+  ROUTE_6_MORELAND_STOP_DATA.length,
+).map((position, index) => ({
+  id: `route-6-moreland-${index + 1}`,
+  name: ROUTE_6_MORELAND_STOP_DATA[index]?.name ?? `Route 6 return stop ${index + 1}`,
+  locality: ROUTE_6_MORELAND_STOP_DATA[index]?.locality ?? "Melbourne",
+  position,
+  subtitle: "Route 6 tram stop",
+  modes: ["tram"],
+  routeLabel: "6",
+  departures: ROUTE_6_MORELAND_DEPARTURES,
+}));
+
+const ROUTE_11_DOCKLANDS_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "11", destination: "Victoria Harbour Docklands", departureLabel: "3 min", statusLabel: "Tram due", note: "Southbound" },
+  { route: "11", destination: "West Preston", departureLabel: "9 min", statusLabel: "Scheduled", note: "Northbound" },
+  { route: "11", destination: "Victoria Harbour Docklands", departureLabel: "17 min", statusLabel: "Scheduled", note: "Via Collins St" },
+];
+
+const ROUTE_11_WEST_PRESTON_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "11", destination: "West Preston", departureLabel: "2 min", statusLabel: "Tram due", note: "Northbound" },
+  { route: "11", destination: "Victoria Harbour Docklands", departureLabel: "8 min", statusLabel: "Scheduled", note: "Southbound" },
+  { route: "11", destination: "West Preston", departureLabel: "16 min", statusLabel: "Scheduled", note: "Via Brunswick St" },
+];
+
+const ROUTE_11_DOCKLANDS_STOP_DATA: Array<{ name: string; locality: string; position: [number, number] }> = [
+  { name: "West Preston/Gilbert Rd #47", locality: "PTV GTFS", position: [-37.72918594, 144.99158656] },
+  { name: "Jacka St/Gilbert Rd #45", locality: "PTV GTFS", position: [-37.73276368, 144.99105870] },
+  { name: "Cooper St/Gilbert Rd #44", locality: "PTV GTFS", position: [-37.73460563, 144.99073657] },
+  { name: "Murray Rd/Gilbert Rd #43", locality: "PTV GTFS", position: [-37.73646559, 144.99041394] },
+  { name: "Cramer St/Gilbert Rd #42", locality: "PTV GTFS", position: [-37.73891028, 144.99003009] },
+  { name: "Bruce St/Gilbert Rd #41", locality: "PTV GTFS", position: [-37.74095959, 144.98971365] },
+  { name: "Bell St/Gilbert Rd #40", locality: "PTV GTFS", position: [-37.74353804, 144.98924668] },
+  { name: "Latona Ave/Gilbert Rd #39", locality: "PTV GTFS", position: [-37.74562396, 144.98896324] },
+  { name: "Oakover Rd/Gilbert Rd #38", locality: "PTV GTFS", position: [-37.74823019, 144.98854086] },
+  { name: "Miller St/Gilbert Rd #37", locality: "PTV GTFS", position: [-37.75060223, 144.98812478] },
+  { name: "Devon St/Miller St #36", locality: "PTV GTFS", position: [-37.75126315, 144.99094434] },
+  { name: "St Georges Rd/Miller St #35", locality: "PTV GTFS", position: [-37.75164413, 144.99479302] },
+  { name: "Miller St/St Georges Rd #34", locality: "PTV GTFS", position: [-37.75226818, 144.99492372] },
+  { name: "Hutton St/St Georges Rd #33", locality: "PTV GTFS", position: [-37.75508521, 144.99417799] },
+  { name: "Normanby Ave/St Georges Rd #32", locality: "PTV GTFS", position: [-37.75846227, 144.99350787] },
+  { name: "Gadd St/St Georges Rd #31", locality: "PTV GTFS", position: [-37.76263888, 144.99269120] },
+  { name: "Gladstone Ave/St Georges Rd #30", locality: "PTV GTFS", position: [-37.76519815, 144.99215657] },
+  { name: "Arthurton Rd/St Georges Rd #29", locality: "PTV GTFS", position: [-37.76814455, 144.99160008] },
+  { name: "Sumner Ave/St Georges Rd #28", locality: "PTV GTFS", position: [-37.77141000, 144.99072837] },
+  { name: "Westbourne Gr/St Georges Rd #27", locality: "PTV GTFS", position: [-37.77364614, 144.99027046] },
+  { name: "Clarke St/St Georges Rd #26", locality: "PTV GTFS", position: [-37.77573893, 144.98986183] },
+  { name: "Miller St/St Georges Rd #25", locality: "PTV GTFS", position: [-37.77795152, 144.98855296] },
+  { name: "Holden St/St Georges Rd #24", locality: "PTV GTFS", position: [-37.77987866, 144.98688841] },
+  { name: "Park St/St Georges Rd #23", locality: "PTV GTFS", position: [-37.78173486, 144.98529383] },
+  { name: "Scotchmer St/St Georges Rd #22", locality: "PTV GTFS", position: [-37.78321817, 144.98402724] },
+  { name: "Alfred Cres/St Georges Rd #21", locality: "PTV GTFS", position: [-37.78538493, 144.98215155] },
+  { name: "Fitzroy Bowls Club/Brunswick St #20", locality: "PTV GTFS", position: [-37.78817377, 144.98029287] },
+  { name: "Newry St/Brunswick St #19", locality: "PTV GTFS", position: [-37.79053694, 144.97988784] },
+  { name: "Alexandra Pde/Brunswick St #18", locality: "PTV GTFS", position: [-37.79292673, 144.97945935] },
+  { name: "Leicester St/Brunswick St #17", locality: "PTV GTFS", position: [-37.79546083, 144.97903825] },
+  { name: "Johnston St/Brunswick St #16", locality: "PTV GTFS", position: [-37.79816569, 144.97858975] },
+  { name: "St David St/Brunswick St #15", locality: "PTV GTFS", position: [-37.80053784, 144.97818436] },
+  { name: "King William St/Brunswick St #14", locality: "PTV GTFS", position: [-37.80270321, 144.97780729] },
+  { name: "Gertrude St/Brunswick St #13", locality: "PTV GTFS", position: [-37.80559663, 144.97731947] },
+  { name: "St Vincents Plaza/Victoria Pde #12", locality: "PTV GTFS", position: [-37.80827390, 144.97631501] },
+  { name: "Albert St/Gisborne St #11", locality: "PTV GTFS", position: [-37.80939028, 144.97572795] },
+  { name: "Parliament Railway Station/Macarthur St #10", locality: "PTV GTFS", position: [-37.81244860, 144.97434947] },
+  { name: "Spring St/Collins St #8", locality: "PTV GTFS", position: [-37.81353855, 144.97327462] },
+  { name: "Exhibition St/Collins St #7", locality: "PTV GTFS", position: [-37.81435556, 144.97048055] },
+  { name: "Melbourne Town Hall/Collins St #6", locality: "PTV GTFS", position: [-37.81568334, 144.96595711] },
+  { name: "Elizabeth St/Collins St #5", locality: "PTV GTFS", position: [-37.81639699, 144.96344972] },
+  { name: "William St/Collins St #3", locality: "PTV GTFS", position: [-37.81756122, 144.95938493] },
+  { name: "Spencer St/Collins St #1", locality: "PTV GTFS", position: [-37.81884589, 144.95499861] },
+  { name: "Southern Cross Station/Collins St #D14", locality: "PTV GTFS", position: [-37.81966206, 144.95218145] },
+  { name: "Batman's Hill/Collins St #D15", locality: "PTV GTFS", position: [-37.82024859, 144.95015445] },
+  { name: "Harbour Esp/Collins St #D16", locality: "PTV GTFS", position: [-37.82081807, 144.94818470] },
+  { name: "Merchant St/Collins St #D17", locality: "PTV GTFS", position: [-37.82151400, 144.94520032] },
+  { name: "Bourke St/Collins St #D18", locality: "PTV GTFS", position: [-37.82081855, 144.94201596] },
+];
+
+const ROUTE_11_WEST_PRESTON_STOP_DATA: Array<{ name: string; locality: string; position: [number, number] }> = [
+  { name: "Bourke St/Collins St #D18", locality: "PTV GTFS", position: [-37.82078292, 144.94203967] },
+  { name: "Merchant St/Collins St #D17", locality: "PTV GTFS", position: [-37.82145630, 144.94550865] },
+  { name: "Harbour Esp/Collins St #D16", locality: "PTV GTFS", position: [-37.82080570, 144.94799191] },
+  { name: "Batman's Hill/Collins St #D15", locality: "PTV GTFS", position: [-37.82009180, 144.95046552] },
+  { name: "Southern Cross Station/Collins St #D14", locality: "PTV GTFS", position: [-37.81948862, 144.95257249] },
+  { name: "Spencer St/Collins St #1", locality: "PTV GTFS", position: [-37.81870592, 144.95524103] },
+  { name: "William St/Collins St #3", locality: "PTV GTFS", position: [-37.81739736, 144.95980976] },
+  { name: "Elizabeth St/Collins St #5", locality: "PTV GTFS", position: [-37.81624916, 144.96376050] },
+  { name: "Melbourne Town Hall/Collins St #6", locality: "PTV GTFS", position: [-37.81551769, 144.96627972] },
+  { name: "Exhibition St/Collins St #7", locality: "PTV GTFS", position: [-37.81422456, 144.97072269] },
+  { name: "Spring St/Collins St #8", locality: "PTV GTFS", position: [-37.81341597, 144.97348244] },
+  { name: "Parliament Railway Station/Macarthur St #10", locality: "PTV GTFS", position: [-37.81217073, 144.97443658] },
+  { name: "Albert St/Gisborne St #11", locality: "PTV GTFS", position: [-37.80969458, 144.97560605] },
+  { name: "Gertrude St/Brunswick St #13", locality: "PTV GTFS", position: [-37.80585453, 144.97711935] },
+  { name: "Hanover St/Brunswick St #14", locality: "PTV GTFS", position: [-37.80283501, 144.97761062] },
+  { name: "Bell St/Brunswick St #15", locality: "PTV GTFS", position: [-37.80044523, 144.97803924] },
+  { name: "Johnston St/Brunswick St #16", locality: "PTV GTFS", position: [-37.79853129, 144.97836400] },
+  { name: "Leicester St/Brunswick St #17", locality: "PTV GTFS", position: [-37.79562886, 144.97885197] },
+  { name: "Alexandra Pde/Brunswick St #18", locality: "PTV GTFS", position: [-37.79362503, 144.97919049] },
+  { name: "Newry St/Brunswick St #19", locality: "PTV GTFS", position: [-37.79080346, 144.97966482] },
+  { name: "Fitzroy Bowls Club/Brunswick St #20", locality: "PTV GTFS", position: [-37.78829657, 144.98009648] },
+  { name: "Alfred Cres/St Georges Rd #21", locality: "PTV GTFS", position: [-37.78542589, 144.98191198] },
+  { name: "Scotchmer St/St Georges Rd #22", locality: "PTV GTFS", position: [-37.78340992, 144.98364732] },
+  { name: "Park St/St Georges Rd #23", locality: "PTV GTFS", position: [-37.78150928, 144.98527725] },
+  { name: "Holden St/St Georges Rd #24", locality: "PTV GTFS", position: [-37.78007062, 144.98651987] },
+  { name: "Miller St/St Georges Rd #25", locality: "PTV GTFS", position: [-37.77801932, 144.98830133] },
+  { name: "Clarke St/St Georges Rd #26", locality: "PTV GTFS", position: [-37.77592635, 144.98975457] },
+  { name: "Westbourne Gr/St Georges Rd #27", locality: "PTV GTFS", position: [-37.77380673, 144.99017529] },
+  { name: "Sumner Ave/St Georges Rd #28", locality: "PTV GTFS", position: [-37.77157059, 144.99063320] },
+  { name: "Arthurton Rd/St Georges Rd #29", locality: "PTV GTFS", position: [-37.76856211, 144.99124820] },
+  { name: "Gladstone Ave/St Georges Rd #30", locality: "PTV GTFS", position: [-37.76529375, 144.99194965] },
+  { name: "Bird Ave/St Georges Rd #31", locality: "PTV GTFS", position: [-37.76241020, 144.99249306] },
+  { name: "Normanby Ave/St Georges Rd #32", locality: "PTV GTFS", position: [-37.75922271, 144.99318084] },
+  { name: "Hutton St/St Georges Rd #33", locality: "PTV GTFS", position: [-37.75566608, 144.99388989] },
+  { name: "Miller St/St Georges Rd #34", locality: "PTV GTFS", position: [-37.75204240, 144.99489576] },
+  { name: "Bracken Ave/Miller St #36", locality: "PTV GTFS", position: [-37.75144068, 144.99131409] },
+  { name: "Miller St/Gilbert Rd #37", locality: "PTV GTFS", position: [-37.75031243, 144.98804183] },
+  { name: "Oakover Rd/Gilbert Rd #38", locality: "PTV GTFS", position: [-37.74808317, 144.98837460] },
+  { name: "Latona Ave/Gilbert Rd #39", locality: "PTV GTFS", position: [-37.74563926, 144.98880394] },
+  { name: "Bell St/Gilbert Rd #40", locality: "PTV GTFS", position: [-37.74407502, 144.98902787] },
+  { name: "Bruce St/Gilbert Rd #41", locality: "PTV GTFS", position: [-37.74131642, 144.98949972] },
+  { name: "Cramer St/Gilbert Rd #42", locality: "PTV GTFS", position: [-37.73909615, 144.98983215] },
+  { name: "Murray Rd/Gilbert Rd #43", locality: "PTV GTFS", position: [-37.73671452, 144.99021430] },
+  { name: "Cooper St/Gilbert Rd #44", locality: "PTV GTFS", position: [-37.73454006, 144.99059083] },
+  { name: "Jacka St/Gilbert Rd #45", locality: "PTV GTFS", position: [-37.73299440, 144.99084821] },
+  { name: "McNamara St/Gilbert Rd #46", locality: "PTV GTFS", position: [-37.73005621, 144.99135880] },
+  { name: "West Preston/Gilbert Rd #47", locality: "PTV GTFS", position: [-37.72918594, 144.99158656] },
+];
+
+const ROUTE_11_ROUTE_LINE: [number, number][] = ROUTE_11_DOCKLANDS_STOP_DATA.map((stop) => stop.position);
+
+const ROUTE_11_DOCKLANDS_SURFACE_STOPS: SurfaceStop[] = ROUTE_11_DOCKLANDS_STOP_DATA.map((stop, index) => ({
+  id: `route-11-docklands-${index + 1}`,
+  name: stop.name,
+  locality: stop.locality,
+  position: stop.position,
+  subtitle: "Route 11 tram stop",
+  modes: ["tram"],
+  routeLabel: "11",
+  departures: ROUTE_11_DOCKLANDS_DEPARTURES,
+}));
+
+const ROUTE_11_WEST_PRESTON_SURFACE_STOPS: SurfaceStop[] = ROUTE_11_WEST_PRESTON_STOP_DATA.map((stop, index) => ({
+  id: `route-11-west-preston-${index + 1}`,
+  name: stop.name,
+  locality: stop.locality,
+  position: stop.position,
+  subtitle: "Route 11 tram stop",
+  modes: ["tram"],
+  routeLabel: "11",
+  departures: ROUTE_11_WEST_PRESTON_DEPARTURES,
+}));
+
+const ROUTE_67_CARNEGIE_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "67", destination: "Carnegie", departureLabel: "4 min", statusLabel: "Tram due", note: "Southbound" },
+  { route: "67", destination: "Melbourne University", departureLabel: "11 min", statusLabel: "Scheduled", note: "Northbound" },
+  { route: "67", destination: "Carnegie", departureLabel: "19 min", statusLabel: "Scheduled", note: "Via Glenhuntly Rd" },
+];
+
+const ROUTE_67_UNIVERSITY_DEPARTURES: SurfaceStopDeparture[] = [
+  { route: "67", destination: "Melbourne University", departureLabel: "3 min", statusLabel: "Tram due", note: "Northbound" },
+  { route: "67", destination: "Carnegie", departureLabel: "10 min", statusLabel: "Scheduled", note: "Southbound" },
+  { route: "67", destination: "Melbourne University", departureLabel: "18 min", statusLabel: "Scheduled", note: "Via Swanston St" },
+];
+
+const ROUTE_67_CARNEGIE_STOP_DATA: Array<{ name: string; locality: string; position: [number, number] }> = [
+  { name: "Melbourne University/Swanston St #1", locality: "PTV GTFS", position: [-37.79930548, 144.96419183] },
+  { name: "Lincoln Square/Swanston St #3", locality: "PTV GTFS", position: [-37.80236978, 144.96368745] },
+  { name: "Queensberry St/Swanston St #4", locality: "PTV GTFS", position: [-37.80569411, 144.96310774] },
+  { name: "RMIT University/Swanston St #7", locality: "PTV GTFS", position: [-37.80813946, 144.96329043] },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "PTV GTFS", position: [-37.81038237, 144.96427381] },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "PTV GTFS", position: [-37.81319863, 144.96558229] },
+  { name: "City Square/Swanston St #11", locality: "PTV GTFS", position: [-37.81637753, 144.96701723] },
+  { name: "Federation Square/Swanston St #13", locality: "PTV GTFS", position: [-37.81847551, 144.96795936] },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "PTV GTFS", position: [-37.82184570, 144.96951422] },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "PTV GTFS", position: [-37.82474278, 144.97080951] },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "PTV GTFS", position: [-37.82879869, 144.97136874] },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "PTV GTFS", position: [-37.83366407, 144.97340570] },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "PTV GTFS", position: [-37.83595132, 144.97539977] },
+  { name: "Arthur St/St Kilda Rd #23", locality: "PTV GTFS", position: [-37.83885520, 144.97657033] },
+  { name: "Leopold St/St Kilda Rd #24", locality: "PTV GTFS", position: [-37.84115853, 144.97740511] },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "PTV GTFS", position: [-37.84452295, 144.97863142] },
+  { name: "Moubray St/St Kilda Rd #26", locality: "PTV GTFS", position: [-37.84755154, 144.97971927] },
+  { name: "High St/St Kilda Rd #27", locality: "PTV GTFS", position: [-37.84986386, 144.98055399] },
+  { name: "Union St/St Kilda Rd #29", locality: "PTV GTFS", position: [-37.85300170, 144.98170720] },
+  { name: "St Kilda Junction/St Kilda Rd #30", locality: "PTV GTFS", position: [-37.85529579, 144.98253116] },
+  { name: "Barkly St/St Kilda Rd #31", locality: "PTV GTFS", position: [-37.85826072, 144.98358695] },
+  { name: "Alma Rd/St Kilda Rd #32", locality: "PTV GTFS", position: [-37.86098010, 144.98451310] },
+  { name: "Argyle St/St Kilda Rd #33", locality: "PTV GTFS", position: [-37.86208602, 144.98489218] },
+  { name: "Inkerman St/St Kilda Rd #34", locality: "PTV GTFS", position: [-37.86511320, 144.98590098] },
+  { name: "Carlisle St/St Kilda Rd #35", locality: "PTV GTFS", position: [-37.86754374, 144.98680105] },
+  { name: "St Kilda Primary School/Brighton Rd #36", locality: "PTV GTFS", position: [-37.87005858, 144.98841507] },
+  { name: "Chapel St/Brighton Rd #37", locality: "PTV GTFS", position: [-37.87177121, 144.98949396] },
+  { name: "Brunning St/Brighton Rd #38", locality: "PTV GTFS", position: [-37.87280032, 144.99012535] },
+  { name: "Glen Eira Rd/Brighton Rd #39", locality: "PTV GTFS", position: [-37.87663555, 144.99254505] },
+  { name: "Scott St/Brighton Rd #40", locality: "PTV GTFS", position: [-37.87888580, 144.99397335] },
+  { name: "Coleridge St/Brighton Rd #41", locality: "PTV GTFS", position: [-37.88079850, 144.99516076] },
+  { name: "Hotham St/Brighton Rd #42", locality: "PTV GTFS", position: [-37.88295709, 144.99650074] },
+  { name: "Brighton Rd/Glenhuntly Rd #43", locality: "PTV GTFS", position: [-37.88379999, 144.99784232] },
+  { name: "Elsternwick Railway Station/Glenhuntly Rd #44", locality: "PTV GTFS", position: [-37.88414954, 145.00037979] },
+  { name: "Elsternwick Shopping Centre/Glenhuntly Rd #45", locality: "PTV GTFS", position: [-37.88461334, 145.00381246] },
+  { name: "Orrong Rd/Glenhuntly Rd #46", locality: "PTV GTFS", position: [-37.88486171, 145.00570461] },
+  { name: "Shoobra Rd/Glenhuntly Rd #47", locality: "PTV GTFS", position: [-37.88527112, 145.00912745] },
+  { name: "Parkside St/Glenhuntly Rd #48", locality: "PTV GTFS", position: [-37.88564862, 145.01226692] },
+  { name: "Kooyong Rd/Glenhuntly Rd #49", locality: "PTV GTFS", position: [-37.88596297, 145.01487370] },
+  { name: "Royal Pde/Glenhuntly Rd #50", locality: "PTV GTFS", position: [-37.88639071, 145.01833026] },
+  { name: "Hawthorn Rd/Glenhuntly Rd #51", locality: "PTV GTFS", position: [-37.88680896, 145.02176438] },
+  { name: "Jasmine St/Glenhuntly Rd #52", locality: "PTV GTFS", position: [-37.88710990, 145.02412145] },
+  { name: "Glenhuntly Tram Depot/Glenhuntly Rd #53", locality: "PTV GTFS", position: [-37.88745140, 145.02675035] },
+  { name: "Bambra Rd/Glenhuntly Rd #54", locality: "PTV GTFS", position: [-37.88767314, 145.02868885] },
+  { name: "Fallon St/Glenhuntly Rd #55", locality: "PTV GTFS", position: [-37.88793069, 145.03061504] },
+  { name: "Kambrook Rd/Glenhuntly Rd #56", locality: "PTV GTFS", position: [-37.88825137, 145.03308536] },
+  { name: "Clarke Ave/Glenhuntly Rd #57", locality: "PTV GTFS", position: [-37.88850154, 145.03511412] },
+  { name: "Booran Rd/Glenhuntly Rd #58", locality: "PTV GTFS", position: [-37.88879435, 145.03753974] },
+  { name: "Glenhuntly Shops/Glenhuntly Rd #60", locality: "PTV GTFS", position: [-37.88913166, 145.04047590] },
+  { name: "Glen Huntly Railway Station/Glen Huntly Rd  #61", locality: "PTV GTFS", position: [-37.88930730, 145.04182441] },
+  { name: "Grange Rd/Glenhuntly Rd #62", locality: "PTV GTFS", position: [-37.88963266, 145.04459036] },
+  { name: "Maroona Rd/Glenhuntly Rd #63", locality: "PTV GTFS", position: [-37.88993824, 145.04725452] },
+  { name: "Mernda Ave/Glenhuntly Rd #64", locality: "PTV GTFS", position: [-37.89023661, 145.04948679] },
+  { name: "Mimosa Rd/Glenhuntly Rd #65", locality: "PTV GTFS", position: [-37.89051748, 145.05175364] },
+  { name: "Truganini Rd/Glenhuntly Rd #66", locality: "PTV GTFS", position: [-37.89078104, 145.05406646] },
+  { name: "Centre Rd/Truganini Rd #67", locality: "PTV GTFS", position: [-37.89265356, 145.05449476] },
+  { name: "Carnegie/Truganini Rd #68", locality: "PTV GTFS", position: [-37.89386477, 145.05580476] },
+];
+
+const ROUTE_67_UNIVERSITY_STOP_DATA: Array<{ name: string; locality: string; position: [number, number] }> = [
+  { name: "Carnegie/Truganini Rd #68", locality: "PTV GTFS", position: [-37.89386477, 145.05580476] },
+  { name: "Centre Rd/Truganini Rd #67", locality: "PTV GTFS", position: [-37.89269653, 145.05436854] },
+  { name: "Glenhuntly Rd/Truganini Rd #66", locality: "PTV GTFS", position: [-37.89106911, 145.05404750] },
+  { name: "Mimosa Rd/Glenhuntly Rd #65", locality: "PTV GTFS", position: [-37.89071398, 145.05219195] },
+  { name: "Mernda Ave/Glenhuntly Rd #64", locality: "PTV GTFS", position: [-37.89040572, 145.04990306] },
+  { name: "Maroona Rd/Glenhuntly Rd #63", locality: "PTV GTFS", position: [-37.89014321, 145.04765847] },
+  { name: "Grange Rd/Glenhuntly Rd #62", locality: "PTV GTFS", position: [-37.88983839, 145.04503977] },
+  { name: "Glen Huntly Railway Station/Glen Huntly Rd  #61", locality: "PTV GTFS", position: [-37.88954800, 145.04275047] },
+  { name: "Glenhuntly Shops/Glenhuntly Rd #60", locality: "PTV GTFS", position: [-37.88930772, 145.04076688] },
+  { name: "Booran Rd/Glenhuntly Rd #58", locality: "PTV GTFS", position: [-37.88896104, 145.03780822] },
+  { name: "Laura St/Glenhuntly Rd #57", locality: "PTV GTFS", position: [-37.88866994, 145.03548488] },
+  { name: "Kean St/Glenhuntly Rd #56", locality: "PTV GTFS", position: [-37.88841940, 145.03343339] },
+  { name: "Fallon St/Glenhuntly Rd #55", locality: "PTV GTFS", position: [-37.88810811, 145.03098555] },
+  { name: "Bambra Rd/Glenhuntly Rd #54", locality: "PTV GTFS", position: [-37.88783890, 145.02890048] },
+  { name: "Glenhuntly Tram Depot/Glenhuntly Rd #53", locality: "PTV GTFS", position: [-37.88761063, 145.02710997] },
+  { name: "Jasmine St/Glenhuntly Rd #52", locality: "PTV GTFS", position: [-37.88721838, 145.02414129] },
+  { name: "Hawthorn Rd/Glenhuntly Rd #51", locality: "PTV GTFS", position: [-37.88698794, 145.02222579] },
+  { name: "Royal Pde/Glenhuntly Rd #50", locality: "PTV GTFS", position: [-37.88649766, 145.01825917] },
+  { name: "Kooyong Rd/Glenhuntly Rd #49", locality: "PTV GTFS", position: [-37.88610173, 145.01508602] },
+  { name: "Parkside St/Glenhuntly Rd #48", locality: "PTV GTFS", position: [-37.88575632, 145.01224128] },
+  { name: "Shoobra Rd/Glenhuntly Rd #47", locality: "PTV GTFS", position: [-37.88538803, 145.00911293] },
+  { name: "Orrong Rd/Glenhuntly Rd #46", locality: "PTV GTFS", position: [-37.88505052, 145.00621119] },
+  { name: "Elsternwick Shopping Centre/Glenhuntly Rd #45", locality: "PTV GTFS", position: [-37.88475077, 145.00394520] },
+  { name: "Elsternwick Railway Station/Glenhuntly Rd #44", locality: "PTV GTFS", position: [-37.88430576, 145.00055749] },
+  { name: "Brighton Rd/Glenhuntly Rd #43", locality: "PTV GTFS", position: [-37.88390364, 144.99757800] },
+  { name: "Hotham St/Brighton Rd #42", locality: "PTV GTFS", position: [-37.88286431, 144.99634407] },
+  { name: "Coleridge St/Brighton Rd #41", locality: "PTV GTFS", position: [-37.88084218, 144.99507998] },
+  { name: "Scott St/Brighton Rd #40", locality: "PTV GTFS", position: [-37.87894750, 144.99389209] },
+  { name: "Glen Eira Rd/Brighton Rd #39", locality: "PTV GTFS", position: [-37.87595969, 144.99201768] },
+  { name: "Wimbledon Ave/Brighton Rd #38", locality: "PTV GTFS", position: [-37.87288061, 144.99007770] },
+  { name: "St Kilda Primary School/Brighton Rd #36", locality: "PTV GTFS", position: [-37.87012046, 144.98834518] },
+  { name: "Carlisle St/St Kilda Rd #35", locality: "PTV GTFS", position: [-37.86732465, 144.98663650] },
+  { name: "Inkerman St/St Kilda Rd #34", locality: "PTV GTFS", position: [-37.86406917, 144.98545198] },
+  { name: "Argyle St/St Kilda Rd #33", locality: "PTV GTFS", position: [-37.86248255, 144.98489274] },
+  { name: "Alma Rd/St Kilda Rd #32", locality: "PTV GTFS", position: [-37.85994487, 144.98405254] },
+  { name: "Barkly St/St Kilda Rd #31", locality: "PTV GTFS", position: [-37.85796839, 144.98335622] },
+  { name: "St Kilda Junction/St Kilda Rd #30", locality: "PTV GTFS", position: [-37.85503126, 144.98234516] },
+  { name: "Union St/St Kilda Rd #29", locality: "PTV GTFS", position: [-37.85248340, 144.98143720] },
+  { name: "Lorne St/St Kilda Rd #27", locality: "PTV GTFS", position: [-37.84935476, 144.98029512] },
+  { name: "Beatrice St/St Kilda Rd #26", locality: "PTV GTFS", position: [-37.84789461, 144.97975537] },
+  { name: "Commercial Rd/St Kilda Rd #25", locality: "PTV GTFS", position: [-37.84401326, 144.97833851] },
+  { name: "Leopold St/St Kilda Rd #24", locality: "PTV GTFS", position: [-37.84148319, 144.97741896] },
+  { name: "Arthur St/St Kilda Rd #23", locality: "PTV GTFS", position: [-37.83929754, 144.97661506] },
+  { name: "Toorak Rd/St Kilda Rd #22", locality: "PTV GTFS", position: [-37.83547648, 144.97503778] },
+  { name: "Anzac Station/St Kilda Rd #20", locality: "PTV GTFS", position: [-37.83321372, 144.97237268] },
+  { name: "Shrine of Remembrance/St Kilda Rd #19", locality: "PTV GTFS", position: [-37.82893146, 144.97122876] },
+  { name: "Grant St-Police Memorial/St Kilda Rd #17", locality: "PTV GTFS", position: [-37.82427870, 144.97054956] },
+  { name: "Arts Precinct/St Kilda Rd #14", locality: "PTV GTFS", position: [-37.82151653, 144.96923923] },
+  { name: "Federation Square/Swanston St #13", locality: "PTV GTFS", position: [-37.81806508, 144.96767526] },
+  { name: "City Square/Swanston St #11", locality: "PTV GTFS", position: [-37.81572996, 144.96656925] },
+  { name: "Bourke Street Mall/Swanston St #10", locality: "PTV GTFS", position: [-37.81275921, 144.96518542] },
+  { name: "Melbourne Central Station/Swanston St #8", locality: "PTV GTFS", position: [-37.80988909, 144.96388980] },
+  { name: "RMIT University/Swanston St #7", locality: "PTV GTFS", position: [-37.80779872, 144.96286817] },
+  { name: "Queensberry St/Swanston St #4", locality: "PTV GTFS", position: [-37.80513545, 144.96311173] },
+  { name: "Lincoln Square/Swanston St #3", locality: "PTV GTFS", position: [-37.80262884, 144.96355540] },
+  { name: "Melbourne University/Swanston St #1", locality: "PTV GTFS", position: [-37.79876562, 144.96424072] },
+];
+
+const ROUTE_67_ROUTE_LINE: [number, number][] = ROUTE_67_CARNEGIE_STOP_DATA.map((stop) => stop.position);
+
+const ROUTE_67_CARNEGIE_SURFACE_STOPS: SurfaceStop[] = ROUTE_67_CARNEGIE_STOP_DATA.map((stop, index) => ({
+  id: `route-67-carnegie-${index + 1}`,
+  name: stop.name,
+  locality: stop.locality,
+  position: stop.position,
+  subtitle: "Route 67 tram stop",
+  modes: ["tram"],
+  routeLabel: "67",
+  departures: ROUTE_67_CARNEGIE_DEPARTURES,
+}));
+
+const ROUTE_67_UNIVERSITY_SURFACE_STOPS: SurfaceStop[] = ROUTE_67_UNIVERSITY_STOP_DATA.map((stop, index) => ({
+  id: `route-67-university-${index + 1}`,
+  name: stop.name,
+  locality: stop.locality,
+  position: stop.position,
+  subtitle: "Route 67 tram stop",
+  modes: ["tram"],
+  routeLabel: "67",
+  departures: ROUTE_67_UNIVERSITY_DEPARTURES,
+}));
+
+const GENERATED_TRAM_SURFACE_STOPS: SurfaceStop[] = GENERATED_TRAM_ROUTE_BUNDLES.flatMap((bundle) => {
+  const forwardDepartures: SurfaceStopDeparture[] = [
+    {
+      route: bundle.routeLabel,
+      destination: bundle.forwardDestination,
+      departureLabel: "4 min",
+      statusLabel: "Tram due",
+      note: "Live route",
+    },
+    {
+      route: bundle.routeLabel,
+      destination: bundle.reverseDestination,
+      departureLabel: "11 min",
+      statusLabel: "Scheduled",
+      note: "Return service",
+    },
+    {
+      route: bundle.routeLabel,
+      destination: bundle.forwardDestination,
+      departureLabel: "19 min",
+      statusLabel: "Scheduled",
+      note: bundle.longName,
+    },
+  ];
+
+  const reverseDepartures: SurfaceStopDeparture[] = [
+    {
+      route: bundle.routeLabel,
+      destination: bundle.reverseDestination,
+      departureLabel: "3 min",
+      statusLabel: "Tram due",
+      note: "Live route",
+    },
+    {
+      route: bundle.routeLabel,
+      destination: bundle.forwardDestination,
+      departureLabel: "9 min",
+      statusLabel: "Scheduled",
+      note: "Outbound service",
+    },
+    {
+      route: bundle.routeLabel,
+      destination: bundle.reverseDestination,
+      departureLabel: "17 min",
+      statusLabel: "Scheduled",
+      note: bundle.longName,
+    },
+  ];
+
+  return [
+    ...bundle.forwardStops.map((stop, index) => ({
+      id: `generated-tram-${bundle.routeLabel}-forward-${index + 1}`,
+      name: stop.name,
+      locality: stop.locality,
+      position: stop.position,
+      subtitle: `Route ${bundle.routeLabel} tram stop`,
+      modes: ["tram"] as TransportMode[],
+      routeLabel: bundle.routeLabel,
+      departures: forwardDepartures,
+    })),
+    ...bundle.reverseStops.map((stop, index) => ({
+      id: `generated-tram-${bundle.routeLabel}-reverse-${index + 1}`,
+      name: stop.name,
+      locality: stop.locality,
+      position: stop.position,
+      subtitle: `Route ${bundle.routeLabel} tram stop`,
+      modes: ["tram"] as TransportMode[],
+      routeLabel: bundle.routeLabel,
+      departures: reverseDepartures,
+    })),
+  ];
+});
+
 const ANYTRIP_SURFACE_STOPS: SurfaceStop[] = [
-  {
-    id: "au3:6204",
-    name: "Hawthorn Rd/North Rd",
-    locality: "Caulfield South",
-    position: [-37.90128, 145.01994],
-    subtitle: "630 bus stop",
-    modes: ["bus"],
-    routeLabel: "630",
-    departures: [
-      { route: "630", destination: "Monash University", departureLabel: "3 min", statusLabel: "Scheduled", note: "Via Ormond" },
-      { route: "630", destination: "Elwood", departureLabel: "14 min", statusLabel: "Scheduled", note: "Local stopping" },
-      { route: "630", destination: "Monash University", departureLabel: "27 min", statusLabel: "Scheduled", note: "Via North Rd" },
-    ],
-  },
-  {
-    id: "au3:7148",
-    name: "Hawthorn Rd/North Rd",
-    locality: "Brighton East",
-    position: [-37.90141, 145.01875],
-    subtitle: "630 bus stop",
-    modes: ["bus"],
-    routeLabel: "630",
-    departures: [
-      { route: "630", destination: "Elwood", departureLabel: "4 min", statusLabel: "Scheduled", note: "Via Hawthorn Rd" },
-      { route: "630", destination: "Monash University", departureLabel: "12 min", statusLabel: "Scheduled", note: "Cross-town service" },
-      { route: "630", destination: "Elwood", departureLabel: "24 min", statusLabel: "Scheduled", note: "Local stopping" },
-    ],
-  },
-  {
-    id: "au3:19004",
-    name: "North Rd/Hawthorn Rd #63",
-    locality: "Caulfield South",
-    position: [-37.9012, 145.01933],
-    subtitle: "Route 64 tram stop",
-    modes: ["tram"],
-    routeLabel: "64",
-    departures: [
-      { route: "64", destination: "Melbourne University", departureLabel: "2 min", statusLabel: "Tram due", note: "Northbound" },
-      { route: "64", destination: "East Brighton", departureLabel: "9 min", statusLabel: "Scheduled", note: "Southbound" },
-      { route: "64", destination: "Melbourne University", departureLabel: "15 min", statusLabel: "Scheduled", note: "Via St Kilda Rd" },
-    ],
-  },
-  {
-    id: "au3:18417",
-    name: "North Rd/Hawthorn Rd #63",
-    locality: "Brighton East",
-    position: [-37.90157, 145.01907],
-    subtitle: "Route 64 tram stop",
-    modes: ["tram"],
-    routeLabel: "64",
-    departures: [
-      { route: "64", destination: "East Brighton", departureLabel: "1 min", statusLabel: "Tram due", note: "Southbound" },
-      { route: "64", destination: "Melbourne University", departureLabel: "7 min", statusLabel: "Scheduled", note: "Northbound" },
-      { route: "64", destination: "East Brighton", departureLabel: "13 min", statusLabel: "Scheduled", note: "Via Hawthorn Rd" },
-    ],
-  },
-  {
-    id: "au3:19003",
-    name: "Taylor St/Hawthorn Rd #64",
-    locality: "Brighton East",
-    position: [-37.90378, 145.01881],
-    subtitle: "Route 64 tram stop",
-    modes: ["tram"],
-    routeLabel: "64",
-    departures: [
-      { route: "64", destination: "East Brighton", departureLabel: "5 min", statusLabel: "Scheduled", note: "Southbound" },
-      { route: "64", destination: "Melbourne University", departureLabel: "11 min", statusLabel: "Scheduled", note: "Northbound" },
-      { route: "64", destination: "East Brighton", departureLabel: "19 min", statusLabel: "Scheduled", note: "Local stopping" },
-    ],
-  },
+  ...ROUTE_630_SURFACE_STOPS,
+  ...ROUTE_630_MONASH_SURFACE_STOPS,
+  ...ROUTE_1_SOUTH_MELBOURNE_SURFACE_STOPS,
+  ...ROUTE_1_EAST_COBURG_SURFACE_STOPS,
+  ...ROUTE_96_ST_KILDA_SURFACE_STOPS,
+  ...ROUTE_96_EAST_BRUNSWICK_SURFACE_STOPS,
+  ...ROUTE_3_EAST_MALVERN_SURFACE_STOPS,
+  ...ROUTE_3_UNIVERSITY_SURFACE_STOPS,
+  ...ROUTE_5_MALVERN_SURFACE_STOPS,
+  ...ROUTE_5_UNIVERSITY_SURFACE_STOPS,
+  ...ROUTE_6_GLEN_IRIS_SURFACE_STOPS,
+  ...ROUTE_6_MORELAND_SURFACE_STOPS,
+  ...ROUTE_11_DOCKLANDS_SURFACE_STOPS,
+  ...ROUTE_11_WEST_PRESTON_SURFACE_STOPS,
+  ...ROUTE_16_KEW_SURFACE_STOPS,
+  ...ROUTE_16_UNIVERSITY_SURFACE_STOPS,
+  ...ROUTE_67_CARNEGIE_SURFACE_STOPS,
+  ...ROUTE_67_UNIVERSITY_SURFACE_STOPS,
+  ...ROUTE_64_EASTBOUND_SURFACE_STOPS,
+  ...ROUTE_64_WESTBOUND_SURFACE_STOPS,
+  ...GENERATED_TRAM_SURFACE_STOPS,
 ];
 
 export const LINES = {
@@ -1626,6 +3804,14 @@ type DepartureBoardColumn = {
   status: string;
   via: string;
   stops: string[];
+};
+
+type SouthernCrossAccessAlert = {
+  title: string;
+  summary: string;
+  affectedPlatforms: string[];
+  groups: string[];
+  tone: string;
 };
 
 type FreightMovement = {
@@ -1927,7 +4113,7 @@ const CAULFIELD_PLATFORM_BOARD: PlatformBoardEntry[] = [
   {
     platform: "1",
     label: "Platform 1 · City Loop",
-    tone: "bg-slate-500/12 border-slate-400/20 text-slate-100",
+    tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
     services: [
       {
         destination: "City Loop",
@@ -2077,6 +4263,127 @@ const CAULFIELD_PLATFORM_BOARD: PlatformBoardEntry[] = [
         statusLabel: "On Time",
         originLabel: "Origin Flinders Street",
         viaLabel: "Frankston line",
+      },
+    ],
+  },
+];
+
+const DANDENONG_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 · City bound",
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+    services: [
+      {
+        destination: "Town Hall → Watergardens",
+        etaLabel: "14:02",
+        tdnLabel: "TDN C064 → Z453",
+        statusLabel: "On Time",
+        originLabel: "Origin Cranbourne / Pakenham",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "Town Hall → Sunbury",
+        etaLabel: "14:12",
+        tdnLabel: "TDN C458 → Z049",
+        statusLabel: "1m late",
+        originLabel: "Origin Pakenham corridor",
+        viaLabel: "Metro Tunnel",
+      },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 · Cranbourne / Pakenham",
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+    services: [
+      {
+        destination: "Cranbourne",
+        etaLabel: "14:09",
+        tdnLabel: "TDN C447",
+        statusLabel: "On Time",
+        originLabel: "Origin Town Hall",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "East Pakenham",
+        etaLabel: "14:19",
+        tdnLabel: "TDN C049",
+        statusLabel: "On Time",
+        originLabel: "Origin Town Hall",
+        viaLabel: "Metro Tunnel",
+      },
+    ],
+  },
+  {
+    platform: "3",
+    label: "Platform 3 · Gippsland regional",
+    tone: "bg-violet-500/12 border-violet-400/20 text-violet-100",
+    services: [
+      {
+        destination: "Southern Cross",
+        etaLabel: "14:24",
+        tdnLabel: "TDN 8420",
+        statusLabel: "Westbound",
+        originLabel: "Origin Traralgon",
+        viaLabel: "Gippsland line",
+      },
+      {
+        destination: "Traralgon",
+        etaLabel: "14:44",
+        tdnLabel: "TDN 8421",
+        statusLabel: "Eastbound",
+        originLabel: "Origin Southern Cross",
+        viaLabel: "Gippsland line",
+      },
+    ],
+  },
+];
+
+const CLAYTON_PLATFORM_BOARD: PlatformBoardEntry[] = [
+  {
+    platform: "1",
+    label: "Platform 1 Â· City bound / Gippsland westbound",
+    tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
+    services: [
+      {
+        destination: "Town Hall â†’ Watergardens",
+        etaLabel: "14:08",
+        tdnLabel: "TDN C064 â†’ Z453",
+        statusLabel: "On Time",
+        originLabel: "Origin Cranbourne / Pakenham",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "Southern Cross",
+        etaLabel: "14:36",
+        tdnLabel: "TDN 8420",
+        statusLabel: "Regional express",
+        originLabel: "Origin Traralgon",
+        viaLabel: "Gippsland line",
+      },
+    ],
+  },
+  {
+    platform: "2",
+    label: "Platform 2 Â· Pakenham / Gippsland eastbound",
+    tone: "bg-violet-500/12 border-violet-400/20 text-violet-100",
+    services: [
+      {
+        destination: "East Pakenham",
+        etaLabel: "14:19",
+        tdnLabel: "TDN C049",
+        statusLabel: "On Time",
+        originLabel: "Origin Town Hall",
+        viaLabel: "Metro Tunnel",
+      },
+      {
+        destination: "Traralgon",
+        etaLabel: "14:44",
+        tdnLabel: "TDN 8421",
+        statusLabel: "Regional express",
+        originLabel: "Origin Southern Cross",
+        viaLabel: "Gippsland line",
       },
     ],
   },
@@ -2570,6 +4877,23 @@ const SOUTHERN_CROSS_PLATFORM_1_SERVICES = [
   },
 ];
 
+const SOUTHERN_CROSS_ACCESS_ALERTS: SouthernCrossAccessAlert[] = [
+  {
+    title: "Southern Cross Escalator Upgrade Project",
+    summary: "We’re upgrading the escalators on platforms 9–14 to make them more efficient and reliable.",
+    affectedPlatforms: ["9/10", "11/12", "13/14"],
+    groups: ["Burnley Loop", "Northern Loop", "Caulfield Loop", "Through suburban"],
+    tone: "border-amber-400/20 bg-amber-500/10 text-amber-50",
+  },
+  {
+    title: "Southern Cross Platforms 11 and 12",
+    summary: "There is limited escalator access for passengers exiting Platforms 11/12 onto the Collins Street concourse.",
+    affectedPlatforms: ["11/12"],
+    groups: ["Northern Loop", "Caulfield Loop"],
+    tone: "border-cyan-400/20 bg-cyan-500/10 text-cyan-50",
+  },
+];
+
 const FREIGHT_MOVEMENT_BOARD: Record<string, FreightMovement[]> = {
   "North Melbourne": [
     {
@@ -2879,6 +5203,12 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
   if (station.name === "Caulfield") {
     return CAULFIELD_PLATFORM_BOARD;
   }
+  if (station.name === "Clayton") {
+    return CLAYTON_PLATFORM_BOARD;
+  }
+  if (station.name === "Dandenong") {
+    return DANDENONG_PLATFORM_BOARD;
+  }
   if (station.name === "Flinders Street") {
     return FLINDERS_STREET_PLATFORM_BOARD;
   }
@@ -2948,6 +5278,11 @@ function renderPlatformBoardCard(
   stationName: string,
   platform: PlatformBoardEntry,
   indexOffset = 0,
+  onServiceClick?: (
+    stationName: string,
+    platform: PlatformBoardEntry,
+    service: PlatformBoardEntry["services"][number],
+  ) => void,
 ) {
   if (platform.platform === "MT") {
     const primaryService = platform.services[0];
@@ -2970,7 +5305,11 @@ function renderPlatformBoardCard(
           </p>
           {primaryService && (
             <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-              <div className="min-w-0">
+              <button
+                type="button"
+                onClick={() => onServiceClick?.(stationName, platform, primaryService)}
+                className="min-w-0 text-left transition hover:opacity-90"
+              >
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span className="text-[2rem] font-semibold leading-none text-slate-950">
                     {primaryService.etaLabel}
@@ -2995,7 +5334,7 @@ function renderPlatformBoardCard(
                   )}
                   <span>{primaryService.statusLabel ?? "Scheduled"}</span>
                 </div>
-              </div>
+              </button>
               <div className="shrink-0 bg-black px-4 py-2 text-[2rem] font-semibold leading-none text-white shadow-[0_6px_16px_rgba(0,0,0,0.25)]">
                 {formatMetroTunnelCountdown(primaryService, "5 min")}
               </div>
@@ -3007,9 +5346,11 @@ function renderPlatformBoardCard(
           <div className="border-t border-black/10 bg-white px-4 py-3">
             <div className="space-y-3">
               {secondaryServices.map((service, index) => (
-                <div
+                <button
+                  type="button"
+                  onClick={() => onServiceClick?.(stationName, platform, service)}
                   key={`${platform.platform}-${service.destination}-${index}`}
-                  className="grid gap-3 border-l-[6px] border-l-[#279FD5] border-t border-black/15 pt-3 first:border-t-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
+                  className="grid w-full gap-3 border-l-[6px] border-l-[#279FD5] border-t border-black/15 pt-3 text-left transition hover:opacity-90 first:border-t-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
                 >
                   <div className="min-w-0 pl-3">
                     <p className="text-[1.8rem] font-semibold leading-none text-slate-950">
@@ -3038,7 +5379,7 @@ function renderPlatformBoardCard(
                   <div className="shrink-0 bg-black px-4 py-2 text-[2rem] font-semibold leading-none text-white shadow-[0_6px_16px_rgba(0,0,0,0.25)]">
                     {formatMetroTunnelCountdown(service, index === 0 ? "13 min" : "24 min")}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -3069,6 +5410,11 @@ function renderPlatformBoardCard(
                 key={`${platform.platform}-${service.destination}-${index}`}
                 className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/15 px-2.5 py-1.5"
               >
+                <button
+                  type="button"
+                  onClick={() => onServiceClick?.(stationName, platform, service)}
+                  className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left transition hover:opacity-90"
+                >
                 <div className="min-w-0">
                   <p className="truncate text-xs font-semibold text-white">{display.destination}</p>
                   {(display.originLabel || display.viaLabel) && (
@@ -3095,6 +5441,7 @@ function renderPlatformBoardCard(
                 <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/85">
                   {service.etaLabel}
                 </span>
+                </button>
               </div>
             );
           })
@@ -3161,6 +5508,157 @@ function getPlatformServiceDisplay(
     originLabel,
     viaLabel,
   };
+}
+
+function normaliseServiceMatchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\bline\b/g, "")
+    .replace(/\bstreet\b/g, "st")
+    .replace(/city loop/g, "city loop")
+    .replace(/\s*(?:â†’|->|Ã¢â€ â€™)\s*/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractServiceTdnCandidates(tdnLabel?: string) {
+  if (!tdnLabel) return [];
+
+  return [...new Set(
+    tdnLabel
+      .replace(/^TDN\s+/i, "")
+      .split(/\s*(?:â†’|->|Ã¢â€ â€™)\s*/g)
+      .map((part) => part.trim().toUpperCase())
+      .filter(Boolean),
+  )];
+}
+
+function stripTdnPrefix(tdnLabel?: string) {
+  if (!tdnLabel) return "";
+  return tdnLabel.replace(/^TDN\s+/i, "").trim();
+}
+
+function isRegionalSetIdentifier(value?: string | null) {
+  if (!value) return false;
+  return /^V\d{3,4}$/i.test(value.trim());
+}
+
+function getPlatformLineHints(
+  stationName: string,
+  platform: PlatformBoardEntry,
+  service: PlatformBoardEntry["services"][number],
+) {
+  const display = getPlatformServiceDisplay(stationName, platform.label, service);
+  const searchable = normaliseServiceMatchText(
+    `${platform.label} ${service.destination} ${display.destination} ${display.originLabel ?? ""} ${display.viaLabel ?? ""}`,
+  );
+
+  const hints = new Set<string>();
+  const hintMap: Array<[string, string]> = [
+    ["frankston", "frankston"],
+    ["werribee", "werribee"],
+    ["williamstown", "williamstown"],
+    ["sandringham", "sandringham"],
+    ["sunbury", "sunbury"],
+    ["watergardens", "sunbury"],
+    ["cranbourne", "cranbourne"],
+    ["pakenham", "pakenham"],
+    ["mernda", "mernda"],
+    ["hurstbridge", "hurstbridge"],
+    ["lilydale", "lilydale"],
+    ["belgrave", "belgrave"],
+    ["alamein", "alamein"],
+    ["glen waverley", "glen waverley"],
+    ["craigieburn", "craigieburn"],
+    ["upfield", "upfield"],
+    ["traralgon", "traralgon"],
+    ["geelong", "geelong"],
+    ["waurn ponds", "waurn ponds"],
+    ["wendouree", "ballarat"],
+    ["ballarat", "ballarat"],
+    ["bendigo", "bendigo"],
+    ["shepparton", "shepparton"],
+  ];
+
+  hintMap.forEach(([needle, value]) => {
+    if (searchable.includes(needle)) {
+      hints.add(value);
+    }
+  });
+
+  return [...hints];
+}
+
+function getRegionalTrainTypeLabel(vehicle: LiveTrain) {
+  if (!isVlineLiveTrain(vehicle)) {
+    return vehicle.trainType;
+  }
+
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn}`.toUpperCase();
+  const genericRegionalLabel =
+    !vehicle.trainType.trim() ||
+    /^(REGIONAL TRAIN|TRAIN|V\/LINE|VLINE|UNKNOWN)$/i.test(vehicle.trainType.trim());
+  const setMentions = joined.match(/\bV\d{3,4}\b/g) ?? [];
+  const inferredCars =
+    /6[\s-]?CAR|SIX[\s-]?CAR/.test(joined) || setMentions.length >= 2
+      ? 6
+      : 3;
+
+  if (/SPRINTER/.test(joined)) {
+    return "Sprinter";
+  }
+
+  if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) {
+    return genericRegionalLabel ? "N class" : vehicle.trainType;
+  }
+
+  if (/VLOCITY/.test(joined) || setMentions.length > 0) {
+    return `VLocity (${inferredCars}-car)`;
+  }
+
+  return genericRegionalLabel ? "Regional train" : vehicle.trainType;
+}
+
+function getRegionalAllocatedSetLabel(vehicle: LiveTrain) {
+  const candidates = [vehicle.consist, vehicle.tdn]
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return candidates.find((value) => isRegionalSetIdentifier(value)) ?? candidates[0] ?? "";
+}
+
+function getVehicleAlertKeywords(vehicle: LiveTrain, snapshot?: ConsistSnapshot) {
+  const keywords = new Set<string>();
+  const pushKeyword = (value?: string | null) => {
+    if (!value) return;
+    const normalised = normaliseServiceMatchText(value);
+    if (normalised.length >= 4) {
+      keywords.add(normalised);
+    }
+  };
+
+  pushKeyword(vehicle.line);
+  pushKeyword(vehicle.destination);
+  pushKeyword(snapshot?.current_trip?.origin);
+  pushKeyword(snapshot?.current_trip?.destination);
+  pushKeyword(snapshot?.next_trip?.origin);
+  pushKeyword(snapshot?.next_trip?.destination);
+  pushKeyword(snapshot?.position?.current_stop);
+  pushKeyword(snapshot?.position?.next_stop);
+
+  if (normaliseServiceMatchText(vehicle.line) === "upfield") {
+    pushKeyword("upfield");
+    pushKeyword("craigieburn");
+    pushKeyword("northern");
+  }
+
+  if (normaliseServiceMatchText(vehicle.line) === "frankston") {
+    pushKeyword("frankston");
+    pushKeyword("stony point");
+    pushKeyword("caulfield");
+  }
+
+  return [...keywords];
 }
 
 function offsetPolylineCoordinates(
@@ -3329,13 +5827,20 @@ function renderStationMarkers(
   strokeColor: string,
   resolveStation: (station: Station) => Station,
   onSelectStation: (station: Station) => void,
+  onToggleStationLine?: (station: Station) => boolean,
 ) {
   return stations.map((station) => {
     const resolvedStation = resolveStation(station);
-    const isCityLoopPill = CITY_LOOP_PILL_STATIONS.has(resolvedStation.name);
+    const isCityLoopPill =
+      CITY_LOOP_PILL_STATIONS.has(resolvedStation.name) || SPECIAL_PILL_STATIONS.has(resolvedStation.name);
     const isSharedCaulfieldMetroStation = CAULFIELD_METRO_SHARED_STATIONS.has(resolvedStation.name);
+    const isSharedNorthernStation = NORTHERN_SHARED_STATIONS.has(resolvedStation.name);
+    const isCraigieburnLineStation = CRAIGIEBURN_LINE_STATION_NAMES.has(resolvedStation.name);
     const shouldRenderOnce =
-      SINGLE_RENDER_STATIONS.has(resolvedStation.name) || isSharedCaulfieldMetroStation;
+      SINGLE_RENDER_STATIONS.has(resolvedStation.name) ||
+      SPECIAL_PILL_STATIONS.has(resolvedStation.name) ||
+      isSharedCaulfieldMetroStation ||
+      isSharedNorthernStation;
     const isCombinedLoopInterchange = COMBINED_LOOP_INTERCHANGES.has(resolvedStation.name);
     const stationRenderKey = isCombinedLoopInterchange
       ? "Melbourne Central / State Library"
@@ -3364,18 +5869,13 @@ function renderStationMarkers(
           pane="stationPane"
           zIndexOffset={3400}
           eventHandlers={{
-            click: () => onSelectStation(resolvedStation),
+            click: () => {
+              if (!onToggleStationLine?.(resolvedStation)) {
+                onSelectStation(resolvedStation);
+              }
+            },
           }}
-        >
-          <Popup>
-            <div className="p-3 w-48">
-              <p className="font-semibold text-white">{markerName}</p>
-              <p className="text-xs text-white/60 mt-1">
-                {getStationDetails(resolvedStation)}
-              </p>
-            </div>
-          </Popup>
-        </Marker>
+        />
       );
     }
 
@@ -3386,23 +5886,32 @@ function renderStationMarkers(
         pane="stationPane"
         radius={5}
         pathOptions={{
-          color: isSharedCaulfieldMetroStation ? "#0f172a" : strokeColor,
-          fillColor: isSharedCaulfieldMetroStation ? "#ffffff" : fillColor,
+          color: isSharedCaulfieldMetroStation || isCraigieburnLineStation ? "#0f172a" : strokeColor,
+          fillColor: isSharedCaulfieldMetroStation || isCraigieburnLineStation ? "#ffffff" : fillColor,
           fillOpacity: 1,
-          weight: isSharedCaulfieldMetroStation ? 3 : 2,
+          weight: isSharedCaulfieldMetroStation || isCraigieburnLineStation ? 3 : 2,
         }}
         eventHandlers={{
-          click: () => onSelectStation(resolvedStation),
+          click: () => {
+            if (!onToggleStationLine?.(resolvedStation)) {
+              onSelectStation(resolvedStation);
+            }
+          },
         }}
       >
-        <Popup>
-          <div className="p-3 w-48">
-            <p className="font-semibold text-white">{resolvedStation.name}</p>
-            <p className="text-xs text-white/60 mt-1">
-              {getStationDetails(resolvedStation)}
-            </p>
-          </div>
-        </Popup>
+        {isCraigieburnLineStation ? (
+          <Tooltip
+            permanent
+            direction="bottom"
+            offset={[0, 10]}
+            opacity={1}
+            className="border-0 bg-transparent p-0 shadow-none"
+          >
+            <div className="rounded-full bg-slate-950/88 px-2 py-0.5 text-[10px] font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.45)]">
+              {resolvedStation.name}
+            </div>
+          </Tooltip>
+        ) : null}
       </CircleMarker>
     );
   });
@@ -3448,8 +5957,7 @@ function renderSurfaceStops(
       center={stop.position}
       radius={5}
       pathOptions={{
-        color: strokeColor,
-        fillColor,
+        ...getSurfaceRouteColors(stop.routeLabel, fillColor, strokeColor),
         fillOpacity: 0.98,
         weight: 2,
       }}
@@ -3473,6 +5981,72 @@ function renderSurfaceStops(
         </div>
       </Popup>
     </CircleMarker>
+  ));
+}
+
+function getDebugPointLabel(index: number) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  if (index < alphabet.length) {
+    return alphabet[index];
+  }
+
+  const first = Math.floor(index / alphabet.length) - 1;
+  const second = index % alphabet.length;
+  return `${alphabet[Math.max(0, first)]}${alphabet[second]}`;
+}
+
+function createDebugPointIcon(label: string, color: string) {
+  return L.divIcon({
+    html: `
+      <div style="
+        min-width:22px;
+        height:22px;
+        padding:0 6px;
+        border-radius:9999px;
+        background:rgba(15,23,42,0.92);
+        border:1px solid ${color};
+        color:${color};
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        font-size:11px;
+        font-weight:700;
+        box-shadow:0 4px 10px rgba(0,0,0,0.45);
+      ">
+        ${label}
+      </div>
+    `,
+    className: "bg-transparent border-none",
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  });
+}
+
+function renderTrackDebugMarkers(
+  trackName: string,
+  points: Array<{ position: [number, number]; index: number }>,
+  color: string,
+) {
+  return points.map((point, labelIndex) => (
+    <Marker
+      key={`${trackName}-debug-${point.index}`}
+      position={point.position}
+      icon={createDebugPointIcon(getDebugPointLabel(labelIndex), color)}
+      pane="stationPane"
+      zIndexOffset={3600}
+    >
+      <Popup>
+        <div className="p-3 w-64">
+          <p className="font-semibold text-white">
+            {trackName}[{point.index}]
+          </p>
+          <p className="mt-1 text-xs text-white/70">Label {getDebugPointLabel(labelIndex)}</p>
+          <p className="mt-2 text-xs break-all text-white/60">
+            [{point.position[0]}, {point.position[1]}]
+          </p>
+        </div>
+      </Popup>
+    </Marker>
   ));
 }
 
@@ -3516,26 +6090,98 @@ const TRARALGON_REGIONAL_PROFILE: RegionalServiceProfile = {
   platform: "15",
   stops: [
     { time: "05:54", name: "Traralgon", platform: "1", side: "Right", delayMinutes: 0 },
+    { time: "05:59", name: "Morwell Industrial Sidings", note: "Express", delayMinutes: 0 },
+    { time: "06:00", name: "Maryvale Sidings", note: "Express", delayMinutes: 0 },
+    { time: "06:02", name: "Morwell East", note: "Express", delayMinutes: 0 },
     { time: "06:02", name: "Morwell", platform: "1", side: "Right", delayMinutes: 0 },
+    { time: "06:03", name: "Morwell Loop", note: "Express", delayMinutes: 0 },
+    { time: "06:04", name: "Morwell Loop West", note: "Express", delayMinutes: 0 },
+    { time: "06:07", name: "Herne's Oak", note: "Express", delayMinutes: 0 },
     { time: "06:12", name: "Moe", platform: "1", side: "Left", delayMinutes: 0 },
+    { time: "06:12", name: "Moe West Junction", note: "Express", delayMinutes: 0 },
     { time: "06:18", name: "Trafalgar", delayMinutes: 0 },
     { time: "06:24", name: "Yarragon", delayMinutes: 0 },
     { time: "06:32", name: "Warragul", delayMinutes: 0 },
     { time: "06:38", name: "Drouin", delayMinutes: 0 },
     { time: "06:44", name: "Longwarry", platform: "1", side: "Left", delayMinutes: 0 },
     { time: "06:48", name: "Bunyip", platform: "1", side: "Left", delayMinutes: 0 },
+    { time: "06:50", name: "Bunyip West", note: "Express", delayMinutes: 0 },
     { time: "06:52", name: "Garfield", delayMinutes: 0 },
     { time: "06:56", name: "Tynong", delayMinutes: 0 },
     { time: "07:00", name: "Nar Nar Goon", delayMinutes: 0 },
+    { time: "07:02", name: "Pakenham MTM Boundary", note: "Express", delayMinutes: 0 },
+    { time: "07:06", name: "Pakenham East", note: "Express", delayMinutes: 0 },
+    { time: "07:08", name: "East Pakenham", note: "Express", delayMinutes: 0 },
     { time: "07:10", name: "Pakenham", platform: "1", side: "Left", delayMinutes: -1 },
+    { time: "07:13", name: "Cardinia Road", platform: "1", side: "Left", note: "Express", delayMinutes: -1 },
+    { time: "07:14", name: "Officer", platform: "1", side: "Left", note: "Express", delayMinutes: -1 },
+    { time: "07:17", name: "Beaconsfield", platform: "1", side: "Right", note: "Express", delayMinutes: -1 },
+    { time: "07:19", name: "Berwick", platform: "1", side: "Right", note: "Express", delayMinutes: -1 },
+    { time: "07:21", name: "Narre Warren", platform: "1", side: "Left", note: "Express", delayMinutes: -1 },
+    { time: "07:23", name: "Hallam", platform: "1", side: "Left", note: "Express", delayMinutes: -1 },
+    { time: "07:25", name: "General Motors", side: "Waypoint", delayMinutes: -1 },
+    { time: "07:27", name: "Dandenong East Junction", side: "Waypoint", delayMinutes: -1 },
     { time: "07:28", name: "Dandenong", delayMinutes: -1 },
+    { time: "07:30", name: "Yarraman", platform: "1", side: "Right", note: "Express", delayMinutes: -1 },
+    { time: "07:32", name: "Noble Park", platform: "1", side: "Right", note: "Express", delayMinutes: -1 },
+    { time: "07:34", name: "Sandown Park", platform: "1", side: "Right", note: "Express", delayMinutes: -1 },
     { time: "07:35", name: "Springvale", platform: "1", side: "Left", note: "Express", delayMinutes: -1 },
+    { time: "07:37", name: "Westall", note: "Express", delayMinutes: 0 },
     { time: "07:39", name: "Clayton", platform: "1", side: "Right", delayMinutes: 0 },
+    { time: "07:42", name: "Huntingdale", platform: "1", side: "Right", note: "Express", delayMinutes: 0 },
     { time: "07:45", name: "Oakleigh", platform: "1", side: "Left", note: "Express", delayMinutes: 0 },
+    { time: "07:47", name: "Hughesdale", platform: "1", side: "Right", note: "Express", delayMinutes: -1 },
+    { time: "07:48", name: "Murrumbeena", platform: "1", side: "Right", note: "Express", delayMinutes: -1 },
+    { time: "07:49", name: "Carnegie", platform: "1", side: "Right", note: "Express", delayMinutes: -1 },
     { time: "07:52", name: "Caulfield", delayMinutes: -1 },
+    { time: "07:54", name: "Malvern", note: "Express", delayMinutes: -1 },
+    { time: "07:56", name: "Armadale", note: "Express", delayMinutes: -1 },
+    { time: "07:57", name: "Toorak", note: "Express", delayMinutes: -1 },
+    { time: "07:58", name: "Hawksburn", note: "Express", delayMinutes: -1 },
+    { time: "08:00", name: "South Yarra", note: "Express", delayMinutes: -1 },
     { time: "08:02", name: "Richmond", delayMinutes: -1 },
     { time: "08:11", name: "Flinders Street", delayMinutes: -6 },
+    { time: "08:14", name: "Viaduct Junction", side: "Waypoint", delayMinutes: -2 },
     { time: "08:15", name: "Southern Cross", platform: "15", side: "Right", delayMinutes: 0 },
+  ],
+};
+
+const WAURN_PONDS_REGIONAL_PROFILE: RegionalServiceProfile = {
+  line: "Waurn Ponds",
+  accent: "#7c3aed",
+  serviceType: "Express Service",
+  origin: "Southern Cross",
+  destination: "Waurn Ponds",
+  window: "14:30 - 15:48",
+  duration: "1h 18m",
+  platform: "4A",
+  stops: [
+    { time: "14:30", name: "Southern Cross", platform: "4A", side: "Right", delayMinutes: 1 },
+    { time: "14:31", name: "North Melbourne Junction", side: "Waypoint", delayMinutes: 1 },
+    { time: "14:33", name: "South Kensington Junction", side: "Waypoint", delayMinutes: 1 },
+    { time: "14:34", name: "South Kensington", note: "Express", delayMinutes: 2 },
+    { time: "14:38", name: "Footscray", delayMinutes: 3 },
+    { time: "14:39", name: "Middle Footscray", platform: "2", side: "Right", note: "Express", delayMinutes: 3 },
+    { time: "14:39", name: "West Footscray", platform: "2", side: "Left", note: "Express", delayMinutes: 3 },
+    { time: "14:41", name: "Tottenham", platform: "2", side: "Right", note: "Express", delayMinutes: 3 },
+    { time: "14:41", name: "White City", side: "Waypoint", delayMinutes: 3 },
+    { time: "14:43", name: "Sunshine", delayMinutes: 4 },
+    { time: "14:46", name: "Ardeer", note: "Express", delayMinutes: 4 },
+    { time: "14:48", name: "Deer Park", delayMinutes: 5 },
+    { time: "14:57", name: "Robinsons Road Junction", note: "Express", delayMinutes: 4 },
+    { time: "14:57", name: "Tarneit", delayMinutes: 4 },
+    { time: "15:04", name: "Wyndham Vale", delayMinutes: 6 },
+    { time: "15:12", name: "Little River", delayMinutes: 6 },
+    { time: "15:18", name: "Lara", delayMinutes: 6 },
+    { time: "15:22", name: "Corio", note: "Express", delayMinutes: 6 },
+    { time: "15:24", name: "North Shore", delayMinutes: 6 },
+    { time: "15:26", name: "North Geelong A Box", note: "Express", delayMinutes: 6 },
+    { time: "15:27", name: "North Geelong", delayMinutes: 7 },
+    { time: "15:34", name: "Geelong", delayMinutes: 5 },
+    { time: "15:37", name: "South Geelong", delayMinutes: 7 },
+    { time: "15:39", name: "Geelong Racecourse", note: "Express", delayMinutes: 7 },
+    { time: "15:42", name: "Marshall", delayMinutes: 7 },
+    { time: "15:48", name: "Waurn Ponds", delayMinutes: 5 },
   ],
 };
 
@@ -3551,6 +6197,18 @@ function getRegionalServiceProfile(vehicle: LiveTrain, snapshot?: ConsistSnapsho
         snapshot?.current_trip
           ? `${formatRouteWindow(snapshot.current_trip.departs)} - ${formatRouteWindow(snapshot.current_trip.arrives)}`
           : TRARALGON_REGIONAL_PROFILE.window,
+    };
+  }
+
+  if (joined.includes("waurn ponds")) {
+    return {
+      ...WAURN_PONDS_REGIONAL_PROFILE,
+      origin: snapshot?.current_trip?.origin ?? WAURN_PONDS_REGIONAL_PROFILE.origin,
+      destination: snapshot?.current_trip?.destination ?? WAURN_PONDS_REGIONAL_PROFILE.destination,
+      window:
+        snapshot?.current_trip
+          ? `${formatRouteWindow(snapshot.current_trip.departs)} - ${formatRouteWindow(snapshot.current_trip.arrives)}`
+          : WAURN_PONDS_REGIONAL_PROFILE.window,
     };
   }
 
@@ -3592,10 +6250,91 @@ function formatDistanceLabel(distanceMetres: number) {
   return `${(distanceMetres / 1000).toFixed(1)} km away`;
 }
 
+function isGenericRegionalPlaceholder(value?: string | null) {
+  const normalised = value?.trim().toLowerCase() ?? "";
+  return !normalised || normalised === "v/line" || normalised === "vline" || normalised === "unknown";
+}
+
+function getPolylinePointDistanceMetres(position: [number, number], line: [number, number][]) {
+  return line.reduce((closest, point) => Math.min(closest, getDistanceInMetres(position, point)), Number.POSITIVE_INFINITY);
+}
+
+function getRegionalFallbackMeta(
+  vehicle: Pick<LiveTrain, "lat" | "lng" | "line" | "destination" | "serviceDescription" | "direction">,
+) {
+  if (!isVlineLiveTrain(vehicle)) {
+    return null;
+  }
+
+  const joined = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  const cityBound =
+    vehicle.direction === "city-bound" ||
+    vehicle.direction === "up" ||
+    /southern cross|flinders street|melbourne central|flagstaff|parliament|city/i.test(vehicle.destination);
+
+  const explicitMetas = [
+    { match: /(waurn ponds|geelong|warrnambool)/, outbound: "Waurn Ponds", inbound: "Southern Cross", serviceLabel: "Geelong line" },
+    { match: /(ballarat|wendouree|ararat|maryborough)/, outbound: "Ballarat", inbound: "Southern Cross", serviceLabel: "Ballarat line" },
+    { match: /(bendigo|castlemaine|echuca|swan hill)/, outbound: "Bendigo", inbound: "Southern Cross", serviceLabel: "Bendigo line" },
+    { match: /(seymour|shepparton|albury|wallan|broadford|tallarook)/, outbound: "Seymour", inbound: "Southern Cross", serviceLabel: "Seymour line" },
+    { match: /(traralgon|bairnsdale|sale|morwell|moe)/, outbound: "Bairnsdale", inbound: "Southern Cross", serviceLabel: "Gippsland line" },
+  ] as const;
+
+  for (const meta of explicitMetas) {
+    if (meta.match.test(joined)) {
+      return {
+        ...meta,
+        origin: cityBound ? meta.outbound : meta.inbound,
+        destination: cityBound ? meta.inbound : meta.outbound,
+      };
+    }
+  }
+
+  const position: [number, number] = [vehicle.lat, vehicle.lng];
+  const inferredMetas = [
+    {
+      outbound: "Waurn Ponds",
+      inbound: "Southern Cross",
+      serviceLabel: "Geelong line",
+      distance: getPolylinePointDistanceMetres(position, GEELONG_LINE),
+    },
+    {
+      outbound: "Bairnsdale",
+      inbound: "Southern Cross",
+      serviceLabel: "Gippsland line",
+      distance: getPolylinePointDistanceMetres(position, GIPPSLAND_LINE),
+    },
+    {
+      outbound: "Ballarat / Bendigo / Seymour",
+      inbound: "Southern Cross",
+      serviceLabel: "Regional west line",
+      distance: getPolylinePointDistanceMetres(position, BALLARAT_SHARED_VLINE_TRUNK),
+    },
+  ];
+
+  const closest = inferredMetas.sort((left, right) => left.distance - right.distance)[0];
+  if (!closest) {
+    return null;
+  }
+
+  return {
+    ...closest,
+    origin: cityBound ? closest.outbound : closest.inbound,
+    destination: cityBound ? closest.inbound : closest.outbound,
+  };
+}
+
 function getVehicleServiceSummary(vehicle: LiveTrain) {
   const route = vehicle.serviceDescription?.trim();
   if (route) {
     return route;
+  }
+
+  if (isGenericRegionalPlaceholder(vehicle.line) || isGenericRegionalPlaceholder(vehicle.destination)) {
+    const regionalMeta = getRegionalFallbackMeta(vehicle);
+    if (regionalMeta) {
+      return `${regionalMeta.serviceLabel} service to ${regionalMeta.destination}`;
+    }
   }
 
   return `${vehicle.line} to ${vehicle.destination}`.trim();
@@ -3650,7 +6389,7 @@ function getVehicleOriginFallback(vehicle: LiveTrain) {
       case "metro tunnel":
         return "Cranbourne / Pakenham";
       case "v/line":
-        return "Regional origin";
+        return getRegionalFallbackMeta(vehicle)?.origin ?? "Regional origin";
       default:
         return `${vehicle.line} origin`;
     }
@@ -3660,7 +6399,7 @@ function getVehicleOriginFallback(vehicle: LiveTrain) {
     case "metro tunnel":
       return "Sunbury / Watergardens";
     case "v/line":
-      return "Southern Cross";
+      return getRegionalFallbackMeta(vehicle)?.origin ?? "Southern Cross";
     case "traralgon":
       return "Southern Cross";
     default:
@@ -3678,6 +6417,13 @@ function getVehicleStoppingPattern(vehicle: LiveTrain) {
     return "Traralgon express service to Southern Cross";
   }
 
+  if (isGenericRegionalPlaceholder(vehicle.line) || isGenericRegionalPlaceholder(vehicle.destination)) {
+    const regionalMeta = getRegionalFallbackMeta(vehicle);
+    if (regionalMeta) {
+      return `${regionalMeta.serviceLabel} service to ${regionalMeta.destination}`;
+    }
+  }
+
   return `${vehicle.line} line service to ${vehicle.destination}`;
 }
 
@@ -3691,6 +6437,55 @@ function getVehicleWindowLabel(snapshot: ConsistSnapshot | undefined, vehicle: L
   }
 
   return vehicle.timestamp ? "Live now" : "Waiting";
+}
+
+function normaliseVehicleLineText(vehicle: Pick<LiveTrain, "line" | "destination" | "serviceDescription">) {
+  return `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+}
+
+function getRegionalLayerVisibility(
+  vehicle: Pick<LiveTrain, "line" | "destination" | "serviceDescription">,
+  layers: LayerState,
+) {
+  const joined = normaliseVehicleLineText(vehicle);
+
+  if (/(waurn ponds|geelong|warrnambool)/i.test(joined)) return layers.geelongRegional;
+  if (/(ballarat|wendouree|ararat|maryborough)/i.test(joined)) return layers.ballaratRegional;
+  if (/(bendigo|castlemaine|echuca|swan hill)/i.test(joined)) return layers.bendigoRegional;
+  if (/(seymour|shepparton|albury|wallan|broadford|tallarook)/i.test(joined)) return layers.seymourRegional;
+  if (/(traralgon|traralgon|bairnsdale|sale|morwell|moe)/i.test(joined)) return layers.traralgonRegional;
+
+  return true;
+}
+
+function getVehicleLayerVisibility(
+  vehicle: Pick<LiveTrain, "line" | "destination" | "serviceDescription" | "trainType">,
+  layers: LayerState,
+) {
+  const joined = normaliseVehicleLineText(vehicle);
+  const line = vehicle.line.trim().toLowerCase();
+
+  if (isVlineLiveTrain(vehicle)) {
+    return getRegionalLayerVisibility(vehicle, layers);
+  }
+
+  if (/(frankston|stony point)/i.test(joined)) return layers.frankstonLine;
+  if (/(mernda)/i.test(joined)) return layers.merndaLine;
+  if (/(hurstbridge)/i.test(joined)) return layers.hurstbridgeLine;
+  if (/(craigieburn)/i.test(joined)) return layers.craigieburnLine;
+  if (/(upfield)/i.test(joined)) return layers.upfieldLine;
+  if (/(lilydale)/i.test(joined)) return layers.lilydaleLine;
+  if (/(belgrave)/i.test(joined)) return layers.belgraveLine;
+  if (/(alamein)/i.test(joined)) return layers.alameinLine;
+  if (/(glen waverley)/i.test(joined)) return layers.glenWaverleyLine;
+  if (/(sandringham)/i.test(joined)) return layers.sandringhamLine;
+  if (/(werribee|williamstown|altona|newport|laverton)/i.test(joined)) return layers.werribeeLine;
+  if (/(sunbury|watergardens)/i.test(joined)) return layers.sunburyLine || layers.metroTunnel;
+  if (/(cranbourne)/i.test(joined)) return layers.cranbourneLine || layers.metroTunnel;
+  if (/(pakenham|east pakenham)/i.test(joined)) return layers.pakenhamLine || layers.metroTunnel;
+  if (/(metro tunnel|town hall|state library|anzac|arden|parkville)/i.test(joined)) return layers.metroTunnel;
+
+  return true;
 }
 
 function isRouteIdentifier(value: string) {
@@ -3852,6 +6647,10 @@ function getVehicleFormation(vehicle: LiveTrain) {
 }
 
 function getVehicleDisplayType(vehicle: LiveTrain) {
+  if (isVlineLiveTrain(vehicle)) {
+    return getRegionalTrainTypeLabel(vehicle);
+  }
+
   const formation = getVehicleFormation(vehicle);
 
   if (formation.family && formation.cars >= 3) {
@@ -3969,6 +6768,28 @@ function LocationCenterer({ loc }: { loc: [number, number] | null }) {
       map.setView(loc, 13, { animate: true });
     }
   }, [loc, map]);
+
+  return null;
+}
+
+function ViewportListener({
+  onViewportChange,
+}: {
+  onViewportChange: (zoom: number, bounds: L.LatLngBounds) => void;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    const updateViewport = () => onViewportChange(map.getZoom(), map.getBounds());
+    updateViewport();
+    map.on("zoomend", updateViewport);
+    map.on("moveend", updateViewport);
+
+    return () => {
+      map.off("zoomend", updateViewport);
+      map.off("moveend", updateViewport);
+    };
+  }, [map, onViewportChange]);
 
   return null;
 }
@@ -4194,6 +7015,8 @@ export function Map({
   persistedLayerState,
   onLayerStateChange,
   isAdmin = false,
+  isPremium = false,
+  premiumPaypalLink = "",
   showFilterRail = true,
   focusedVehicleKey = null,
   onFocusedVehicleHandled,
@@ -4201,6 +7024,9 @@ export function Map({
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
   const consistData = { active: false } as any;
+  const [activeSurfaceRouteFilters, setActiveSurfaceRouteFilters] = useState<string[]>(
+    () => SURFACE_ROUTE_FILTERS.map((filter) => filter.key),
+  );
 
   const { data } = useGetReports({
     query: { refetchInterval: 30000 },
@@ -4225,6 +7051,15 @@ export function Map({
     refetchInterval: 15000,
     retry: false,
   });
+  const {
+    data: liveTrams = [],
+    isLoading: isLiveTramsLoading,
+  } = useQuery({
+    queryKey: ["/api/ptv/live-trams"],
+    queryFn: fetchLiveTrams,
+    refetchInterval: 15000,
+    retry: false,
+  });
   const { data: featuredConsistSnapshot } = useQuery({
     queryKey: ["consist-snapshot", FEATURED_CONSIST, "featured-marker"],
     queryFn: () => fetchConsistSnapshot(FEATURED_CONSIST),
@@ -4240,7 +7075,12 @@ export function Map({
     | { type: "report"; report: Report }
     | null
   >(null);
+  const [selectedBoardServiceContext, setSelectedBoardServiceContext] = useState<{
+    vehicleKey: string;
+    tdn: string;
+  } | null>(null);
   const selectedVehicle = selectedDetail?.type === "vehicle" ? selectedDetail.vehicle : null;
+  const selectedVehicleKey = selectedVehicle ? getVehicleFocusKey(selectedVehicle) : null;
   const selectedSurfaceStop = selectedDetail?.type === "surfaceStop" ? selectedDetail.stop : null;
   const selectedVehicleSnapshotConsist = selectedVehicle ? getSnapshotConsistId(selectedVehicle.consist) : null;
   const { data: selectedVehicleSnapshot } = useQuery({
@@ -4263,7 +7103,9 @@ export function Map({
     ? selectedVehicleSnapshot?.current_trip?.destination ??
       selectedRegionalProfile?.destination ??
       selectedVehicleSnapshot?.next_trip?.destination ??
-      selectedVehicle.destination
+      (isGenericRegionalPlaceholder(selectedVehicle.destination)
+        ? getRegionalFallbackMeta(selectedVehicle)?.destination ?? selectedVehicle.destination
+        : selectedVehicle.destination)
     : "";
   const selectedVehiclePatternLabel = selectedVehicle
     ? selectedVehicleSnapshot?.current_trip
@@ -4292,7 +7134,43 @@ export function Map({
   const selectedVehicleDurationLabel = selectedRegionalProfile?.duration ?? "Live trip";
   const selectedVehicleDateLabel = selectedVehicle ? formatRegionalServiceDate(selectedVehicle.timestamp) : "";
   const selectedVehicleServiceTypeLabel = selectedRegionalProfile?.serviceType ?? (selectedVehicleIsRegional ? "Regional Service" : "Metro Service");
-  const selectedVehicleJourneyLabel = selectedVehicle ? `TDN ${selectedVehicleSnapshot?.current_trip?.id ?? selectedVehicleSnapshot?.next_trip?.id ?? selectedVehicle.tdn}` : "";
+  const selectedVehicleHeadingLabel = selectedVehicle
+    ? selectedVehicleSnapshot?.current_trip
+      ? `${selectedVehicleSnapshot.current_trip.origin} to ${selectedVehicleSnapshot.current_trip.destination}`
+      : selectedVehicleSnapshot?.next_trip
+        ? `${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
+        : selectedVehicleIsRegional
+          ? `${getRegionalFallbackMeta(selectedVehicle)?.serviceLabel ?? "Regional"} service`
+          : `${selectedDetail?.vehicle.line ?? selectedVehicle.line} service`
+    : "";
+  const selectedVehicleJourneyId = selectedVehicle
+    ? (selectedBoardServiceContext?.vehicleKey === selectedVehicleKey ? selectedBoardServiceContext.tdn : null) ??
+      selectedVehicleSnapshot?.current_trip?.id ??
+      selectedVehicleSnapshot?.next_trip?.id ??
+      (isRegionalSetIdentifier(selectedVehicle.tdn) ? "" : selectedVehicle.tdn)
+    : "";
+  const selectedVehicleJourneyLabel = selectedVehicleJourneyId ? `TDN ${selectedVehicleJourneyId}` : "";
+  const selectedVehicleRegionalSetLabel = selectedVehicleIsRegional && selectedVehicle
+    ? getRegionalAllocatedSetLabel(selectedVehicle)
+    : "";
+  const selectedVehicleTypeLabel = selectedVehicle
+    ? (selectedVehicleIsRegional ? getRegionalTrainTypeLabel(selectedVehicle) : getVehicleDisplayType(selectedVehicle))
+    : "";
+  const selectedVehicleRelevantAlerts = useMemo(() => {
+    if (!selectedVehicleSnapshot?.network_alerts?.length || !selectedVehicle) {
+      return [];
+    }
+
+    const keywords = getVehicleAlertKeywords(selectedVehicle, selectedVehicleSnapshot);
+    if (keywords.length === 0) {
+      return [];
+    }
+
+    return selectedVehicleSnapshot.network_alerts.filter((alert) => {
+      const searchable = normaliseServiceMatchText(alert);
+      return keywords.some((keyword) => searchable.includes(keyword));
+    });
+  }, [selectedVehicle, selectedVehicleSnapshot]);
   const featuredConsistLiveVehicle = useMemo(
     () => liveVehicles.find((vehicle) => vehicle.consist === FEATURED_CONSIST) ?? null,
     [liveVehicles],
@@ -4309,60 +7187,129 @@ export function Map({
       featuredConsistSnapshot?.status === "active" ||
       featuredConsistSnapshot?.position,
   );
+  const [layers, setLayers] = useState<LayerState>({
+    merndaLine: true,
+    hurstbridgeLine: true,
+    cliftonHillLoop: true,
+    frankstonLine: true,
+    cranbourneLine: true,
+    pakenhamLine: true,
+    sunburyLine: true,
+    craigieburnLine: true,
+    upfieldLine: true,
+    lilydaleLine: true,
+    belgraveLine: true,
+    alameinLine: true,
+    glenWaverleyLine: true,
+    northernLoop: true,
+    burnleyLoop: true,
+    metroTunnel: true,
+    werribeeLine: true,
+    sandringhamLine: true,
+    geelongRegional: true,
+    ballaratRegional: true,
+    bendigoRegional: true,
+    seymourRegional: true,
+    traralgonRegional: true,
+    inspectors: true,
+    delays: true,
+    incidents: true,
+    heatCircles: true,
+  });
   const regularLiveVehicles = useMemo(
     () => liveVehicles.filter((vehicle) => vehicle.consist !== FEATURED_CONSIST),
     [liveVehicles],
   );
   const metroLiveVehicles = useMemo(
-    () => regularLiveVehicles.filter((vehicle) => !isVlineLiveTrain(vehicle)),
-    [regularLiveVehicles],
+    () =>
+      regularLiveVehicles.filter(
+        (vehicle) => !isVlineLiveTrain(vehicle) && getVehicleLayerVisibility(vehicle, layers),
+      ),
+    [layers, regularLiveVehicles],
   );
   const vlineLiveVehicles = useMemo(
-    () => regularLiveVehicles.filter((vehicle) => isVlineLiveTrain(vehicle)),
-    [regularLiveVehicles],
+    () =>
+      regularLiveVehicles.filter(
+        (vehicle) => isVlineLiveTrain(vehicle) && getVehicleLayerVisibility(vehicle, layers),
+      ),
+    [layers, regularLiveVehicles],
   );
-  const selectedSurfaceStopLiveBuses = useMemo(() => {
-    if (!selectedSurfaceStop || !selectedSurfaceStop.modes.includes("bus")) {
-      return [];
+  const handlePlatformBoardServiceClick = useCallback(
+    (
+      stationName: string,
+      platform: PlatformBoardEntry,
+      service: PlatformBoardEntry["services"][number],
+    ) => {
+      const tdnCandidates = extractServiceTdnCandidates(service.tdnLabel);
+      const display = getPlatformServiceDisplay(stationName, platform.label, service);
+      const destinationCandidates = [
+        service.destination,
+        display.destination,
+        display.originLabel?.replace(/^Origin\s+/i, ""),
+      ]
+        .filter((value): value is string => Boolean(value && value.trim()))
+        .map((value) => normaliseServiceMatchText(value));
+      const lineHints = getPlatformLineHints(stationName, platform, service);
+
+      const matchedVehicle =
+        liveVehicles.find((vehicle) =>
+          tdnCandidates.some((candidate) => vehicle.tdn.trim().toUpperCase() === candidate),
+        ) ??
+        liveVehicles.find((vehicle) => {
+          const destinationText = normaliseServiceMatchText(vehicle.destination);
+          const lineText = normaliseServiceMatchText(vehicle.line);
+          const descriptionText = normaliseServiceMatchText(vehicle.serviceDescription ?? "");
+          const destinationMatches = destinationCandidates.some(
+            (candidate) =>
+              candidate.length > 0 &&
+              (destinationText.includes(candidate) ||
+                candidate.includes(destinationText) ||
+                lineText.includes(candidate) ||
+                descriptionText.includes(candidate)),
+          );
+          const lineHintMatches =
+            lineHints.length === 0 ||
+            lineHints.some(
+              (hint) =>
+                lineText.includes(normaliseServiceMatchText(hint)) ||
+                descriptionText.includes(normaliseServiceMatchText(hint)),
+            );
+
+          return destinationMatches && lineHintMatches;
+        });
+
+      if (!matchedVehicle) {
+        return;
+      }
+
+      setSelectedBoardServiceContext({
+        vehicleKey: getVehicleFocusKey(matchedVehicle),
+        tdn: stripTdnPrefix(service.tdnLabel),
+      });
+      setSelectedDetail({ type: "vehicle", vehicle: matchedVehicle });
+      mapRef.current?.flyTo([matchedVehicle.lat, matchedVehicle.lng], Math.max(mapRef.current.getZoom(), 14), {
+        animate: true,
+        duration: 0.85,
+      });
+    },
+    [liveVehicles],
+  );
+  useEffect(() => {
+    if (!selectedBoardServiceContext) {
+      return;
     }
 
-    return liveBuses
-      .map((bus) => ({
-        bus,
-        distanceMetres: getDistanceInMetres(selectedSurfaceStop.position, [bus.lat, bus.lng]),
-      }))
-      .filter(({ bus, distanceMetres }) => bus.route === selectedSurfaceStop.routeLabel && distanceMetres <= 3000)
-      .sort((left, right) => left.distanceMetres - right.distanceMetres)
-      .slice(0, 4);
-  }, [liveBuses, selectedSurfaceStop]);
+    if (!selectedVehicleKey || selectedBoardServiceContext.vehicleKey !== selectedVehicleKey) {
+      setSelectedBoardServiceContext(null);
+    }
+  }, [selectedBoardServiceContext, selectedVehicleKey]);
   const [isMarkerEditMode, setIsMarkerEditMode] = useState(false);
   const [draftMarkerOverrides, setDraftMarkerOverrides] = useState<Record<string, MarkerOverride>>({});
+  const [hoveredVehicleKey, setHoveredVehicleKey] = useState<string | null>(null);
+  const [mapZoom, setMapZoom] = useState(13);
+  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
 
   const [userLoc, setUserLoc] = useState<[number, number] | null>(null);
-const [layers, setLayers] = useState<LayerState>({
-  merndaLine: true,
-  hurstbridgeLine: true,
-  cliftonHillLoop: true,
-  frankstonLine: true,
-  cranbourneLine: true,
-  pakenhamLine: true,
-  sunburyLine: true,
-  craigieburnLine: true,
-  upfieldLine: true,
-  lilydaleLine: true,
-  belgraveLine: true,
-  alameinLine: true,
-  glenWaverleyLine: true,
-  northernLoop: true,
-  burnleyLoop: true,
-  metroTunnel: true,
-  werribeeLine: true,
-  sandringhamLine: true,
-  inspectors: true,
-  delays: true,
-  incidents: true,
-  heatCircles: true,
-});
 
   const { data: markerOverrides = [], refetch: refetchMarkerOverrides } = useQuery({
     queryKey: ["admin-marker-overrides"],
@@ -4524,19 +7471,64 @@ const [layers, setLayers] = useState<LayerState>({
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
+  const toggleStationPillLine = useCallback((station: Station) => {
+    switch (station.name) {
+      case "Frankston":
+        setLayers((prev) => ({ ...prev, frankstonLine: !prev.frankstonLine }));
+        return true;
+      case "Pakenham":
+        setLayers((prev) => ({ ...prev, pakenhamLine: !prev.pakenhamLine }));
+        return true;
+      case "Dandenong":
+        setLayers((prev) => ({
+          ...prev,
+          pakenhamLine: !(prev.pakenhamLine || prev.cranbourneLine),
+          cranbourneLine: !(prev.pakenhamLine || prev.cranbourneLine),
+        }));
+        return true;
+      case "Caulfield":
+      case "Malvern":
+      case "Clayton":
+        setLayers((prev) => {
+          const nextValue = !(prev.frankstonLine || prev.pakenhamLine || prev.cranbourneLine);
+          return {
+            ...prev,
+            frankstonLine: nextValue,
+            pakenhamLine: nextValue,
+            cranbourneLine: nextValue,
+          };
+        });
+        return true;
+      default:
+        return false;
+    }
+  }, []);
+
   const renderedStationKeys = new Set<string>();
 
   const toggleServiceFilter = useCallback((filter: ServiceFilterKey) => {
-    if (filter === "vline") {
-      const nextModes = transportModes.includes("vline")
-        ? transportModes.filter((mode) => mode !== "vline")
-        : [...transportModes, "vline"];
-      onTransportModesChange?.(nextModes.length > 0 ? nextModes : [...DEFAULT_TRANSPORT_MODES]);
-      return;
+    const shouldForceShowRegional = !transportModes.includes("vline") && (
+      filter === "geelongRegionalGroup" ||
+      filter === "ballaratRegionalGroup" ||
+      filter === "bendigoRegionalGroup" ||
+      filter === "seymourRegionalGroup" ||
+      filter === "traralgonRegionalGroup"
+    );
+    if (shouldForceShowRegional) {
+      onTransportModesChange?.([...transportModes, "vline"]);
     }
-
     setLayers((prev) => {
       switch (filter) {
+        case "geelongRegionalGroup":
+          return { ...prev, geelongRegional: shouldForceShowRegional ? true : !prev.geelongRegional };
+        case "ballaratRegionalGroup":
+          return { ...prev, ballaratRegional: shouldForceShowRegional ? true : !prev.ballaratRegional };
+        case "bendigoRegionalGroup":
+          return { ...prev, bendigoRegional: shouldForceShowRegional ? true : !prev.bendigoRegional };
+        case "seymourRegionalGroup":
+          return { ...prev, seymourRegional: shouldForceShowRegional ? true : !prev.seymourRegional };
+        case "traralgonRegionalGroup":
+          return { ...prev, traralgonRegional: shouldForceShowRegional ? true : !prev.traralgonRegional };
         case "metroTunnelServices":
           return {
             ...prev,
@@ -4603,10 +7595,90 @@ const [layers, setLayers] = useState<LayerState>({
     });
   }, [onTransportModesChange, transportModes]);
 
+  const isSurfaceRouteFilterActive = useCallback(
+    (filter: SurfaceRouteFilter) =>
+      transportModes.includes(filter.mode) && activeSurfaceRouteFilters.includes(filter.key),
+    [activeSurfaceRouteFilters, transportModes],
+  );
+
+  const toggleSurfaceRouteFilter = useCallback(
+    (filter: SurfaceRouteFilter) => {
+      if (!transportModes.includes(filter.mode)) {
+        onTransportModesChange?.([...transportModes, filter.mode]);
+      }
+
+      setActiveSurfaceRouteFilters((prev) =>
+        prev.includes(filter.key) ? prev.filter((key) => key !== filter.key) : [...prev, filter.key],
+      );
+    },
+    [onTransportModesChange, transportModes],
+  );
+
+  const isSurfaceRouteVisible = useCallback(
+    (mode: Extract<TransportMode, "tram" | "bus">, routeLabel: string) => {
+      const matchingFilter = SURFACE_ROUTE_FILTERS.find(
+        (filter) => filter.mode === mode && filter.route === routeLabel,
+      );
+
+      if (!matchingFilter) {
+        const modeFilterKeys = SURFACE_ROUTE_FILTERS.filter((filter) => filter.mode === mode).map((filter) => filter.key);
+        return modeFilterKeys.every((key) => activeSurfaceRouteFilters.includes(key));
+      }
+
+      return activeSurfaceRouteFilters.includes(matchingFilter.key);
+    },
+    [activeSurfaceRouteFilters],
+  );
+
+  const visibleLiveBuses = useMemo(
+    () => liveBuses.filter((bus) => isSurfaceRouteVisible("bus", bus.route)),
+    [isSurfaceRouteVisible, liveBuses],
+  );
+  const visibleLiveTrams = useMemo(
+    () => liveTrams.filter((tram) => isSurfaceRouteVisible("tram", tram.route)),
+    [isSurfaceRouteVisible, liveTrams],
+  );
+  const selectedSurfaceStopLiveBuses = useMemo(() => {
+    if (!selectedSurfaceStop || !selectedSurfaceStop.modes.includes("bus")) {
+      return [];
+    }
+
+    return visibleLiveBuses
+      .map((bus) => ({
+        bus,
+        distanceMetres: getDistanceInMetres(selectedSurfaceStop.position, [bus.lat, bus.lng]),
+      }))
+      .filter(({ bus, distanceMetres }) => bus.route === selectedSurfaceStop.routeLabel && distanceMetres <= 3000)
+      .sort((left, right) => left.distanceMetres - right.distanceMetres)
+      .slice(0, 4);
+  }, [selectedSurfaceStop, visibleLiveBuses]);
+  const selectedSurfaceStopLiveTrams = useMemo(() => {
+    if (!selectedSurfaceStop || !selectedSurfaceStop.modes.includes("tram")) {
+      return [];
+    }
+
+    return visibleLiveTrams
+      .map((tram) => ({
+        tram,
+        distanceMetres: getDistanceInMetres(selectedSurfaceStop.position, [tram.lat, tram.lng]),
+      }))
+      .filter(({ tram, distanceMetres }) => tram.route === selectedSurfaceStop.routeLabel && distanceMetres <= 3000)
+      .sort((left, right) => left.distanceMetres - right.distanceMetres)
+      .slice(0, 4);
+  }, [selectedSurfaceStop, visibleLiveTrams]);
+
   const isServiceFilterActive = useCallback((filter: ServiceFilterKey) => {
     switch (filter) {
-      case "vline":
-        return transportModes.includes("vline");
+      case "geelongRegionalGroup":
+        return transportModes.includes("vline") && layers.geelongRegional;
+      case "ballaratRegionalGroup":
+        return transportModes.includes("vline") && layers.ballaratRegional;
+      case "bendigoRegionalGroup":
+        return transportModes.includes("vline") && layers.bendigoRegional;
+      case "seymourRegionalGroup":
+        return transportModes.includes("vline") && layers.seymourRegional;
+      case "traralgonRegionalGroup":
+        return transportModes.includes("vline") && layers.traralgonRegional;
       case "metroTunnelServices":
         return layers.metroTunnel || layers.sunburyLine || layers.cranbourneLine || layers.pakenhamLine;
       case "crossCityPink":
@@ -4663,7 +7735,6 @@ const [layers, setLayers] = useState<LayerState>({
   const liveTrainStatusDetail = hasLiveTrainFeedError
     ? liveTrainsErrorMessage
     : "Tap a train marker or use the planner live list to jump straight into trip tracking.";
-  const shouldShowBusStopFallback = !isLiveBusesLoading && liveBuses.length === 0;
   const visibleServiceFilters = SERVICE_FILTERS.filter((filter) => {
     if (filter.key === "crossCityPink") {
       return !splitCrossCityGroup;
@@ -4679,6 +7750,8 @@ const [layers, setLayers] = useState<LayerState>({
     }
     return true;
   });
+  const visibleTramRouteFilters = SURFACE_ROUTE_FILTERS.filter((filter) => filter.mode === "tram");
+  const visibleBusRouteFilters = SURFACE_ROUTE_FILTERS.filter((filter) => filter.mode === "bus");
   const modeIsTrainVisible = transportModes.includes("train");
   const modeIsBusVisible = transportModes.includes("bus");
   const modeIsTramVisible = transportModes.includes("tram");
@@ -4801,6 +7874,7 @@ const [layers, setLayers] = useState<LayerState>({
           if (mapInstance) mapRef.current = mapInstance;
         }}
       >
+        <ZoomListener onZoomChange={setMapZoom} />
         <Pane name="stationPane" style={{ zIndex: 950 }} />
         {consistData?.active && consistData.currentTrip?.estimatedPos && (
           <Marker
@@ -4890,14 +7964,14 @@ const [layers, setLayers] = useState<LayerState>({
 {modeIsTrainVisible && layers.frankstonLine && (
   <>
   <Polyline
-      positions={offsetPolylineCoordinates(CAUFIELD_LOOP, "right", 0.72)}
+      positions={CAUFIELD_LOOP}
       pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
  />
     <Polyline
       positions={FRANKSTON_TRACK}
       pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
     />
-    {renderStationMarkers(renderedStationKeys, FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine)}
   </>
 )}
 {modeIsTrainVisible && layers.merndaLine && (
@@ -4913,11 +7987,7 @@ const [layers, setLayers] = useState<LayerState>({
 {modeIsTrainVisible && layers.hurstbridgeLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(HURSTBRIDGE_BRANCH_LINE, "left", 0.45)}
-      pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
-    />
-    <Polyline
-      positions={offsetPolylineCoordinates(HURSTBRIDGE_BRANCH_LINE, "right", 0.45)}
+      positions={HURSTBRIDGE_BRANCH_LINE}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
     {renderStationMarkers(renderedStationKeys, HURSTBRIDGE_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
@@ -4935,7 +8005,7 @@ const [layers, setLayers] = useState<LayerState>({
   }}
 />
     <Polyline
-      positions={offsetPolylineCoordinates(CLIFTONHILL_LOOP, "left", 0.14)}
+      positions={CLIFTONHILL_LOOP}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
     {renderStationMarkers(renderedStationKeys, CLIFTONHILLGROUPLOOP_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
@@ -4963,15 +8033,7 @@ const [layers, setLayers] = useState<LayerState>({
 {modeIsTrainVisible && layers.lilydaleLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(LILYDALE_LINE, "left", 0.5)}
-      pathOptions={{
-        color: "#003A8F",
-        weight: 5,
-        opacity: 0.85,
-      }}
-    />
-    <Polyline
-      positions={offsetPolylineCoordinates(LILYDALE_LINE, "right", 0.5)}
+      positions={LILYDALE_LINE}
       pathOptions={{
         color: "#003A8F",
         weight: 5,
@@ -4985,15 +8047,7 @@ const [layers, setLayers] = useState<LayerState>({
 {modeIsTrainVisible && layers.belgraveLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(BELGRAVE_LINE, "left", 0.45)}
-      pathOptions={{
-        color: "#003A8F",
-        weight: 5,
-        opacity: 0.85,
-      }}
-    />
-    <Polyline
-      positions={offsetPolylineCoordinates(BELGRAVE_LINE, "right", 0.45)}
+      positions={BELGRAVE_LINE}
       pathOptions={{
         color: "#003A8F",
         weight: 5,
@@ -5007,15 +8061,7 @@ const [layers, setLayers] = useState<LayerState>({
 {modeIsTrainVisible && layers.alameinLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(ALAMEIN_LINE, "left", 0.3)}
-      pathOptions={{
-        color: "#003A8F",
-        weight: 5,
-        opacity: 0.85,
-      }}
-    />
-    <Polyline
-      positions={offsetPolylineCoordinates(ALAMEIN_LINE, "right", 0.3)}
+      positions={ALAMEIN_LINE}
       pathOptions={{
         color: "#003A8F",
         weight: 5,
@@ -5029,15 +8075,7 @@ const [layers, setLayers] = useState<LayerState>({
 {modeIsTrainVisible && layers.glenWaverleyLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(GLEN_WAVERLEY_LINE, "left", 0.35)}
-      pathOptions={{
-        color: "#003A8F",
-        weight: 5,
-        opacity: 0.85,
-      }}
-    />
-    <Polyline
-      positions={offsetPolylineCoordinates(GLEN_WAVERLEY_LINE, "right", 0.35)}
+      positions={GLEN_WAVERLEY_LINE}
       pathOptions={{
         color: "#003A8F",
         weight: 5,
@@ -5050,7 +8088,7 @@ const [layers, setLayers] = useState<LayerState>({
 {modeIsTrainVisible && layers.craigieburnLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "left", 0.55)}
+      positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "left", 0.3)}
       pathOptions={{
         color: "#FFD200",
         weight: 5,
@@ -5058,11 +8096,11 @@ const [layers, setLayers] = useState<LayerState>({
       }}
     />
     <Polyline
-      positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "right", 0.55)}
+      positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "right", 0.3)}
       pathOptions={{
-        color: "#FFD200",
+        color: "#7c3aed",
         weight: 5,
-        opacity: 0.85,
+        opacity: 0.82,
       }}
     />
     {renderStationMarkers(renderedStationKeys, CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
@@ -5072,15 +8110,7 @@ const [layers, setLayers] = useState<LayerState>({
 {modeIsTrainVisible && layers.upfieldLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(UPFIELD_LINE, "left", 0.45)}
-      pathOptions={{
-        color: "#FFD200",
-        weight: 5,
-        opacity: 0.85,
-      }}
-    />
-    <Polyline
-      positions={offsetPolylineCoordinates(UPFIELD_LINE, "right", 0.45)}
+      positions={UPFIELD_LINE}
       pathOptions={{
         color: "#FFD200",
         weight: 5,
@@ -5104,7 +8134,7 @@ const [layers, setLayers] = useState<LayerState>({
               )}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            {renderStationMarkers(renderedStationKeys, CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine)}
           </>
         )}
 
@@ -5119,10 +8149,14 @@ const [layers, setLayers] = useState<LayerState>({
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
             <Polyline
-              positions={PAKENHAM_POST_HAWKSBURN_LINE}
+              positions={PAKENHAM_HAWKSBURN_TO_CARNEGIE_LINE}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            <Polyline
+              positions={offsetPolylineCoordinates(PAKENHAM_POST_CARNEGIE_LINE, "left", 0.38)}
+              pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
+            />
+            {renderStationMarkers(renderedStationKeys, PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine)}
           </>
         )}
 
@@ -5223,17 +8257,39 @@ const [layers, setLayers] = useState<LayerState>({
 
         {modeIsVlineVisible && (
           <>
-            <Polyline
-              positions={GIPPSLAND_LINE}
-              pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
-            />
-            {renderStationMarkers(
-              renderedStationKeys,
-              GIPPSLAND_STATIONS,
-              "#7c3aed",
-              "#5b21b6",
-              resolveStation,
-              (station) => setSelectedDetail({ type: "station", station }),
+            {(layers.geelongRegional || layers.ballaratRegional || layers.bendigoRegional) && (
+              <Polyline
+                positions={BALLARAT_SHARED_VLINE_TRUNK}
+                pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
+              />
+            )}
+            {layers.geelongRegional && (
+              <Polyline
+                positions={GEELONG_LINE}
+                pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
+              />
+            )}
+            {layers.traralgonRegional && (
+              <>
+                <Polyline
+                  positions={GIPPSLAND_PRE_CARNEGIE_LINE}
+                  pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
+                />
+                <Polyline
+                  positions={offsetPolylineCoordinates(GIPPSLAND_POST_CARNEGIE_LINE, "right", 0.38)}
+                  pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
+                />
+                {renderStationMarkers(
+                  renderedStationKeys,
+                  GIPPSLAND_STATIONS,
+                  "#7c3aed",
+                  "#5b21b6",
+                  resolveStation,
+                  (station) => setSelectedDetail({ type: "station", station }),
+                  toggleStationPillLine,
+                )}
+                {isAdmin ? renderTrackDebugMarkers("BAIRNSDALE_LINE", BAIRNSDALE_DEBUG_TRACK_POINTS, "#c4b5fd") : null}
+              </>
             )}
           </>
         )}
@@ -5344,39 +8400,69 @@ const [layers, setLayers] = useState<LayerState>({
           </Marker>
         )}
         {modeIsTrainVisible &&
-          metroLiveVehicles.map((vehicle) => (
-            <Marker
-              key={`${vehicle.consist}-${vehicle.tdn}`}
-              position={[vehicle.lat, vehicle.lng]}
-              icon={createLiveTrainIcon(vehicle)}
-              zIndexOffset={1200}
-              riseOnHover
-              eventHandlers={{
-                mousedown: () => setSelectedDetail({ type: "vehicle", vehicle }),
-                touchstart: () => setSelectedDetail({ type: "vehicle", vehicle }),
-                click: () => setSelectedDetail({ type: "vehicle", vehicle }),
-                popupopen: () => setSelectedDetail({ type: "vehicle", vehicle }),
-              }}
-            />
-          ))}
+          metroLiveVehicles.map((vehicle) => {
+            const vehicleKey = getVehicleFocusKey(vehicle);
+            const isSelected = selectedVehicleKey === vehicleKey;
+            const isHovered = hoveredVehicleKey === vehicleKey;
+            const priority = getTrainLabelPriority(vehicle);
+            const isZoomedOut = mapZoom <= 13;
+            const hideSecondaryLabel = isZoomedOut && priority !== "high" && !isSelected && !isHovered;
+
+            return (
+              <Marker
+                key={`${vehicle.consist}-${vehicle.tdn}`}
+                position={[vehicle.lat, vehicle.lng]}
+                icon={createLiveTrainIcon(vehicle, {
+                  expanded: isSelected || isHovered,
+                  selected: isSelected,
+                  dimmed: isZoomedOut && priority !== "high" && !isSelected && !isHovered,
+                  hideSecondaryLabel,
+                })}
+                zIndexOffset={isSelected ? 4600 : isHovered ? 4200 : hideSecondaryLabel ? 3600 : 3900}
+                riseOnHover
+                eventHandlers={{
+                  mouseover: () => setHoveredVehicleKey(vehicleKey),
+                  mouseout: () => setHoveredVehicleKey((current) => (current === vehicleKey ? null : current)),
+                  mousedown: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                  touchstart: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                  click: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                  popupopen: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                }}
+              />
+            );
+          })}
         {modeIsVlineVisible &&
-          vlineLiveVehicles.map((vehicle) => (
-            <Marker
-              key={`${vehicle.consist}-${vehicle.tdn}`}
-              position={[vehicle.lat, vehicle.lng]}
-              icon={createLiveTrainIcon(vehicle)}
-              zIndexOffset={1200}
-              riseOnHover
-              eventHandlers={{
-                mousedown: () => setSelectedDetail({ type: "vehicle", vehicle }),
-                touchstart: () => setSelectedDetail({ type: "vehicle", vehicle }),
-                click: () => setSelectedDetail({ type: "vehicle", vehicle }),
-                popupopen: () => setSelectedDetail({ type: "vehicle", vehicle }),
-              }}
-            />
-          ))}
+          vlineLiveVehicles.map((vehicle) => {
+            const vehicleKey = getVehicleFocusKey(vehicle);
+            const isSelected = selectedVehicleKey === vehicleKey;
+            const isHovered = hoveredVehicleKey === vehicleKey;
+            const isZoomedOut = mapZoom <= 13;
+
+            return (
+              <Marker
+                key={`${vehicle.consist}-${vehicle.tdn}`}
+                position={[vehicle.lat, vehicle.lng]}
+                icon={createLiveTrainIcon(vehicle, {
+                  expanded: isSelected || isHovered || mapZoom >= 14.5,
+                  selected: isSelected,
+                  dimmed: false,
+                  hideSecondaryLabel: isZoomedOut && !isSelected && !isHovered,
+                })}
+                zIndexOffset={isSelected ? 4700 : isHovered ? 4300 : 4000}
+                riseOnHover
+                eventHandlers={{
+                  mouseover: () => setHoveredVehicleKey(vehicleKey),
+                  mouseout: () => setHoveredVehicleKey((current) => (current === vehicleKey ? null : current)),
+                  mousedown: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                  touchstart: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                  click: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                  popupopen: () => setSelectedDetail({ type: "vehicle", vehicle }),
+                }}
+              />
+            );
+          })}
         {modeIsBusVisible &&
-          liveBuses.map((bus) => (
+          visibleLiveBuses.map((bus) => (
             <Marker
               key={bus.id}
               position={[bus.lat, bus.lng]}
@@ -5402,7 +8488,41 @@ const [layers, setLayers] = useState<LayerState>({
                   <p className="mt-2 text-sm text-white/85">{bus.destination ?? "Live vehicle position"}</p>
                   <p className="mt-2 text-xs text-white/55">
                     {bus.timestamp
-                      ? `Updated ${formatDistanceToNow(new Date(bus.timestamp), { addSuffix: true })}`
+                      ? `Last reported ${formatDistanceToNow(new Date(bus.timestamp), { addSuffix: true })}`
+                      : "Live feed timestamp unavailable"}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        {modeIsTramVisible &&
+          visibleLiveTrams.map((tram) => (
+            <Marker
+              key={tram.id}
+              position={[tram.lat, tram.lng]}
+              icon={createLiveTramIcon(tram)}
+              zIndexOffset={1100}
+              riseOnHover
+            >
+              <Popup>
+                <div className="w-56 p-3">
+                  <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2">
+                    <div>
+                      <p className="text-sm font-bold text-white">
+                        {tram.route === "Tram" ? "Live tram" : `Route ${tram.route}`}
+                      </p>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-300/80">
+                        {tram.operator ?? "Yarra Trams"}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
+                      Live
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-white/85">{tram.destination ?? "Live vehicle position"}</p>
+                  <p className="mt-2 text-xs text-white/55">
+                    {tram.timestamp
+                      ? `Last reported ${formatDistanceToNow(new Date(tram.timestamp), { addSuffix: true })}`
                       : "Live feed timestamp unavailable"}
                   </p>
                 </div>
@@ -5410,16 +8530,19 @@ const [layers, setLayers] = useState<LayerState>({
             </Marker>
           ))}
         {modeIsBusVisible &&
-          shouldShowBusStopFallback &&
           renderSurfaceStops(
-            ANYTRIP_SURFACE_STOPS.filter((stop) => stop.modes.includes("bus")),
+            ANYTRIP_SURFACE_STOPS.filter(
+              (stop) => stop.modes.includes("bus") && isSurfaceRouteVisible("bus", stop.routeLabel),
+            ),
             "#FF8200",
             "#FF8200",
             (stop) => setSelectedDetail({ type: "surfaceStop", stop }),
           )}
         {modeIsTramVisible &&
           renderSurfaceStops(
-            ANYTRIP_SURFACE_STOPS.filter((stop) => stop.modes.includes("tram")),
+            ANYTRIP_SURFACE_STOPS.filter(
+              (stop) => stop.modes.includes("tram") && isSurfaceRouteVisible("tram", stop.routeLabel),
+            ),
             "#78BE20",
             "#78BE20",
             (stop) => setSelectedDetail({ type: "surfaceStop", stop }),
@@ -5685,6 +8808,68 @@ const [layers, setLayers] = useState<LayerState>({
               );
             })}
           </div>
+
+          <div className="mt-4 space-y-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
+                Tram Routes
+              </p>
+              <div className="mt-2.5 flex flex-col gap-1.5 sm:mt-3 sm:gap-2">
+                {visibleTramRouteFilters.map((filter) => {
+                  const active = isSurfaceRouteFilterActive(filter);
+                  return (
+                    <button
+                      key={filter.key}
+                      type="button"
+                      onClick={() => toggleSurfaceRouteFilter(filter)}
+                      className={`rounded-xl border px-2 py-1.5 text-left transition sm:px-3 sm:py-2 ${
+                        active
+                          ? filter.tone
+                          : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                      }`}
+                    >
+                      <div className="text-[11px] font-semibold leading-tight sm:text-xs">{filter.label}</div>
+                      {filter.description && (
+                        <div className="mt-0.5 text-[9px] font-medium leading-3.5 text-current/75 sm:text-[10px] sm:leading-4">
+                          {filter.description}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
+                Bus Routes
+              </p>
+              <div className="mt-2.5 flex flex-col gap-1.5 sm:mt-3 sm:gap-2">
+                {visibleBusRouteFilters.map((filter) => {
+                  const active = isSurfaceRouteFilterActive(filter);
+                  return (
+                    <button
+                      key={filter.key}
+                      type="button"
+                      onClick={() => toggleSurfaceRouteFilter(filter)}
+                      className={`rounded-xl border px-2 py-1.5 text-left transition sm:px-3 sm:py-2 ${
+                        active
+                          ? filter.tone
+                          : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                      }`}
+                    >
+                      <div className="text-[11px] font-semibold leading-tight sm:text-xs">{filter.label}</div>
+                      {filter.description && (
+                        <div className="mt-0.5 text-[9px] font-medium leading-3.5 text-current/75 sm:text-[10px] sm:leading-4">
+                          {filter.description}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       )}
@@ -5731,15 +8916,13 @@ const [layers, setLayers] = useState<LayerState>({
                 {selectedVehicleIsRegional ? "Regional tracker" : "Train tracker"}
               </p>
               <p className="mt-1.5 text-[1.35rem] font-semibold leading-tight text-white">
-                {selectedVehicleSnapshot?.current_trip
-                  ? `${selectedVehicleSnapshot.current_trip.origin} to ${selectedVehicleSnapshot.current_trip.destination}`
-                  : selectedVehicleSnapshot?.next_trip
-                    ? `${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
-                    : `${selectedDetail.vehicle.line} service`}
+                {selectedVehicleHeadingLabel}
               </p>
-              <p className="mt-1 text-xs text-white/55">
-                TDN {selectedVehicleSnapshot?.current_trip?.id ?? selectedVehicleSnapshot?.next_trip?.id ?? selectedDetail.vehicle.tdn}
-              </p>
+              {selectedVehicleJourneyLabel && (
+                <p className="mt-1 text-xs text-white/55">
+                  {selectedVehicleJourneyLabel}
+                </p>
+              )}
               <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Stopping pattern</p>
                 <p className="mt-1 text-sm font-semibold text-white">
@@ -5797,7 +8980,7 @@ const [layers, setLayers] = useState<LayerState>({
                 </div>
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">Type</p>
-                  <p className="mt-1 text-sm font-semibold text-white">regional train</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{selectedVehicleTypeLabel}</p>
                 </div>
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">Window</p>
@@ -5813,7 +8996,7 @@ const [layers, setLayers] = useState<LayerState>({
                 </div>
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">Journey</p>
-                  <p className="mt-1 text-sm font-semibold text-white">{selectedVehicleJourneyLabel}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{selectedVehicleJourneyLabel || "Live"}</p>
                 </div>
               </div>
             </div>
@@ -5874,7 +9057,7 @@ const [layers, setLayers] = useState<LayerState>({
               <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Type</p>
                 <p className="mt-1 text-sm font-semibold text-white">
-                  {selectedVehicleIsRegional ? "regional train" : getVehicleDisplayType(selectedDetail.vehicle)}
+                  {selectedVehicleTypeLabel}
                 </p>
               </div>
               <div>
@@ -5910,19 +9093,19 @@ const [layers, setLayers] = useState<LayerState>({
                   Train type
                 </p>
                 <p className="mt-2.5 text-xl font-semibold leading-tight text-white">
-                  {getVehicleDisplayType(selectedDetail.vehicle)}
+                  {selectedVehicleTypeLabel}
                 </p>
                 </div>
               </div>
             </div>
 
-            {getDisplayConsist(selectedDetail.vehicle.consist) && (
+            {(selectedVehicleRegionalSetLabel || getDisplayConsist(selectedDetail.vehicle.consist)) && (
               <div className="mt-3 border-t border-white/10 pt-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
-                  Consist
+                  {selectedVehicleIsRegional ? "Allocated set" : "Consist"}
                 </p>
                 <p className="mt-1.5 text-sm font-semibold text-white">
-                  {getDisplayConsist(selectedDetail.vehicle.consist)}
+                  {selectedVehicleRegionalSetLabel || getDisplayConsist(selectedDetail.vehicle.consist)}
                 </p>
               </div>
             )}
@@ -5935,9 +9118,9 @@ const [layers, setLayers] = useState<LayerState>({
               <p className="mt-2.5 text-sm text-white/85">
                 {selectedVehiclePositionEstimateLabel}
               </p>
-              {selectedVehicleSnapshot?.network_alerts?.length ? (
+              {selectedVehicleRelevantAlerts.length ? (
                 <div className="mt-3 rounded-[1.1rem] border border-amber-400/20 bg-amber-500/10 p-3 text-sm text-amber-50/95">
-                  {selectedVehicleSnapshot.network_alerts[0]}
+                  {selectedVehicleRelevantAlerts[0]}
                 </div>
               ) : null}
           </div>
@@ -5955,7 +9138,7 @@ const [layers, setLayers] = useState<LayerState>({
                   <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-200/70">
                     Journey
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-white">{selectedVehicleJourneyLabel}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{selectedVehicleJourneyLabel || "Live"}</p>
                 </div>
                 <span
                   className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white"
@@ -6191,6 +9374,7 @@ const [layers, setLayers] = useState<LayerState>({
                               selectedDetail.station.name,
                               METRO_TUNNEL_CONNECTION_BOARD,
                               100,
+                              handlePlatformBoardServiceClick,
                             )}
                           </div>
                         </div>
@@ -6208,11 +9392,11 @@ const [layers, setLayers] = useState<LayerState>({
 
                         <div className={`mt-2.5 grid gap-2 ${isMetroTunnelConnectorStation ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
                           {platformBoard.map((platform, index) =>
-                            renderPlatformBoardCard(selectedDetail.station.name, platform, index),
+                            renderPlatformBoardCard(selectedDetail.station.name, platform, index, handlePlatformBoardServiceClick),
                           )}
                         </div>
 
-                        {freightMovements.length > 0 && (
+                        {freightMovements.length > 0 && isPremium && (
                           <div className="mt-3 rounded-[1.1rem] border border-amber-400/15 bg-amber-500/[0.06] p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div>
@@ -6264,6 +9448,39 @@ const [layers, setLayers] = useState<LayerState>({
                             </div>
                           </div>
                         )}
+
+                        {freightMovements.length > 0 && !isPremium && (
+                          <div className="mt-3 rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-yellow-200/85">
+                                  Premium
+                                </p>
+                                <p className="mt-1 text-sm font-semibold text-white">
+                                  Freight tracking is part of TransitAlert Premium.
+                                </p>
+                                <p className="mt-1 max-w-[48ch] text-xs leading-relaxed text-white/60">
+                                  Unlock corridor freight timing panels and advanced path visibility for major junction stations.
+                                </p>
+                              </div>
+                              <span className="rounded-full border border-yellow-300/20 bg-yellow-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-yellow-100/85">
+                                Locked
+                              </span>
+                            </div>
+                            {premiumPaypalLink ? (
+                              <a
+                                href={premiumPaypalLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-3 inline-flex rounded-full border border-yellow-300/20 bg-yellow-500/10 px-3 py-1.5 text-[11px] font-semibold text-yellow-100 transition hover:bg-yellow-500/15"
+                              >
+                                Unlock with PayPal
+                              </a>
+                            ) : (
+                              <p className="mt-3 text-xs text-white/50">Add a PayPal premium link in Settings to unlock this feature.</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                     </div>
@@ -6309,6 +9526,7 @@ const [layers, setLayers] = useState<LayerState>({
                 </div>
               </div>
 
+              {isPremium ? (
               <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -6353,6 +9571,36 @@ const [layers, setLayers] = useState<LayerState>({
                   ))}
                 </div>
               </div>
+              ) : (
+              <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-yellow-200/85">
+                      Premium
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-white">Advanced stop schedules are locked.</p>
+                    <p className="mt-1 text-xs text-white/55">
+                      Premium unlocks the next scheduled departures panel for bus and tram stops.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-yellow-300/20 bg-yellow-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-yellow-100/85">
+                    Locked
+                  </span>
+                </div>
+                {premiumPaypalLink ? (
+                  <a
+                    href={premiumPaypalLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex rounded-full border border-yellow-300/20 bg-yellow-500/10 px-3 py-1.5 text-[11px] font-semibold text-yellow-100 transition hover:bg-yellow-500/15"
+                  >
+                    Unlock with PayPal
+                  </a>
+                ) : (
+                  <p className="mt-3 text-xs text-white/50">Add a PayPal premium link in Settings to unlock this feature.</p>
+                )}
+              </div>
+              )}
 
               {selectedDetail.stop.modes.includes("bus") && (
                 <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
@@ -6411,6 +9659,64 @@ const [layers, setLayers] = useState<LayerState>({
                   )}
                 </div>
               )}
+
+              {selectedDetail.stop.modes.includes("tram") && (
+                <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-300/75">
+                        Live track trams
+                      </p>
+                      <p className="mt-1 text-xs text-white/55">
+                        Nearby live trams on route {selectedDetail.stop.routeLabel}.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
+                      {selectedSurfaceStopLiveTrams.length > 0 ? `${selectedSurfaceStopLiveTrams.length} live` : "No live trams"}
+                    </span>
+                  </div>
+
+                  {selectedSurfaceStopLiveTrams.length > 0 ? (
+                    <div className="mt-3 grid gap-2">
+                      {selectedSurfaceStopLiveTrams.map(({ tram, distanceMetres }) => (
+                        <div
+                          key={`${selectedDetail.stop.id}-${tram.id}`}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/15 p-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white">
+                              Route {tram.route} to {tram.destination ?? "Live tram"}
+                            </p>
+                            <p className="mt-1 text-xs text-white/55">
+                              {formatDistanceLabel(distanceMetres)}
+                              {tram.timestamp
+                                ? ` · Last reported ${formatDistanceToNow(new Date(tram.timestamp), { addSuffix: true })}`
+                                : ""}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              mapRef.current?.flyTo([tram.lat, tram.lng], Math.max(mapRef.current?.getZoom() ?? 14, 14), {
+                                animate: true,
+                                duration: 0.85,
+                              });
+                              setSelectedDetail(null);
+                            }}
+                            className="inline-flex rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-500/15"
+                          >
+                            Jump to tram
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-2xl border border-dashed border-white/10 bg-black/10 p-3 text-sm text-white/55">
+                      No route {selectedDetail.stop.routeLabel} trams are reporting live near this stop right now.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -6423,6 +9729,16 @@ const [layers, setLayers] = useState<LayerState>({
 
 export function getFilterChips(filterKey: ServiceFilterKey) {
   switch (filterKey) {
+    case "geelongRegionalGroup":
+      return ["Waurn Ponds", "Warrnambool"];
+    case "ballaratRegionalGroup":
+      return ["Ararat", "Maryborough"];
+    case "bendigoRegionalGroup":
+      return ["Swan Hill", "Echuca"];
+    case "seymourRegionalGroup":
+      return ["Shepparton", "Albury"];
+    case "traralgonRegionalGroup":
+      return ["Bairnsdale"];
     case "metroTunnelServices":
       return [new Date().getMinutes() % 4 === 0 ? "Munnel" : "Metro Tunnel"];
     case "burnleyGroup":

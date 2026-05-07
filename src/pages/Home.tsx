@@ -27,6 +27,8 @@ import {
   DEFAULT_TRANSPORT_MODES,
   defaultPreferences,
   fetchAccountPreferences,
+  getPremiumPaypalLink,
+  hasPremiumAccess,
   mergeLocalPreferences,
   readLocalPreferences,
   saveAccountPreferences,
@@ -442,24 +444,24 @@ function getStationDepartureBoard(stationName: string) {
 function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
   return (
     <div
-      className={`pointer-events-none overflow-hidden rounded-t-[2rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[2rem] ${
-        isOpen ? "translate-y-0" : "translate-y-[calc(100%-78px)]"
+      className={`pointer-events-none overflow-hidden rounded-t-[1.75rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[1.85rem] ${
+        isOpen ? "translate-y-0" : "translate-y-[calc(100%-66px)]"
       }`}
     >
       <button
         onClick={onToggle}
-        className="pointer-events-auto flex w-full flex-col items-center justify-center px-4 pb-3 pt-3 text-white"
+        className="pointer-events-auto flex w-full flex-col items-center justify-center px-4 pb-2.5 pt-2.5 text-white"
         aria-expanded={isOpen}
         aria-label={isOpen ? "Hide planner" : "Show planner"}
       >
-        <span className="mb-3 h-1.5 w-14 rounded-full bg-white/20" />
-        <span className="inline-flex items-center gap-2 rounded-full border border-blue-400/30 bg-blue-600 px-4 py-2 text-sm font-semibold shadow-lg shadow-blue-950/40">
+        <span className="mb-2 h-1.5 w-12 rounded-full bg-white/20" />
+        <span className="inline-flex items-center gap-2 rounded-full border border-blue-400/30 bg-blue-600 px-3.5 py-1.5 text-sm font-semibold shadow-lg shadow-blue-950/35">
           <ChevronUp className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
           {isOpen ? "Hide Planner" : "Show Planner"}
         </span>
       </button>
 
-      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[70vh] overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-5`}>
+      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[64vh] overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-4.5`}>
         {children}
       </div>
     </div>
@@ -608,6 +610,8 @@ export default function Home() {
   const [adminConfigDraft, setAdminConfigDraft] = useState<AdminRuntimeConfig>({});
   const isAdmin = authSession?.user?.isAdmin ?? false;
   const isGuest = authSession?.user?.role === "Guest";
+  const isPremium = hasPremiumAccess(preferences);
+  const premiumPaypalLink = getPremiumPaypalLink(preferences);
 
   const { data: accountPreferences } = useQuery({
     queryKey: ["account-preferences", authSession?.user?.id],
@@ -1158,8 +1162,16 @@ export default function Home() {
 
   const isPlannerFilterActive = (filter: ServiceFilterKey) => {
     switch (filter) {
-      case "vline":
-        return (preferences.transportModes as TransportMode[]).includes("vline");
+      case "geelongRegionalGroup":
+        return (preferences.transportModes as TransportMode[]).includes("vline") && Boolean(layerState.geelongRegional);
+      case "ballaratRegionalGroup":
+        return (preferences.transportModes as TransportMode[]).includes("vline") && Boolean(layerState.ballaratRegional);
+      case "bendigoRegionalGroup":
+        return (preferences.transportModes as TransportMode[]).includes("vline") && Boolean(layerState.bendigoRegional);
+      case "seymourRegionalGroup":
+        return (preferences.transportModes as TransportMode[]).includes("vline") && Boolean(layerState.seymourRegional);
+      case "traralgonRegionalGroup":
+        return (preferences.transportModes as TransportMode[]).includes("vline") && Boolean(layerState.traralgonRegional);
       case "metroTunnelServices":
         return Boolean(layerState.metroTunnel || layerState.sunburyLine || layerState.cranbourneLine || layerState.pakenhamLine);
       case "crossCityPink":
@@ -1193,14 +1205,33 @@ export default function Home() {
   }, [preferences.transportModes, updatePreferences]);
 
   const togglePlannerServiceFilter = useCallback((filter: ServiceFilterKey) => {
-    if (filter === "vline") {
-      togglePlannerTransportMode("vline");
-      return;
-    }
     const prev = layerState;
     let next: Partial<LayerState> = { ...prev };
+    const currentModes = (preferences.transportModes as TransportMode[]) || [...DEFAULT_TRANSPORT_MODES];
+    const shouldForceShowRegional = !currentModes.includes("vline") && (
+      filter === "geelongRegionalGroup" ||
+      filter === "ballaratRegionalGroup" ||
+      filter === "bendigoRegionalGroup" ||
+      filter === "seymourRegionalGroup" ||
+      filter === "traralgonRegionalGroup"
+    );
 
     switch (filter) {
+      case "geelongRegionalGroup":
+        next = { ...prev, geelongRegional: shouldForceShowRegional ? true : !Boolean(prev.geelongRegional) };
+        break;
+      case "ballaratRegionalGroup":
+        next = { ...prev, ballaratRegional: shouldForceShowRegional ? true : !Boolean(prev.ballaratRegional) };
+        break;
+      case "bendigoRegionalGroup":
+        next = { ...prev, bendigoRegional: shouldForceShowRegional ? true : !Boolean(prev.bendigoRegional) };
+        break;
+      case "seymourRegionalGroup":
+        next = { ...prev, seymourRegional: shouldForceShowRegional ? true : !Boolean(prev.seymourRegional) };
+        break;
+      case "traralgonRegionalGroup":
+        next = { ...prev, traralgonRegional: shouldForceShowRegional ? true : !Boolean(prev.traralgonRegional) };
+        break;
       case "metroTunnelServices": {
         const nextValue = !Boolean(prev.metroTunnel);
         next = {
@@ -1279,8 +1310,13 @@ export default function Home() {
         break;
     }
 
-    updatePreferences({ selectedMapFilters: next as Record<string, boolean> });
-  }, [layerState, togglePlannerTransportMode, updatePreferences]);
+    updatePreferences({
+      selectedMapFilters: next as Record<string, boolean>,
+      ...(shouldForceShowRegional
+        ? { transportModes: [...currentModes, "vline"] }
+        : {}),
+    });
+  }, [layerState, preferences.transportModes, updatePreferences]);
 
   const toggleFavouriteStop = (stationName: string) => {
     const exists = preferences.favouriteStops.includes(stationName);
@@ -1593,6 +1629,8 @@ export default function Home() {
         persistedLayerState={preferences.selectedMapFilters}
         onLayerStateChange={(selectedMapFilters) => updatePreferences({ selectedMapFilters: selectedMapFilters as Record<string, boolean> })}
         isAdmin={isAdmin}
+        isPremium={isPremium}
+        premiumPaypalLink={premiumPaypalLink}
         showFilterRail={false}
         focusedVehicleKey={focusedVehicleKey}
         onFocusedVehicleHandled={() => setFocusedVehicleKey(null)}
@@ -1604,10 +1642,10 @@ export default function Home() {
         <div className="absolute inset-x-0 bottom-0 z-40 pointer-events-none">
           <div className="mx-auto w-full max-w-3xl px-3 pb-3 pointer-events-none sm:px-4 sm:pb-4">
             <PlannerSheet isOpen={isPlannerOpen} onToggle={() => setIsPlannerOpen((value) => !value)}>
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 <div className="px-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/80">Journey Planner</p>
-                  <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl">
+                  <h2 className="mt-1.5 text-lg font-semibold text-white sm:text-[1.6rem]">
                     Route across the network without losing the map.
                   </h2>
                   <p className="mt-1 text-sm text-white/60">
@@ -1646,7 +1684,7 @@ export default function Home() {
                   </label>
                 </div>
 
-                <div className="rounded-[1.9rem] border border-white/10 bg-[#0f1730]/92 p-4 shadow-2xl">
+                <div className="rounded-[1.7rem] border border-white/10 bg-[#0f1730]/92 p-3.5 shadow-2xl">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">Service filters</p>
 
                   <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1662,7 +1700,7 @@ export default function Home() {
                       ))}
                   </div>
 
-                  <div className="mt-4 flex flex-wrap gap-3">
+                  <div className="mt-3.5 flex flex-wrap gap-2.5">
                     {([
                       { key: "train", icon: "Train", activeClass: "border-blue-400/40 bg-blue-500 text-white shadow-lg shadow-blue-950/40" },
                       { key: "tram", icon: tramButtonIcon, activeClass: "border-[#78BE20]/50 bg-[#78BE20] text-white shadow-lg shadow-[#78BE20]/25", isImage: true },
@@ -1675,7 +1713,7 @@ export default function Home() {
                           key={mode.key}
                           type="button"
                           onClick={() => togglePlannerTransportMode(mode.key)}
-                          className={`flex h-14 w-14 items-center justify-center rounded-full border text-[11px] font-bold transition ${
+                          className={`flex h-12 w-12 items-center justify-center rounded-full border text-[10px] font-bold transition sm:h-[3.25rem] sm:w-[3.25rem] ${
                             active
                               ? mode.activeClass
                               : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
@@ -1683,7 +1721,7 @@ export default function Home() {
                           aria-label={mode.key}
                         >
                           {mode.isImage ? (
-                            <img src={mode.icon} alt="" className="h-10 w-10 rounded-full object-contain" />
+                            <img src={mode.icon} alt="" className="h-8 w-8 rounded-full object-contain sm:h-9 sm:w-9" />
                           ) : (
                             mode.icon
                           )}
@@ -1705,11 +1743,11 @@ export default function Home() {
                   )}
                 </div>
 
-                <div className="rounded-[1.9rem] border border-emerald-400/20 bg-emerald-500/8 p-4 shadow-2xl">
+                <div className="rounded-[1.7rem] border border-emerald-400/20 bg-emerald-500/8 p-3.5 shadow-2xl">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-200/85">Live trains now</p>
-                      <h3 className="mt-2 text-lg font-semibold text-white">
+                      <h3 className="mt-1.5 text-base font-semibold text-white sm:text-lg">
                         {liveFleetTrips.length > 0
                           ? `${liveFleetTrips.length} live train${liveFleetTrips.length === 1 ? "" : "s"} on the map`
                           : "No live trains returned right now"}

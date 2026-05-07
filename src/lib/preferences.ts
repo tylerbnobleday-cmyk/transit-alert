@@ -8,14 +8,33 @@ export type UserPreferences = {
 
 const LOCAL_STORAGE_KEY = "transitalert-local-preferences";
 export const DEFAULT_TRANSPORT_MODES = ["train", "tram", "bus", "vline"] as const;
+export const DEFAULT_PREMIUM_PRICE_AUD = 5;
 
 export const defaultPreferences: UserPreferences = {
   favouriteStops: [],
   favouriteRoutes: [],
   selectedMapFilters: {},
   transportModes: [...DEFAULT_TRANSPORT_MODES],
-  appPreferences: {},
+  appPreferences: {
+    premiumAccess: false,
+    premiumPriceAud: DEFAULT_PREMIUM_PRICE_AUD,
+    premiumPaypalLink: "",
+  },
 };
+
+export function hasPremiumAccess(preferences: UserPreferences | null | undefined) {
+  return preferences?.appPreferences?.premiumAccess === true;
+}
+
+export function getPremiumPriceAud(preferences: UserPreferences | null | undefined) {
+  const raw = preferences?.appPreferences?.premiumPriceAud;
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_PREMIUM_PRICE_AUD;
+}
+
+export function getPremiumPaypalLink(preferences: UserPreferences | null | undefined) {
+  const raw = preferences?.appPreferences?.premiumPaypalLink;
+  return typeof raw === "string" ? raw.trim() : "";
+}
 
 function isNetworkError(error: unknown) {
   return error instanceof TypeError;

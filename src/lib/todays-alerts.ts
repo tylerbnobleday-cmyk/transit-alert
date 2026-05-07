@@ -287,6 +287,63 @@ function collapseGenericPlannedWorksWrappers(alerts: MetroNotifyAlert[]) {
   });
 }
 
+function extractAlertPlaceSignature(alert: MetroNotifyAlert) {
+  const stationPlace = extractWorksPlaceName(alert);
+  if (stationPlace) {
+    return stationPlace.toLowerCase();
+  }
+
+  const title = cleanAlertText(alert.title);
+  const stationMatch = title.match(/^(.+?)\s+Station\s+/i);
+  if (stationMatch?.[1]) {
+    return `${stationMatch[1].trim().toLowerCase()} station`;
+  }
+
+  return null;
+}
+
+function collapseSupersededRouteAlerts(alerts: MetroNotifyAlert[]) {
+  return alerts.filter((alert, index) => {
+    const alertLines = new Set(alert.lines.map((line) => line.trim().toLowerCase()));
+    const alertRoute = extractRouteSignature(alert.title) ?? extractRouteSignature(alert.summary);
+    const alertPlace = extractAlertPlaceSignature(alert);
+    const alertType = `${alert.title} ${alert.summary}`.toLowerCase();
+    const alertUpdated = alert.updatedAt ? new Date(alert.updatedAt).getTime() : 0;
+
+    return !alerts.some((candidate, candidateIndex) => {
+      if (candidateIndex === index) {
+        return false;
+      }
+
+      const candidateUpdated = candidate.updatedAt ? new Date(candidate.updatedAt).getTime() : 0;
+      if (candidateUpdated <= alertUpdated) {
+        return false;
+      }
+
+      const candidateLines = candidate.lines.map((line) => line.trim().toLowerCase());
+      const hasOverlappingLine = candidateLines.some((line) => alertLines.has(line));
+      if (!hasOverlappingLine) {
+        return false;
+      }
+
+      const candidateRoute = extractRouteSignature(candidate.title) ?? extractRouteSignature(candidate.summary);
+      if (alertRoute && candidateRoute && alertRoute === candidateRoute) {
+        return true;
+      }
+
+      const candidatePlace = extractAlertPlaceSignature(candidate);
+      const samePlace = Boolean(alertPlace && candidatePlace && alertPlace === candidatePlace);
+      const sameTheme =
+        (/car space|car park|closure|closures|access|parkiteer/.test(alertType) &&
+          /car space|car park|closure|closures|access|parkiteer/.test(`${candidate.title} ${candidate.summary}`.toLowerCase())) ||
+        (/buses replace trains|replacement buses/.test(alertType) &&
+          /buses replace trains|replacement buses/.test(`${candidate.title} ${candidate.summary}`.toLowerCase()));
+
+      return samePlace && sameTheme;
+    });
+  });
+}
+
 function dedupeMetroAlerts(alerts: MetroNotifyAlert[]) {
   const groups = new Map<string, MetroNotifyAlert[]>();
 
@@ -323,7 +380,31 @@ function dedupeMetroAlerts(alerts: MetroNotifyAlert[]) {
     })[0];
   });
 
-  return mergeRelatedWorksAlerts(collapseGenericPlannedWorksWrappers(deduped));
+  return mergeRelatedWorksAlerts(collapseSupersededRouteAlerts(collapseGenericPlannedWorksWrappers(deduped)));
+}
+
+export function isAlertCurrent(alert: MetroNotifyAlert) {
+  if (!alert.updatedAt) {
+    return true;
+  }
+
+  const updatedAt = new Date(alert.updatedAt).getTime();
+  if (Number.isNaN(updatedAt)) {
+    return true;
+  }
+
+  const diff = Date.now() - updatedAt;
+  const searchable = `${alert.title} ${alert.summary}`.toLowerCase();
+
+  if (/trespass|police request|police operation|person hit by train/.test(searchable)) {
+    return diff <= 1000 * 60 * 15;
+  }
+
+  if (/delays?|fault|disruption|minor delay|major delay|service alert/.test(searchable)) {
+    return diff <= 1000 * 60 * 60 * 24 * 3;
+  }
+
+  return diff <= 1000 * 60 * 60 * 24 * 14;
 }
 
 export async function fetchMetroNotifyAlerts(): Promise<MetroNotifyAlert[]> {
