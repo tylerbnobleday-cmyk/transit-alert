@@ -1,7 +1,4 @@
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-const GtfsRealtimeBindings = require("../../vendor/ptv/gtfs-realtime.cjs");
+import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 
 const PTV_FEEDS = [
   {
