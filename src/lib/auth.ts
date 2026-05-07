@@ -12,6 +12,8 @@ export type AuthSession = {
   roles?: string[];
 };
 
+export const GUEST_SESSION_INTENT_KEY = "transitalert-guest-intent";
+
 async function readAuthPayload(response: Response) {
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
@@ -81,6 +83,30 @@ export async function continueAsGuest(): Promise<AuthSession> {
   }
 
   return payload;
+}
+
+export function markGuestIntent() {
+  try {
+    window.localStorage.setItem(GUEST_SESSION_INTENT_KEY, "1");
+  } catch {
+    // Ignore local storage failures.
+  }
+}
+
+export function clearGuestIntent() {
+  try {
+    window.localStorage.removeItem(GUEST_SESSION_INTENT_KEY);
+  } catch {
+    // Ignore local storage failures.
+  }
+}
+
+export function hasGuestIntent() {
+  try {
+    return window.localStorage.getItem(GUEST_SESSION_INTENT_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 export async function fetchRoles(): Promise<string[]> {

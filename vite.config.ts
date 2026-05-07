@@ -27,6 +27,13 @@ const PTV_TRAM_BASE_URL =
   "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/tram";
 const PTV_BUS_BASE_URL =
   "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/bus";
+const NSW_TRAINS_VEHICLE_POSITIONS_URL = "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/nswtrains";
+const NSW_SOUTHEASTERN_BOUNDS = {
+  minLat: -39.8,
+  maxLat: -32.0,
+  minLng: 140.0,
+  maxLng: 152.5,
+} as const;
 const TRANSPORTVIC_BASE_URL = "https://transportvic.me";
 const METRO_HEALTHBOARD_URL = "https://www.metrotrains.com.au/api?op=get_healthboard_alerts";
 const METRO_SERVICE_URL = "https://www.metrotrains.com.au/service/";
@@ -1017,6 +1024,98 @@ function buildPtvLiveTrains(feed: Awaited<ReturnType<typeof fetchFeed>>, source:
         serviceDescription: destination,
       };
     })
+      .filter(Boolean);
+}
+
+function isWithinNswSoutheasternBounds(latitude: number, longitude: number) {
+  return (
+    latitude >= NSW_SOUTHEASTERN_BOUNDS.minLat &&
+    latitude <= NSW_SOUTHEASTERN_BOUNDS.maxLat &&
+    longitude >= NSW_SOUTHEASTERN_BOUNDS.minLng &&
+    longitude <= NSW_SOUTHEASTERN_BOUNDS.maxLng
+  );
+}
+
+function getFirstMeaningfulText(...values: Array<string | undefined>) {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    return trimmed;
+  }
+
+  return "";
+}
+
+function inferNswTrainLinkServiceLabel(...values: Array<string | undefined>) {
+  const joined = values.filter((value): value is string => Boolean(value?.trim())).join(" ").toLowerCase();
+  if (joined.includes("xpt")) return "NSW TrainLink XPT";
+  if (joined.includes("xplorer")) return "NSW TrainLink Xplorer";
+  return "NSW TrainLink";
+}
+
+function inferNswTrainLinkDestination(...values: Array<string | undefined>) {
+  const joined = values.filter((value): value is string => Boolean(value?.trim())).join(" ").toLowerCase();
+  const destinationMap = [
+    ["southern cross", "Southern Cross"],
+    ["sydney central", "Sydney Central"],
+    ["albury", "Albury"],
+    ["melbourne", "Melbourne"],
+    ["brisbane", "Brisbane"],
+    ["casino", "Casino"],
+    ["dubbo", "Dubbo"],
+    ["armidale", "Armidale"],
+    ["moree", "Moree"],
+    ["griffith", "Griffith"],
+    ["canberra", "Canberra"],
+    ["goulburn", "Goulburn"],
+  ] as const;
+
+  for (const [needle, label] of destinationMap) {
+    if (joined.includes(needle)) return label;
+  }
+
+  return inferNswTrainLinkServiceLabel(...values);
+}
+
+function buildNswLiveTrains(feed: Awaited<ReturnType<typeof fetchFeed>>) {
+  return (feed.entity ?? [])
+    .map((entity) => {
+      const vehicle = entity.vehicle;
+      const position = vehicle?.position;
+      if (!vehicle || !position) return null;
+
+      const latitude = position.latitude;
+      const longitude = position.longitude;
+      if (typeof latitude !== "number" || typeof longitude !== "number") return null;
+      if (!isWithinNswSoutheasternBounds(latitude, longitude)) return null;
+
+      const routeId = vehicle.trip?.routeId;
+      const tripId = vehicle.trip?.tripId;
+      const vehicleLabel = vehicle.vehicle?.label;
+      const vehicleId = vehicle.vehicle?.id;
+      const entityId = entity.id;
+      const serviceLabel = inferNswTrainLinkServiceLabel(routeId, tripId, vehicleLabel, vehicleId, entityId);
+      const destination = inferNswTrainLinkDestination(routeId, tripId, vehicleLabel, vehicleId, entityId);
+      const directionId = toNumber(vehicle.trip?.directionId);
+      const timestamp = toNumber(vehicle.timestamp);
+      const tdn = getFirstMeaningfulText(vehicleLabel, tripId, vehicleId, entityId, routeId, "XPT");
+
+      return {
+        tdn,
+        lat: latitude,
+        lng: longitude,
+        line: serviceLabel,
+        destination,
+        status: "on_time",
+        timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
+        direction: directionId === 0 ? "up" : directionId === 1 ? "down" : destination === "Southern Cross" ? "city-bound" : "outbound",
+        heading: typeof position.bearing === "number" ? position.bearing : undefined,
+        trainType: serviceLabel.includes("Xplorer") ? "NSW TrainLink Xplorer" : "NSW TrainLink XPT",
+        consist: vehicle.vehicle?.id || vehicle.vehicle?.label || tdn,
+        serviceDescription: [serviceLabel, destination].filter(Boolean).join(" · "),
+      };
+    })
     .filter(Boolean);
 }
 
@@ -1413,6 +1512,12 @@ function ptvRealtimePlugin(runtimeConfig: RuntimeConfig): Plugin {
         if (req.url === "/api/ptv/live-trains") {
           const trackedTrains = await buildTransportVicLiveTrains(trackedConsists);
           let ptvTrains: Array<Record<string, unknown>> = [];
+          let nswTrains: Array<Record<string, unknown>> = [];
+          const nswTransportApiKey =
+            process.env.NSW_TRANSPORT_API_KEY ||
+            process.env.TRANSPORT_NSW_API_KEY ||
+            process.env.TFNSW_API_KEY ||
+            process.env.NSW_OPENDATA_API_KEY;
           if (ptvSubscriptionKey) {
             const responses = await Promise.allSettled(
               PTV_FEEDS.map(async (source) => {
@@ -1421,10 +1526,23 @@ function ptvRealtimePlugin(runtimeConfig: RuntimeConfig): Plugin {
               }),
             );
             ptvTrains = responses
-              .filter((result): result is PromiseFulfilledResult<Array<Record<string, unknown>>> => result.status === "fulfilled")
-              .flatMap((result) => result.value);
+                .filter((result): result is PromiseFulfilledResult<Array<Record<string, unknown>>> => result.status === "fulfilled")
+                .flatMap((result) => result.value);
           }
-          const trains = mergeLiveTrainLists(ptvTrains, trackedTrains);
+          if (nswTransportApiKey) {
+            const response = await fetch(NSW_TRAINS_VEHICLE_POSITIONS_URL, {
+              headers: {
+                Authorization: `apikey ${nswTransportApiKey}`,
+                Accept: "application/x-google-protobuf",
+              },
+            });
+            if (response.ok) {
+              const buffer = await response.arrayBuffer();
+              const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+              nswTrains = buildNswLiveTrains(feed);
+            }
+          }
+          const trains = mergeLiveTrainLists([...ptvTrains, ...nswTrains], trackedTrains);
           sendJson(res, 200, { trains });
           return;
         }

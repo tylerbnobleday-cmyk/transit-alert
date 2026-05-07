@@ -19,6 +19,10 @@ export type LiveTrain = {
 const VLINE_KEYWORDS = [
   "v/line",
   "vline",
+  "nsw trainlink",
+  "trainlink",
+  "xpt",
+  "xplorer",
   "waurn ponds",
   "wendouree",
   "ballarat",
@@ -32,6 +36,14 @@ const VLINE_KEYWORDS = [
   "seymour",
   "shepparton",
   "albury",
+  "sydney central",
+  "brisbane",
+  "canberra",
+  "casino",
+  "dubbo",
+  "armidale",
+  "moree",
+  "griffith",
   "traralgon",
   "bairnsdale",
   "stony point",
@@ -141,6 +153,8 @@ function inferLineFromText(...values: Array<string | null | undefined>) {
     .toLowerCase();
 
   if (!joined) return "Metro";
+  if (/(nsw trainlink|trainlink|xpt)/i.test(joined)) return "NSW TrainLink XPT";
+  if (/(xplorer)/i.test(joined)) return "NSW TrainLink Xplorer";
   if (VLINE_KEYWORDS.some((keyword) => joined.includes(keyword))) return "V/Line";
   if (/(werribee|williamstown|newport|laverton|altona)/i.test(joined)) return "Williamstown";
   if (/(sandringham)/i.test(joined)) return "Sandringham";

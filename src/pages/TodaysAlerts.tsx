@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ArrowLeft, BellRing, ExternalLink, MessageSquareWarning, TrainFront, X } from "lucide-react";
 import { useGetReports } from "@/lib/api-client-react/src/generated/api";
-import { fetchMetroNotifyAlerts, getTodaysCommunityAlerts, isAlertCurrent, type MetroNotifyAlert } from "@/lib/todays-alerts";
+import { fetchMetroNotifyAlerts, getTodaysCommunityAlerts, isAlertCurrent, isProminentAlert, type MetroNotifyAlert } from "@/lib/todays-alerts";
 
 type FeaturedAlert =
   | Awaited<ReturnType<typeof fetchMetroNotifyAlerts>>[number]
@@ -494,7 +494,11 @@ export default function TodaysAlerts() {
     () => metroAlerts.filter((alert) => !shouldHideExpiredAlert(alert) && isAlertCurrent(alert)),
     [metroAlerts],
   );
-  const sortedMetroAlerts = [...activeMetroAlerts].sort((a, b) => {
+  const prominentMetroAlerts = useMemo(
+    () => activeMetroAlerts.filter((alert) => isProminentAlert(alert)),
+    [activeMetroAlerts],
+  );
+  const sortedMetroAlerts = [...prominentMetroAlerts].sort((a, b) => {
     const left = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
     const right = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
     return right - left;
@@ -524,7 +528,7 @@ export default function TodaysAlerts() {
   const expandedGroupAlerts = expandedGroup
     ? sortedMetroAlerts.filter((alert) => getAlertGroups(alert).some((group) => group.id === expandedGroup.id))
     : [];
-  const featuredAlert = filteredMetroAlerts[0] ?? activeMetroAlerts[0] ?? communityAlerts[0];
+  const featuredAlert = filteredMetroAlerts[0] ?? prominentMetroAlerts[0] ?? communityAlerts[0];
   const operationCards = filteredMetroAlerts.slice(0, 3);
   const activeFilterLabel = ALERT_FILTERS.find((filter) => filter.id === selectedFilter)?.label ?? "All alerts";
   const activeGroupLabel = ALERT_GROUPS.find((group) => group.id === selectedGroup)?.label ?? "All groups";
@@ -649,7 +653,7 @@ export default function TodaysAlerts() {
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-white/45">Metro Notify</p>
-                <p className="mt-2 text-3xl font-bold text-white">{metroAlerts.length}</p>
+                <p className="mt-2 text-3xl font-bold text-white">{prominentMetroAlerts.length}</p>
                 <p className="mt-1 text-xs text-white/55">Service notifications</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -670,7 +674,7 @@ export default function TodaysAlerts() {
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/80">Live Operations</p>
-              <h2 className="mt-2 text-2xl font-semibold text-white">{operationCards.length} New Alerts</h2>
+              <h2 className="mt-2 text-2xl font-semibold text-white">{filteredMetroAlerts.length} New Alerts</h2>
               <p className="mt-2 text-sm text-white/60">{activeFilterLabel} · {activeGroupLabel} / newest first</p>
             </div>
 

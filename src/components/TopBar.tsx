@@ -1,6 +1,11 @@
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchMetroNotifyAlerts, type MetroNotifyAlert } from "@/lib/todays-alerts";
+import {
+  fetchMetroNotifyAlerts,
+  isAlertCurrent,
+  isHeadlineAlert,
+  type MetroNotifyAlert,
+} from "@/lib/todays-alerts";
 import { TRANSITALERT_VERSION_LABEL } from "@/lib/version";
 
 const KNOWN_ALERT_LINES = [
@@ -128,12 +133,17 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
     retry: false,
   });
 
-  const alertsToday = metroAlerts.length;
-  const leadAlert = metroAlerts[0];
+  const headlineAlerts = metroAlerts.filter((alert) => isAlertCurrent(alert) && isHeadlineAlert(alert));
+  const alertsToday = headlineAlerts.length;
+  const leadAlert = headlineAlerts[0];
   const alertSummary = getAlertCategory(leadAlert);
   const alertLabel = `${alertsToday} ${alertsToday === 1 ? "Alert" : "Alerts"}`;
   const alertSubtitle =
-    alertsToday > 1 ? "Multiple lines affected" : `${alertSummary.typeLabel} • ${alertSummary.detailLabel}`;
+    alertsToday > 1
+      ? "Live disruptions only"
+      : alertsToday === 1
+        ? `${alertSummary.typeLabel} • ${alertSummary.detailLabel}`
+        : "Good service • No active alerts";
   const alertIsRecent = leadAlert ? isRecentAlert(leadAlert.updatedAt) : false;
 
   return (
@@ -168,8 +178,10 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
             className="h-8 w-8 shrink-0 rounded-xl sm:h-10 sm:w-10"
           />
           <div className="min-w-0">
-            <h1 className="truncate font-display text-[13px] font-bold leading-none tracking-tight text-white sm:text-lg">TransitAlert</h1>
-            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider sm:text-xs">
+            <h1 className="truncate font-display text-[13px] font-bold leading-none tracking-tight text-white sm:text-lg">
+              TransitAlert
+            </h1>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:text-xs">
               {TRANSITALERT_VERSION_LABEL}
             </p>
           </div>

@@ -18,7 +18,7 @@ import { RiskyRoutes } from "@/components/RiskyRoutes";
 import { AddReportDrawer } from "@/components/AddReportDrawer";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TRANSITALERT_WEB_VERSION } from "@/lib/version";
-import { fetchAuthSession, logoutSession } from "@/lib/auth";
+import { clearGuestIntent, fetchAuthSession, hasGuestIntent, logoutSession } from "@/lib/auth";
 import { fetchAdminConfig, saveAdminConfig, type AdminRuntimeConfig } from "@/lib/admin-config";
 import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
 import busButtonIcon from "@/assets/icons/bus.png";
@@ -27,6 +27,7 @@ import {
   DEFAULT_TRANSPORT_MODES,
   defaultPreferences,
   fetchAccountPreferences,
+  getFavouriteConsists,
   getPremiumPaypalLink,
   hasPremiumAccess,
   mergeLocalPreferences,
@@ -88,6 +89,8 @@ const SIMPLE_SURFACE_ROUTES = [
 
 const HOME_ORIGIN_LABEL = "Home · 15 Louise St, Brighton East";
 const CURRENT_LOCATION_LABEL = "Current location";
+const JOURNEY_STORAGE_KEY = "transitalert-active-journey-v1";
+const HOME_ORIGIN_COORDS: [number, number] = [-37.9147, 145.0186];
 
 type PlannerSheetProps = {
   isOpen: boolean;
@@ -173,6 +176,20 @@ type JourneyDisplay = {
   legs: JourneyLeg[];
 };
 
+type PersistedJourneyState = {
+  journeyOrigin: string;
+  journeyDestination: string;
+  currentLocationOrigin: string | null;
+  currentLocationCoords: [number, number] | null;
+  routeStationNames: string[];
+  summary: string;
+  boardingAdvice: string;
+  display: JourneyDisplay | null;
+  attachedServiceKey: string | null;
+  attachedServiceLabel: string | null;
+  startedAt: string | null;
+};
+
 type ChangelogEntry = {
   version: string;
   date: string;
@@ -192,29 +209,27 @@ const FLEET_TYPES: FleetTypeConfig[] = [
 const VERSION_LOG: ChangelogEntry[] = [
   {
     version: TRANSITALERT_WEB_VERSION,
-    date: "11/10/2025",
+    date: "07/05/2026",
     notes: [
-      "New icons and a refreshed header landed.",
-      "Fleet colours now follow route names instead of relying on TDN guesses.",
-      "General real-time improvements helped V/Line trips appear more reliably.",
+      "Inline station stop markers replaced the older debug station labels across the live map.",
+      "Live tram and bus coverage expanded, including route filters and onboard-style bus stop tracking.",
+      "Premium consist search, favourite consist tools, and fallback premium account support were added.",
     ],
   },
   {
     version: "V0.6.9",
-    date: "29/08/2025",
+    date: "02/05/2026",
     notes: [
-      "Trip, departures, fleet, and WebPID pages moved off the older DB collection.",
-      "PTDB backend work sped up loading and cleaned up direct consist matching.",
-      "WebPID bumped to TransitAlert PID 0.7 alpha.",
+      "V/Line live tracking landed with Gippsland service detail support and better Southern Cross departure boards.",
+      "Settings, preferences, and surface route layers were refined across the app.",
+      "Regional route shaping and live service presentation improved for newer map overlays.",
     ],
   },
   {
     version: "V0.6.8",
-    date: "18/08/2025",
+    date: "29/04/2026",
     notes: [
-      "Profile became the main settings area.",
-      "Alerts bubble drag and desktop opening behaviour were refined.",
-      "Admin password resets now include a visible reason for the user.",
+      "Raw feed IDs were stripped out of live transit labels to clean up user-facing data.",
     ],
   },
   {
@@ -412,6 +427,37 @@ function arePreferencePatchesEqual(current: UserPreferences, next: UserPreferenc
   );
 }
 
+function formatJourneyStarted(timestamp: string | null) {
+  if (!timestamp) return "";
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
+}
+
+function readPersistedJourneyState(): PersistedJourneyState | null {
+  try {
+    const raw = window.localStorage.getItem(JOURNEY_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PersistedJourneyState;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedJourneyState(state: PersistedJourneyState) {
+  try {
+    window.localStorage.setItem(JOURNEY_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Ignore local storage failures.
+  }
+}
+
 const STATION_SERVICE_LOOKUP: Record<string, string[]> = {
   "Town Hall": ["Sunbury", "Cranbourne", "Pakenham", "Metro Tunnel"],
   "State Library": ["Sunbury", "Cranbourne", "Pakenham", "Metro Tunnel"],
@@ -566,18 +612,19 @@ function DockedPanelSheet({ isOpen, onToggle, eyebrow, title, summary, children 
 export default function Home() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { data: liveFleetVehicles = [], isFetching: isFleetRefreshing } = useQuery({
-    queryKey: ["live-fleet-board"],
-    queryFn: fetchLiveTrains,
-    retry: false,
-    refetchInterval: 15_000,
-    staleTime: 10_000,
-  });
   const { data: authSession } = useQuery({
     queryKey: ["auth-session"],
     queryFn: fetchAuthSession,
     retry: false,
     staleTime: 60_000,
+  });
+  const { data: liveFleetVehicles = [], isFetching: isFleetRefreshing } = useQuery({
+    queryKey: ["live-fleet-board"],
+    queryFn: fetchLiveTrains,
+    enabled: (authSession?.user?.role ?? "") !== "Guest",
+    retry: false,
+    refetchInterval: 15_000,
+    staleTime: 10_000,
   });
     const isAuthenticated = authSession?.authenticated ?? false;
     const [activeTab, setActiveTab] = useState<"map" | "fleets" | "admin">("map");
@@ -596,6 +643,11 @@ export default function Home() {
   const [journeyBoardingAdvice, setJourneyBoardingAdvice] = useState<string>("");
   const [journeyDisplay, setJourneyDisplay] = useState<JourneyDisplay | null>(null);
   const [currentLocationOrigin, setCurrentLocationOrigin] = useState<string | null>(null);
+  const [currentLocationCoords, setCurrentLocationCoords] = useState<[number, number] | null>(null);
+  const [journeyStartedAt, setJourneyStartedAt] = useState<string | null>(null);
+  const [attachedJourneyServiceKey, setAttachedJourneyServiceKey] = useState<string | null>(null);
+  const [attachedJourneyServiceLabel, setAttachedJourneyServiceLabel] = useState<string | null>(null);
+  const [hasHydratedJourney, setHasHydratedJourney] = useState(false);
   const [originPickerMessage, setOriginPickerMessage] = useState("");
   const [isOriginPickerOpen, setIsOriginPickerOpen] = useState(false);
   const [originSearch, setOriginSearch] = useState("");
@@ -612,6 +664,7 @@ export default function Home() {
   const isGuest = authSession?.user?.role === "Guest";
   const isPremium = hasPremiumAccess(preferences);
   const premiumPaypalLink = getPremiumPaypalLink(preferences);
+  const favouriteConsists = getFavouriteConsists(preferences);
 
   const { data: accountPreferences } = useQuery({
     queryKey: ["account-preferences", authSession?.user?.id],
@@ -646,6 +699,35 @@ export default function Home() {
       if (!seen.has(station.name)) seen.set(station.name, station);
     }
     return [...seen.values()];
+  }, []);
+  const stationByName = useMemo(
+    () => new Map(uniqueStations.map((station) => [station.name, station])),
+    [uniqueStations],
+  );
+  const stationByNormalizedName = useMemo(
+    () => new Map(uniqueStations.map((station) => [station.name.trim().toLowerCase(), station])),
+    [uniqueStations],
+  );
+  const plannerNetwork = useMemo(() => {
+    const graph = new Map<string, Array<{ to: string; line: string }>>();
+
+    for (const line of PLANNER_LINES) {
+      for (let index = 0; index < line.stations.length - 1; index += 1) {
+        const current = line.stations[index];
+        const next = line.stations[index + 1];
+        if (!current || !next) continue;
+
+        const currentEdges = graph.get(current.name) ?? [];
+        currentEdges.push({ to: next.name, line: line.name });
+        graph.set(current.name, currentEdges);
+
+        const nextEdges = graph.get(next.name) ?? [];
+        nextEdges.push({ to: current.name, line: line.name });
+        graph.set(next.name, nextEdges);
+      }
+    }
+
+    return graph;
   }, []);
   const lineKeys = useMemo(() => Object.keys(LINES), []);
 
@@ -734,6 +816,25 @@ export default function Home() {
     setIsPlannerOpen(true);
   }, []);
 
+  const attachJourneyToService = useCallback((trip: FleetTrip) => {
+    setAttachedJourneyServiceKey(trip.focusKey);
+    setAttachedJourneyServiceLabel(`${trip.line} · TDN ${trip.tripNumber} · ${trip.route}`);
+    setJourneyStartedAt((current) => current ?? new Date().toISOString());
+    setFocusedVehicleKey(trip.focusKey);
+    setActiveTab("map");
+    setIsPlannerOpen(true);
+  }, []);
+
+  const finishJourney = useCallback(() => {
+    setJourneyRoute([]);
+    setJourneySummary("Plan a journey using the fields below.");
+    setJourneyBoardingAdvice("");
+    setJourneyDisplay(null);
+    setAttachedJourneyServiceKey(null);
+    setAttachedJourneyServiceLabel(null);
+    setJourneyStartedAt(null);
+  }, []);
+
   const useCurrentLocationForOrigin = () => {
     if (!navigator.geolocation) {
       setOriginPickerMessage("Current location is not available in this browser.");
@@ -743,8 +844,19 @@ export default function Home() {
     setOriginPickerMessage("Finding your current location...");
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const label = `${CURRENT_LOCATION_LABEL} · ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`;
+        const nearestStation = uniqueStations
+          .map((station) => ({
+            station,
+            distance:
+              (station.position[0] - position.coords.latitude) ** 2 +
+              (station.position[1] - position.coords.longitude) ** 2,
+          }))
+          .sort((left, right) => left.distance - right.distance)[0]?.station;
+        const label = nearestStation
+          ? `${CURRENT_LOCATION_LABEL} · Near ${nearestStation.name}`
+          : `${CURRENT_LOCATION_LABEL} · ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`;
         setCurrentLocationOrigin(label);
+        setCurrentLocationCoords([position.coords.latitude, position.coords.longitude]);
         setJourneyOrigin(label);
         setOriginPickerMessage("Current location ready.");
         setIsOriginPickerOpen(false);
@@ -765,6 +877,64 @@ export default function Home() {
   useEffect(() => {
     setPreferences(readLocalPreferences());
   }, []);
+
+  useEffect(() => {
+    if (hasHydratedJourney || uniqueStations.length === 0) return;
+
+    const persisted = readPersistedJourneyState();
+    if (!persisted) {
+      setHasHydratedJourney(true);
+      return;
+    }
+
+    setJourneyOrigin(persisted.journeyOrigin || "Flinders Street");
+    setJourneyDestination(persisted.journeyDestination || "Sandringham");
+    setCurrentLocationOrigin(persisted.currentLocationOrigin ?? null);
+    setCurrentLocationCoords(persisted.currentLocationCoords ?? null);
+    setJourneySummary(persisted.summary || "Plan a journey using the fields below.");
+    setJourneyBoardingAdvice(persisted.boardingAdvice || "");
+    setJourneyDisplay(persisted.display ?? null);
+    setAttachedJourneyServiceKey(persisted.attachedServiceKey ?? null);
+    setAttachedJourneyServiceLabel(persisted.attachedServiceLabel ?? null);
+    setJourneyStartedAt(persisted.startedAt ?? null);
+    setJourneyRoute(
+      (persisted.routeStationNames ?? [])
+        .map((stationName) => stationByName.get(stationName))
+        .filter((station): station is Station => Boolean(station)),
+    );
+    setHasHydratedJourney(true);
+  }, [hasHydratedJourney, stationByName, uniqueStations.length]);
+
+  useEffect(() => {
+    if (!hasHydratedJourney) return;
+
+    writePersistedJourneyState({
+      journeyOrigin,
+      journeyDestination,
+      currentLocationOrigin,
+      currentLocationCoords,
+      routeStationNames: journeyRoute.map((station) => station.name),
+      summary: journeySummary,
+      boardingAdvice: journeyBoardingAdvice,
+      display: journeyDisplay,
+      attachedServiceKey: attachedJourneyServiceKey,
+      attachedServiceLabel: attachedJourneyServiceLabel,
+      startedAt: journeyStartedAt,
+    });
+  }, [
+    attachedJourneyServiceKey,
+    attachedJourneyServiceLabel,
+    currentLocationCoords,
+    currentLocationOrigin,
+    hasHydratedJourney,
+    journeyBoardingAdvice,
+    journeyDestination,
+    journeyDisplay,
+    journeyOrigin,
+    journeyRoute,
+    journeyStartedAt,
+    journeySummary,
+  ]);
 
   useEffect(() => {
     if (accountPreferences && !isGuest) {
@@ -812,6 +982,13 @@ export default function Home() {
   }, [activeTab, isGuest]);
 
   useEffect(() => {
+    if (!isAuthenticated || !isGuest) return;
+    if (hasGuestIntent()) return;
+    clearGuestIntent();
+    setLocation("/login");
+  }, [isAuthenticated, isGuest, setLocation]);
+
+  useEffect(() => {
     if (activeTab === "map") return;
     setIsUtilityPanelOpen(true);
   }, [activeTab]);
@@ -822,14 +999,61 @@ export default function Home() {
     }
   }, [authSession, isAuthenticated, setLocation]);
 
-  const getLineSegment = (stations: Station[], start: string, end: string) => {
-    const startIndex = stations.findIndex((station) => station.name === start);
-    const endIndex = stations.findIndex((station) => station.name === end);
-    if (startIndex === -1 || endIndex === -1) return [];
-    return startIndex <= endIndex
-      ? stations.slice(startIndex, endIndex + 1)
-      : stations.slice(endIndex, startIndex + 1).reverse();
-  };
+  const findNearestStation = useCallback(
+    (coords: [number, number]) => {
+      return uniqueStations
+        .map((station) => ({
+          station,
+          distance:
+            (station.position[0] - coords[0]) ** 2 +
+            (station.position[1] - coords[1]) ** 2,
+        }))
+        .sort((left, right) => left.distance - right.distance)[0]?.station ?? null;
+    },
+    [uniqueStations],
+  );
+
+  const buildJourneyPath = useCallback(
+    (originName: string, destinationName: string) => {
+      if (originName === destinationName) {
+        return { stationNames: [originName], edgeLines: [] as string[] };
+      }
+
+      const visited = new Set<string>([originName]);
+      const queue = [originName];
+      const previous = new Map<string, { station: string; line: string }>();
+
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current) continue;
+        if (current === destinationName) break;
+
+        for (const edge of plannerNetwork.get(current) ?? []) {
+          if (visited.has(edge.to)) continue;
+          visited.add(edge.to);
+          previous.set(edge.to, { station: current, line: edge.line });
+          queue.push(edge.to);
+        }
+      }
+
+      if (!visited.has(destinationName)) return null;
+
+      const stationNames: string[] = [destinationName];
+      const edgeLines: string[] = [];
+      let cursor = destinationName;
+
+      while (cursor !== originName) {
+        const step = previous.get(cursor);
+        if (!step) return null;
+        edgeLines.unshift(step.line);
+        stationNames.unshift(step.station);
+        cursor = step.station;
+      }
+
+      return { stationNames, edgeLines };
+    },
+    [plannerNetwork],
+  );
 
   const getJourneyBoardingAdvice = (route: Station[], summary: string) => {
     if (route.length < 2) return "";
@@ -873,198 +1097,158 @@ export default function Home() {
     setJourneySummary(summary);
     setJourneyBoardingAdvice(getJourneyBoardingAdvice(route, summary));
     setJourneyDisplay(display ?? null);
+    setJourneyStartedAt(route.length > 0 ? new Date().toISOString() : null);
+    setAttachedJourneyServiceKey(null);
+    setAttachedJourneyServiceLabel(null);
   };
 
   const computeJourneyRoute = () => {
+    const trimmedDestination = journeyDestination.trim();
+    const destination =
+      stationByName.get(trimmedDestination) ??
+      stationByNormalizedName.get(trimmedDestination.toLowerCase()) ??
+      null;
     const isHomeOrigin = journeyOrigin === HOME_ORIGIN_LABEL;
     const isCurrentLocationOrigin = currentLocationOrigin !== null && journeyOrigin === currentLocationOrigin;
-    const origin = ALL_STATIONS.find((station) => station.name === journeyOrigin);
-    const destination = ALL_STATIONS.find((station) => station.name === journeyDestination);
 
-    if ((isHomeOrigin || isCurrentLocationOrigin) && journeyDestination === "Arden") {
-      const stateLibrary = ALL_STATIONS.find((station) => station.name === "State Library");
-      const arden = ALL_STATIONS.find((station) => station.name === "Arden");
+    let resolvedOrigin =
+      stationByName.get(journeyOrigin) ??
+      stationByNormalizedName.get(journeyOrigin.trim().toLowerCase()) ??
+      null;
+    let accessLeg: JourneyLeg | null = null;
 
-      if (stateLibrary && arden) {
-        const metroTunnelLeg = getLineSegment(LINES.metroTunnel, "State Library", "Arden");
-        const legs: JourneyLeg[] = [
-          {
-            mode: "bus",
-            title: "Route 630 bus",
-            from: "15 Louise St, Brighton East",
-            to: "Elsternwick / Hawthorn Rd",
-            detail: "Orbital feeder toward the tram corridor",
-            badge: "Bus",
-          },
-          {
-            mode: "tram",
-            title: "Route 64 tram",
-            from: "Hawthorn Rd",
-            to: "State Library",
-            detail: "Cross-city tram run into the CBD",
-            badge: "Tram",
-          },
-          {
-            mode: "train",
-            title: "Metro Tunnel",
-            from: "State Library",
-            to: "Arden",
-            detail: "Metro Tunnel platforms 1 / 2 to Arden",
-            badge: "Train",
-          },
-        ];
-        applyJourneyPlan(
-          metroTunnelLeg,
-          `Change at State Library from Route 64 tram to Metro Tunnel services for Arden. ${isHomeOrigin ? "Home" : "Current location"} starts are now supported, and Route 630 bus has been added as a future orbital option in the planner.`,
-          buildJourneyDisplay(
-            metroTunnelLeg,
-            `Change at State Library from Route 64 tram to Metro Tunnel services for Arden.`,
-            legs,
-            "Bus + tram + Metro Tunnel",
-            "Multi-modal journey",
-          ),
-        );
-        return;
+    if (isHomeOrigin) {
+      const nearestHomeStation = findNearestStation(HOME_ORIGIN_COORDS);
+      if (nearestHomeStation) {
+        resolvedOrigin = nearestHomeStation;
+        accessLeg = {
+          mode: "walk",
+          title: "Start from home",
+          from: "15 Louise St, Brighton East",
+          to: nearestHomeStation.name,
+          detail: "Use your nearest rail interchange as the handoff into the network.",
+          badge: "Walk",
+        };
+      }
+    } else if (isCurrentLocationOrigin && currentLocationCoords) {
+      const nearestGpsStation = findNearestStation(currentLocationCoords);
+      if (nearestGpsStation) {
+        resolvedOrigin = nearestGpsStation;
+        accessLeg = {
+          mode: "walk",
+          title: "Start from current location",
+          from: journeyOrigin,
+          to: nearestGpsStation.name,
+          detail: "GPS start attached to the nearest station before the rail leg begins.",
+          badge: "GPS",
+        };
       }
     }
 
-    if (!origin || !destination) {
-      applyJourneyPlan(
-        [],
-        "Select a valid station destination. Home and current location starts now work for the Arden example too.",
-      );
+    if (!resolvedOrigin || !destination) {
+      applyJourneyPlan([], "Pick a valid destination and start point, then plan the trip again.");
       return;
     }
 
-    if (origin.name === destination.name) {
-      applyJourneyPlan(
-        [origin],
-        "You're already at your destination.",
-        buildJourneyDisplay(
-          [origin],
-          "You're already at your destination.",
-          [
-            {
-              mode: "walk",
-              title: "You have arrived",
-              from: origin.name,
-              to: destination.name,
-              detail: "No travel needed",
-              badge: "Stay put",
-            },
-          ],
-          "Already there",
-          "Station access",
-        ),
-      );
-      return;
-    }
-
-    const lines = [
-      { name: "Frankston", stations: LINES.frankston },
-      { name: "Cranbourne", stations: LINES.cranbourne },
-      { name: "Pakenham", stations: LINES.pakenham },
-      { name: "Sunbury", stations: LINES.sunbury },
-      { name: "Metro Tunnel", stations: LINES.metroTunnel },
-      { name: "Sandringham", stations: LINES.sandringham },
-    ];
-
-    const originLines = lines.filter((line) => line.stations.some((station) => station.name === origin.name));
-    const destinationLines = lines.filter((line) => line.stations.some((station) => station.name === destination.name));
-    const commonLine = originLines.find((originLine) =>
-      destinationLines.some((destinationLine) => destinationLine.name === originLine.name),
-    );
-
-    if (commonLine) {
-      const segment = getLineSegment(commonLine.stations, origin.name, destination.name);
-      applyJourneyPlan(
-        segment,
-        `Direct journey via the ${commonLine.name} line (${segment.length} stops).`,
-        buildJourneyDisplay(
-          segment,
-          `Direct journey via the ${commonLine.name} line.`,
-          [
-            {
-              mode: "train",
-              title: `${commonLine.name} line`,
-              from: origin.name,
-              to: destination.name,
-              detail: `${Math.max(segment.length - 1, 0)} stops direct`,
-              badge: "Train",
-            },
-          ],
-          "Stops all stations",
-        ),
-      );
-      return;
-    }
-
-    const transferStations = ["South Yarra", "Flinders Street", "Southern Cross"];
-    let bestRoute: Station[] = [];
-    let bestSummary = "No direct connection available.";
-    let bestDisplay: JourneyDisplay | null = null;
-
-    for (const transfer of transferStations) {
-      const originLine = originLines.find((line) => line.stations.some((station) => station.name === transfer));
-      const destinationLine = destinationLines.find((line) => line.stations.some((station) => station.name === transfer));
-      if (!originLine || !destinationLine) continue;
-
-      const firstLeg = getLineSegment(originLine.stations, origin.name, transfer);
-      const secondLeg = getLineSegment(destinationLine.stations, transfer, destination.name).slice(1);
-      const route = [...firstLeg, ...secondLeg];
-      const legs: JourneyLeg[] = [
+    if (resolvedOrigin.name === destination.name) {
+      const singleLegs: JourneyLeg[] = [
+        ...(accessLeg ? [accessLeg] : []),
         {
-          mode: "train",
-          title: `${originLine.name} line`,
-          from: origin.name,
-          to: transfer,
-          detail: `${Math.max(firstLeg.length - 1, 0)} stops to interchange`,
-          badge: "Train",
-        },
-        {
-          mode: "train",
-          title: `${destinationLine.name} line`,
-          from: transfer,
+          mode: "walk",
+          title: "You have arrived",
+          from: resolvedOrigin.name,
           to: destination.name,
-          detail: `${Math.max(secondLeg.length, 0)} stops after changing`,
-          badge: "Train",
+          detail: "No further travel needed.",
+          badge: "Arrived",
         },
       ];
-      if (!bestRoute.length || route.length < bestRoute.length) {
-        bestRoute = route;
-        bestSummary = `Change at ${transfer} from ${originLine.name} line to ${destinationLine.name} line (${route.length} stops).`;
-        bestDisplay = buildJourneyDisplay(
-          route,
-          `Change at ${transfer} from ${originLine.name} line to ${destinationLine.name} line.`,
-          legs,
-          `Change at ${transfer}`,
-        );
-      }
-    }
-
-    if (bestRoute.length) {
-      applyJourneyPlan(bestRoute, bestSummary, bestDisplay ?? undefined);
+      applyJourneyPlan(
+        [resolvedOrigin],
+        "You're already at your destination.",
+        buildJourneyDisplay([resolvedOrigin], "You're already at your destination.", singleLegs, "Already there", "Station access"),
+      );
       return;
     }
 
+    const path = buildJourneyPath(resolvedOrigin.name, destination.name);
+    if (!path) {
+      applyJourneyPlan(
+        [resolvedOrigin, destination],
+        "No clean through-route was found right now, so the planner kept your start and end pinned.",
+        buildJourneyDisplay(
+          [resolvedOrigin, destination],
+          "No clean through-route was found right now.",
+          [
+            ...(accessLeg ? [accessLeg] : []),
+            {
+              mode: "walk",
+              title: "Manual transfer",
+              from: resolvedOrigin.name,
+              to: destination.name,
+              detail: "Check live services manually or attach yourself to a specific trip below.",
+              badge: "Fallback",
+            },
+          ],
+          "Manual transfer",
+          "Fallback route",
+        ),
+      );
+      return;
+    }
+
+    const routeStations = path.stationNames
+      .map((stationName) => stationByName.get(stationName))
+      .filter((station): station is Station => Boolean(station));
+    const trainLegs: JourneyLeg[] = [];
+
+    if (path.edgeLines.length > 0) {
+      let segmentStartIndex = 0;
+      let activeLine = path.edgeLines[0] ?? "";
+
+      for (let index = 1; index <= path.edgeLines.length; index += 1) {
+        const lineAtIndex = path.edgeLines[index];
+        if (lineAtIndex === activeLine) continue;
+
+        const from = path.stationNames[segmentStartIndex] ?? resolvedOrigin.name;
+        const to = path.stationNames[index] ?? destination.name;
+        const stopCount = Math.max(index - segmentStartIndex, 0);
+        trainLegs.push({
+          mode: "train",
+          title: `${activeLine} line`,
+          from,
+          to,
+          detail: `${stopCount} stop${stopCount === 1 ? "" : "s"}${index < path.stationNames.length - 1 ? " before changing" : ""}`,
+          badge: "Train",
+        });
+
+        segmentStartIndex = index;
+        activeLine = lineAtIndex ?? "";
+      }
+    }
+
+    const journeyLegs = [...(accessLeg ? [accessLeg] : []), ...trainLegs];
+    const changeStations = trainLegs
+      .slice(0, -1)
+      .map((leg) => leg.to)
+      .filter(Boolean);
+    const summary =
+      trainLegs.length <= 1
+        ? `Direct journey via the ${trainLegs[0]?.title ?? "rail network"} (${Math.max(routeStations.length - 1, 0)} stops).`
+        : `Stay on board, then change at ${changeStations.join(", ")} to finish the trip to ${destination.name}.`;
+    const pattern =
+      trainLegs.length <= 1
+        ? trainLegs[0]?.title ?? "Direct service"
+        : `Change at ${changeStations.join(" + ")}`;
+
     applyJourneyPlan(
-      [origin, destination],
-      "Fallback route: start and end markers shown, with no route connection found.",
+      routeStations,
+      summary,
       buildJourneyDisplay(
-        [origin, destination],
-        "Fallback route: start and end markers shown, with no route connection found.",
-        [
-          {
-            mode: "walk",
-            title: "Manual transfer",
-            from: origin.name,
-            to: destination.name,
-            detail: "No clean line match found yet",
-            badge: "Fallback",
-          },
-        ],
-        "Check services manually",
-        "Fallback route",
+        routeStations,
+        summary,
+        journeyLegs,
+        pattern,
+        accessLeg ? "Multi-stage journey" : "Rail journey",
       ),
     );
   };
@@ -1326,6 +1510,25 @@ export default function Home() {
         : [...preferences.favouriteStops, stationName],
     });
   };
+
+  const toggleFavouriteConsist = useCallback(
+    (consist: string) => {
+      const normalized = consist.trim();
+      if (!normalized) return;
+
+      const nextFavouriteConsists = favouriteConsists.includes(normalized)
+        ? favouriteConsists.filter((item) => item !== normalized)
+        : [...favouriteConsists, normalized];
+
+      updatePreferences({
+        appPreferences: {
+          ...preferences.appPreferences,
+          favouriteConsists: nextFavouriteConsists,
+        },
+      });
+    },
+    [favouriteConsists, preferences.appPreferences, updatePreferences],
+  );
 
   const utilitySheetCopy = useMemo(() => {
     if (activeTab === "fleets") {
@@ -1629,8 +1832,11 @@ export default function Home() {
         persistedLayerState={preferences.selectedMapFilters}
         onLayerStateChange={(selectedMapFilters) => updatePreferences({ selectedMapFilters: selectedMapFilters as Record<string, boolean> })}
         isAdmin={isAdmin}
+        isGuest={isGuest}
         isPremium={isPremium}
         premiumPaypalLink={premiumPaypalLink}
+        favouriteConsists={favouriteConsists}
+        onToggleFavouriteConsist={toggleFavouriteConsist}
         showFilterRail={false}
         focusedVehicleKey={focusedVehicleKey}
         onFocusedVehicleHandled={() => setFocusedVehicleKey(null)}
@@ -1764,13 +1970,15 @@ export default function Home() {
                   {liveFleetTrips.length > 0 ? (
                     <div className="mt-4 grid gap-2">
                       {liveFleetTrips.slice(0, 6).map((trip) => (
-                        <button
+                        <div
                           key={`map-live-${trip.id}`}
-                          type="button"
-                          onClick={() => openLiveTrainOnMap(trip)}
-                          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-left transition hover:border-emerald-300/30 hover:bg-white/10"
+                          className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 transition hover:border-emerald-300/30 hover:bg-white/10"
                         >
-                          <div className="min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => openLiveTrainOnMap(trip)}
+                            className="min-w-0 flex-1 text-left"
+                          >
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
                                 TDN / Trip {trip.tripNumber}
@@ -1781,11 +1989,28 @@ export default function Home() {
                             </div>
                             <p className="mt-2 truncate text-sm font-semibold text-white">{trip.route}</p>
                             <p className="mt-1 text-xs text-white/55">{trip.statusLabel}</p>
+                          </button>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => attachJourneyToService(trip)}
+                              className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                                attachedJourneyServiceKey === trip.focusKey
+                                  ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-100"
+                                  : "border-white/10 bg-white/5 text-white/80"
+                              }`}
+                            >
+                              {attachedJourneyServiceKey === trip.focusKey ? "Attached" : "Attach"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openLiveTrainOnMap(trip)}
+                              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/80"
+                            >
+                              Track
+                            </button>
                           </div>
-                          <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/80">
-                            Track
-                          </span>
-                        </button>
+                        </div>
                       ))}
                     </div>
                   ) : (
@@ -1815,6 +2040,9 @@ export default function Home() {
                         {journeyRoute.length > 0 ? "Journey board" : "Ready when you are"}
                       </p>
                       <p className="mt-1 text-sm">{journeySummary}</p>
+                      {journeyStartedAt && (
+                        <p className="mt-1 text-xs text-white/45">Started {formatJourneyStarted(journeyStartedAt)}</p>
+                      )}
                     </div>
                     {journeyDisplay && journeyRoute.length > 0 && (
                       <div className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200">
@@ -1829,6 +2057,36 @@ export default function Home() {
                         Best boarding position
                       </p>
                       <p className="mt-1 text-sm text-emerald-50/95">{journeyBoardingAdvice}</p>
+                    </div>
+                  )}
+
+                  {attachedJourneyServiceLabel && (
+                    <div className="mt-3 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-3 py-2.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200/85">
+                        Attached service
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm text-cyan-50/95">{attachedJourneyServiceLabel}</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => attachedJourneyServiceKey && setFocusedVehicleKey(attachedJourneyServiceKey)}
+                            className="rounded-full border border-cyan-300/25 bg-cyan-500/15 px-3 py-1 text-xs font-semibold text-cyan-100"
+                          >
+                            Track service
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAttachedJourneyServiceKey(null);
+                              setAttachedJourneyServiceLabel(null);
+                            }}
+                            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white/75"
+                          >
+                            Detach
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -1890,6 +2148,18 @@ export default function Home() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {journeyRoute.length > 0 && (
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={finishJourney}
+                        className="rounded-full border border-red-400/20 bg-red-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-red-100 transition hover:bg-red-500/15"
+                      >
+                        Finish journey
+                      </button>
                     </div>
                   )}
                 </div>

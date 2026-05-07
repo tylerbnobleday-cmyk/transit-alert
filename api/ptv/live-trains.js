@@ -15,6 +15,32 @@ const PTV_FEEDS = [
   },
 ];
 
+const NSW_TRAINS_VEHICLE_POSITIONS_URL = "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/nswtrains";
+const NSW_SOUTHEASTERN_BOUNDS = {
+  minLat: -39.8,
+  maxLat: -32.0,
+  minLng: 140.0,
+  maxLng: 152.5,
+};
+
+const NSW_TRAINLINK_KEYWORDS = [
+  "xpt",
+  "xplorer",
+  "trainlink",
+  "southern cross",
+  "sydney central",
+  "albury",
+  "melbourne",
+  "brisbane",
+  "casino",
+  "dubbo",
+  "armidale",
+  "moree",
+  "griffith",
+  "canberra",
+  "goulburn",
+];
+
 function normalisePtvRouteId(routeId) {
   const code = routeId?.match(/vic-02-([A-Z0-9]+):/i)?.[1]?.toUpperCase() ?? String(routeId || "Metro");
   const routeMap = {
@@ -59,6 +85,122 @@ function normaliseConsistLabel(...values) {
   }
 
   return "Unknown";
+}
+
+function isWithinNswSoutheasternBounds(latitude, longitude) {
+  return (
+    latitude >= NSW_SOUTHEASTERN_BOUNDS.minLat &&
+    latitude <= NSW_SOUTHEASTERN_BOUNDS.maxLat &&
+    longitude >= NSW_SOUTHEASTERN_BOUNDS.minLng &&
+    longitude <= NSW_SOUTHEASTERN_BOUNDS.maxLng
+  );
+}
+
+function getFirstMeaningfulText(...values) {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    return trimmed;
+  }
+
+  return "";
+}
+
+function inferNswTrainLinkServiceLabel(...values) {
+  const joined = values
+    .filter((value) => typeof value === "string" && value.trim())
+    .join(" ")
+    .toLowerCase();
+
+  if (joined.includes("xpt")) return "NSW TrainLink XPT";
+  if (joined.includes("xplorer")) return "NSW TrainLink Xplorer";
+  return "NSW TrainLink";
+}
+
+function inferNswTrainLinkDestination(...values) {
+  const joined = values
+    .filter((value) => typeof value === "string" && value.trim())
+    .join(" ")
+    .toLowerCase();
+
+  const destinationMap = [
+    ["southern cross", "Southern Cross"],
+    ["sydney central", "Sydney Central"],
+    ["albury", "Albury"],
+    ["melbourne", "Melbourne"],
+    ["brisbane", "Brisbane"],
+    ["casino", "Casino"],
+    ["dubbo", "Dubbo"],
+    ["armidale", "Armidale"],
+    ["moree", "Moree"],
+    ["griffith", "Griffith"],
+    ["canberra", "Canberra"],
+    ["goulburn", "Goulburn"],
+  ];
+
+  for (const [needle, label] of destinationMap) {
+    if (joined.includes(needle)) {
+      return label;
+    }
+  }
+
+  return inferNswTrainLinkServiceLabel(...values);
+}
+
+function buildNswLiveTrains(feed) {
+  return (feed.entity ?? [])
+    .map((entity) => {
+      const vehicle = entity.vehicle;
+      const position = vehicle?.position;
+      if (!vehicle || !position) return null;
+
+      const latitude = position.latitude;
+      const longitude = position.longitude;
+      if (typeof latitude !== "number" || typeof longitude !== "number") return null;
+      if (!isWithinNswSoutheasternBounds(latitude, longitude)) return null;
+
+      const routeId = vehicle.trip?.routeId;
+      const tripId = vehicle.trip?.tripId;
+      const tripStartDate = vehicle.trip?.startDate;
+      const vehicleLabel = vehicle.vehicle?.label;
+      const vehicleId = vehicle.vehicle?.id;
+      const entityId = entity.id;
+      const serviceLabel = inferNswTrainLinkServiceLabel(routeId, tripId, vehicleLabel, vehicleId, entityId);
+      const destination = inferNswTrainLinkDestination(routeId, tripId, vehicleLabel, vehicleId, entityId);
+      const timestamp = toNumber(vehicle.timestamp);
+      const directionId = toNumber(vehicle.trip?.directionId);
+      const tdn = getFirstMeaningfulText(vehicleLabel, tripId, vehicleId, entityId, routeId, "XPT");
+      const consist = normaliseConsistLabel(vehicleLabel, vehicleId, tdn);
+
+      const descriptiveText = [routeId, tripId, vehicleLabel, vehicleId, entityId]
+        .filter((value) => typeof value === "string" && value.trim())
+        .join(" ");
+
+      const looksLikeTrainLink =
+        NSW_TRAINLINK_KEYWORDS.some((keyword) => descriptiveText.toLowerCase().includes(keyword)) ||
+        serviceLabel !== "NSW TrainLink";
+
+      if (!looksLikeTrainLink) {
+        return null;
+      }
+
+      return {
+        tdn,
+        lat: latitude,
+        lng: longitude,
+        line: serviceLabel,
+        destination,
+        status: "on_time",
+        timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
+        direction: directionId === 0 ? "up" : directionId === 1 ? "down" : destination === "Southern Cross" ? "city-bound" : "outbound",
+        heading: typeof position.bearing === "number" ? position.bearing : undefined,
+        trainType: serviceLabel.includes("Xplorer") ? "NSW TrainLink Xplorer" : "NSW TrainLink XPT",
+        consist,
+        serviceDescription: [serviceLabel, destination, tripStartDate].filter(Boolean).join(" · "),
+      };
+    })
+    .filter(Boolean);
 }
 
 function buildPtvLiveTrains(feed, source) {
@@ -107,32 +249,62 @@ export default async function handler(req, res) {
     process.env.PTV_subscription_key ||
     process.env.OCP_APIM_SUBSCRIPTION_KEY ||
     process.env.PTV_API_KEY;
+  const nswTransportApiKey =
+    process.env.NSW_TRANSPORT_API_KEY ||
+    process.env.TRANSPORT_NSW_API_KEY ||
+    process.env.TFNSW_API_KEY ||
+    process.env.NSW_OPENDATA_API_KEY;
 
-  if (!ptvSubscriptionKey) {
+  if (!ptvSubscriptionKey && !nswTransportApiKey) {
     res.status(200).json({ trains: [] });
     return;
   }
 
   try {
-    const responses = await Promise.allSettled(
-      PTV_FEEDS.map(async (source) => {
-        const response = await fetch(`${source.baseUrl}/vehicle-positions`, {
-          headers: {
-            KeyID: ptvSubscriptionKey,
-            "Ocp-Apim-Subscription-Key": ptvSubscriptionKey,
-          },
-        });
+    const feedRequests = [
+      ...(ptvSubscriptionKey
+        ? PTV_FEEDS.map(async (source) => {
+            const response = await fetch(`${source.baseUrl}/vehicle-positions`, {
+              headers: {
+                KeyID: ptvSubscriptionKey,
+                "Ocp-Apim-Subscription-Key": ptvSubscriptionKey,
+              },
+            });
 
-        if (!response.ok) {
-          const details = await response.text().catch(() => "");
-          throw new Error(`${source.key}:${response.status}:${details.slice(0, 120)}`);
-        }
+            if (!response.ok) {
+              const details = await response.text().catch(() => "");
+              throw new Error(`${source.key}:${response.status}:${details.slice(0, 120)}`);
+            }
 
-        const buffer = await response.arrayBuffer();
-        const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
-        return buildPtvLiveTrains(feed, source);
-      }),
-    );
+            const buffer = await response.arrayBuffer();
+            const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+            return buildPtvLiveTrains(feed, source);
+          })
+        : []),
+      ...(nswTransportApiKey
+        ? [
+            (async () => {
+              const response = await fetch(NSW_TRAINS_VEHICLE_POSITIONS_URL, {
+                headers: {
+                  Authorization: `apikey ${nswTransportApiKey}`,
+                  Accept: "application/x-google-protobuf",
+                },
+              });
+
+              if (!response.ok) {
+                const details = await response.text().catch(() => "");
+                throw new Error(`nswtrains:${response.status}:${details.slice(0, 120)}`);
+              }
+
+              const buffer = await response.arrayBuffer();
+              const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+              return buildNswLiveTrains(feed);
+            })(),
+          ]
+        : []),
+    ];
+
+    const responses = await Promise.allSettled(feedRequests);
 
     const fulfilled = responses
       .filter((result) => result.status === "fulfilled")

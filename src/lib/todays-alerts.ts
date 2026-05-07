@@ -407,6 +407,56 @@ export function isAlertCurrent(alert: MetroNotifyAlert) {
   return diff <= 1000 * 60 * 60 * 24 * 14;
 }
 
+export function isProminentAlert(alert: MetroNotifyAlert) {
+  const searchable = `${alert.title} ${alert.summary} ${alert.status}`.toLowerCase();
+  const updatedAt = alert.updatedAt ? new Date(alert.updatedAt).getTime() : Number.NaN;
+  const hasValidUpdatedAt = Number.isFinite(updatedAt);
+  const ageMs = hasValidUpdatedAt ? Date.now() - updatedAt : 0;
+
+  if (/trespass|police request|police operation|person hit by train|fault|disabled train|mechanical|signal|overhead|power fault/.test(searchable)) {
+    return true;
+  }
+
+  if (/delay|major delay|minor delay|service disruption/.test(searchable)) {
+    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 12;
+  }
+
+  if (/buses replace trains|replacement buses|bus replacement|station closed|night works|weekend works|suspended/.test(searchable)) {
+    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 24 * 5;
+  }
+
+  if (/car space|car park|parkiteer|escalator|lift outage|pedestrian access|underpass|commuter car park/.test(searchable)) {
+    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 18;
+  }
+
+  if (/planned works|station access|access notice/.test(searchable)) {
+    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 36;
+  }
+
+  return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 24 * 2;
+}
+
+export function isHeadlineAlert(alert: MetroNotifyAlert) {
+  const searchable = `${alert.title} ${alert.summary} ${alert.status}`.toLowerCase();
+  const updatedAt = alert.updatedAt ? new Date(alert.updatedAt).getTime() : Number.NaN;
+  const hasValidUpdatedAt = Number.isFinite(updatedAt);
+  const ageMs = hasValidUpdatedAt ? Date.now() - updatedAt : 0;
+
+  if (/trespass|police request|police operation|person hit by train|disabled train|mechanical|signal|overhead|power fault|fault|major delay|minor delay|service disruption|delay/.test(searchable)) {
+    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 12;
+  }
+
+  if (/buses replace trains|replacement buses|bus replacement|station closed|suspended/.test(searchable)) {
+    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 24 * 3;
+  }
+
+  if (/night works|planned works|maintenance|station access|access notice|car space|car park|parkiteer|escalator|lift outage|pedestrian access|underpass|commuter car park/.test(searchable)) {
+    return false;
+  }
+
+  return false;
+}
+
 export async function fetchMetroNotifyAlerts(): Promise<MetroNotifyAlert[]> {
   const response = await fetch("/api/metro-notify/alerts");
 

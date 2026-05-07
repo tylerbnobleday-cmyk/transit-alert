@@ -5,7 +5,6 @@ import {
   TileLayer,
   Marker,
   Popup,
-  Tooltip,
   Circle,
   Polyline,
   CircleMarker,
@@ -46,6 +45,8 @@ import {
   Navigation,
   Eye,
   EyeOff,
+  Search,
+  Star,
 } from "lucide-react";
 
 const MELBOURNE_CENTER: [number, number] = [-37.8136, 144.9631];
@@ -56,6 +57,8 @@ const MELBOURNE_CENTRAL_POSITION: [number, number] = [-37.80955, 144.96278];
 const MELBOURNE_CENTRAL_STATE_LIBRARY_INTERCHANGE: [number, number] = [-37.80995575690716, 144.96286];
 const STATE_LIBRARY_POSITION: [number, number] = [-37.80941962893699, 144.96324300865265];
 const TOWN_HALL_POSITION: [number, number] = [-37.816897881552016, 144.96717135795797];
+const FREIGHT_BROWN = "#7b4b2a";
+const FREIGHT_BROWN_DARK = "#5a3417";
 const CITY_LOOP_PILL_STATIONS = new Set([
   "Flinders Street",
   "Southern Cross",
@@ -184,6 +187,12 @@ type SurfaceStopDeparture = {
   note?: string;
 };
 
+type FreightLocation = {
+  name: string;
+  kind: string;
+  position: [number, number];
+};
+
 interface MapProps {
   journeyRoute?: Station[];
   splitCrossCityGroup?: boolean;
@@ -192,8 +201,11 @@ interface MapProps {
   persistedLayerState?: Partial<LayerState>;
   onLayerStateChange?: (layers: LayerState) => void;
   isAdmin?: boolean;
+  isGuest?: boolean;
   isPremium?: boolean;
   premiumPaypalLink?: string | null;
+  favouriteConsists?: string[];
+  onToggleFavouriteConsist?: (consist: string) => void;
   showFilterRail?: boolean;
   focusedVehicleKey?: string | null;
   onFocusedVehicleHandled?: () => void;
@@ -306,9 +318,14 @@ function getLiveLineColor(line: string): string {
     warrnambool: "#7c3aed",
     maryborough: "#7c3aed",
     ararat: "#7c3aed",
-    "swan hill": "#7c3aed",
-    albury: "#7c3aed",
-  };
+      "swan hill": "#7c3aed",
+      albury: "#7c3aed",
+      "nsw trainlink": "#d9480f",
+      "nsw trainlink xpt": "#d9480f",
+      "nsw trainlink xplorer": "#b45309",
+      xpt: "#d9480f",
+      xplorer: "#b45309",
+    };
 
   return colorMap[line.toLowerCase()] ?? "#3b82f6";
 }
@@ -401,14 +418,21 @@ function getMarkerServiceTime(timestamp?: string) {
 }
 
 function getTrainLabelPriority(vehicle: LiveTrain) {
-  if (isVlineLiveTrain(vehicle)) {
-    return "high";
-  }
-
-  const normalizedLine = vehicle.line.trim().toLowerCase();
-  if (normalizedLine === "metro tunnel" || normalizedLine === "v/line" || normalizedLine === "traralgon") {
-    return "high";
-  }
+    if (isVlineLiveTrain(vehicle)) {
+      return "high";
+    }
+  
+    const normalizedLine = vehicle.line.trim().toLowerCase();
+    if (
+      normalizedLine === "metro tunnel" ||
+      normalizedLine === "v/line" ||
+      normalizedLine === "traralgon" ||
+      normalizedLine === "nsw trainlink" ||
+      normalizedLine === "nsw trainlink xpt" ||
+      normalizedLine === "nsw trainlink xplorer"
+    ) {
+      return "high";
+    }
 
   return "normal";
 }
@@ -1808,6 +1832,49 @@ const BALLARAT_SHARED_VLINE_TRUNK: [number, number][] = [
   [-37.79971717185788, 144.92584789732544], // South Kensington
   [-37.801696124765726, 144.90150029345793], // Footscray
   [-37.78812106172095, 144.83237218696007], // Sunshine
+];
+const FREIGHT_LOCATIONS: FreightLocation[] = [
+  { name: "Appleton Dock", kind: "Dock terminal", position: [-37.8261, 144.9159] },
+  { name: "Dynon", kind: "Freight terminal", position: [-37.8139, 144.9388] },
+  { name: "South Dynon", kind: "Freight yard", position: [-37.8189, 144.9305] },
+  { name: "Tottenham Yard", kind: "Freight yard", position: [-37.7994, 144.8728] },
+  { name: "West Footscray", kind: "Junction", position: [-37.80159439768236, 144.88351876420322] },
+  { name: "North Geelong Yard", kind: "Freight yard", position: [-38.0972, 144.3447] },
+  { name: "Gheringhap Loop", kind: "Passing loop", position: [-38.2213, 144.2054] },
+  { name: "Maroona Loop", kind: "Passing loop", position: [-37.4364, 142.8823] },
+  { name: "Seymour", kind: "Freight corridor", position: [-37.0264, 145.1337] },
+  { name: "Benalla", kind: "Freight corridor", position: [-36.5515, 145.9843] },
+  { name: "Wodonga", kind: "Freight corridor", position: [-36.1212, 146.8879] },
+  { name: "Ballarat", kind: "Freight corridor", position: [-37.5622, 143.8521] },
+  { name: "Maryborough", kind: "Freight corridor", position: [-37.0462, 143.7397] },
+];
+const FREIGHT_PORT_TERMINAL_LINE: [number, number][] = [
+  [-37.8261, 144.9159], // Appleton Dock
+  [-37.8219, 144.9202],
+  [-37.8189, 144.9305], // South Dynon
+  [-37.8139, 144.9388], // Dynon
+  [-37.8078, 144.9136],
+  [-37.80159439768236, 144.88351876420322], // West Footscray
+  [-37.7994, 144.8728], // Tottenham Yard
+];
+const FREIGHT_WESTERN_CORRIDOR_LINE: [number, number][] = [
+  [-37.8189, 144.9305], // South Dynon
+  [-37.8078, 144.9136],
+  [-37.80159439768236, 144.88351876420322], // West Footscray
+  [-37.7994, 144.8728], // Tottenham Yard
+  [-37.78812106172095, 144.83237218696007], // Sunshine corridor
+  [-38.0972, 144.3447], // North Geelong Yard
+  [-38.2213, 144.2054], // Gheringhap Loop
+  [-37.4364, 142.8823], // Maroona Loop
+  [-37.5622, 143.8521], // Ballarat
+  [-37.0462, 143.7397], // Maryborough
+];
+const FREIGHT_NORTH_CORRIDOR_LINE: [number, number][] = [
+  [-37.8189, 144.9305], // South Dynon
+  [-37.8073, 144.9426], // North Melbourne corridor
+  [-37.0264, 145.1337], // Seymour
+  [-36.5515, 145.9843], // Benalla
+  [-36.1212, 146.8879], // Wodonga
 ];
 export const ALL_STATIONS: Station[] = [
     ...CLIFTONHILLGROUPLOOP_STATIONS,
@@ -3736,6 +3803,26 @@ const ANYTRIP_SURFACE_STOPS: SurfaceStop[] = [
   ...ROUTE_64_WESTBOUND_SURFACE_STOPS,
   ...GENERATED_TRAM_SURFACE_STOPS,
 ];
+
+function getPrimarySurfaceDestination(stop: SurfaceStop) {
+  return stop.departures[0]?.destination?.trim() ?? "";
+}
+
+function getOrderedSurfaceRouteStops(referenceStop: SurfaceStop) {
+  const primaryDestination = getPrimarySurfaceDestination(referenceStop);
+
+  return ANYTRIP_SURFACE_STOPS.filter((stop) => {
+    if (stop.routeLabel !== referenceStop.routeLabel) {
+      return false;
+    }
+
+    if (!stop.modes.some((mode) => referenceStop.modes.includes(mode))) {
+      return false;
+    }
+
+    return getPrimarySurfaceDestination(stop) === primaryDestination;
+  });
+}
 
 export const LINES = {
   mernda: MERNDA_STATIONS,
@@ -5829,7 +5916,7 @@ function renderStationMarkers(
   onSelectStation: (station: Station) => void,
   onToggleStationLine?: (station: Station) => boolean,
 ) {
-  return stations.map((station) => {
+  return stations.map((station, index) => {
     const resolvedStation = resolveStation(station);
     const isCityLoopPill =
       CITY_LOOP_PILL_STATIONS.has(resolvedStation.name) || SPECIAL_PILL_STATIONS.has(resolvedStation.name);
@@ -5851,6 +5938,7 @@ function renderStationMarkers(
     const markerName = isCombinedLoopInterchange
       ? "Melbourne Central / State Library"
       : resolvedStation.name;
+    const isEndpoint = index === 0 || index === stations.length - 1;
 
     if (shouldRenderOnce && renderedStationKeys.has(stationRenderKey)) {
       return null;
@@ -5880,17 +5968,16 @@ function renderStationMarkers(
     }
 
     return (
-      <CircleMarker
+      <Marker
         key={`${station.name}-${station.position[0]}-${station.position[1]}`}
-        center={resolvedStation.position}
+        position={resolvedStation.position}
         pane="stationPane"
-        radius={5}
-        pathOptions={{
-          color: isSharedCaulfieldMetroStation || isCraigieburnLineStation ? "#0f172a" : strokeColor,
-          fillColor: isSharedCaulfieldMetroStation || isCraigieburnLineStation ? "#ffffff" : fillColor,
-          fillOpacity: 1,
-          weight: isSharedCaulfieldMetroStation || isCraigieburnLineStation ? 3 : 2,
-        }}
+        icon={createInlineStationStopIcon(
+          resolvedStation.name,
+          isSharedCaulfieldMetroStation || isCraigieburnLineStation ? "#ffffff" : strokeColor,
+          { endpoint: isEndpoint },
+        )}
+        zIndexOffset={3300}
         eventHandlers={{
           click: () => {
             if (!onToggleStationLine?.(resolvedStation)) {
@@ -5898,21 +5985,7 @@ function renderStationMarkers(
             }
           },
         }}
-      >
-        {isCraigieburnLineStation ? (
-          <Tooltip
-            permanent
-            direction="bottom"
-            offset={[0, 10]}
-            opacity={1}
-            className="border-0 bg-transparent p-0 shadow-none"
-          >
-            <div className="rounded-full bg-slate-950/88 px-2 py-0.5 text-[10px] font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.45)]">
-              {resolvedStation.name}
-            </div>
-          </Tooltip>
-        ) : null}
-      </CircleMarker>
+      />
     );
   });
 }
@@ -5923,17 +5996,14 @@ function renderRouteStopMarkers(
   strokeColor: string,
   subtitle: string,
 ) {
-  return stops.map((stop) => (
-    <CircleMarker
+  return stops.map((stop, index) => (
+    <Marker
       key={`${stop.name}-${stop.position[0]}-${stop.position[1]}`}
-      center={stop.position}
-      radius={4}
-      pathOptions={{
-        color: strokeColor,
-        fillColor,
-        fillOpacity: 0.95,
-        weight: 2,
-      }}
+      position={stop.position}
+      icon={createInlineStationStopIcon(stop.name, strokeColor, {
+        endpoint: index === 0 || index === stops.length - 1,
+      })}
+      zIndexOffset={3200}
     >
       <Popup>
         <div className="p-3 w-48">
@@ -5941,7 +6011,30 @@ function renderRouteStopMarkers(
           <p className="text-xs text-white/60 mt-1">{subtitle}</p>
         </div>
       </Popup>
-    </CircleMarker>
+    </Marker>
+  ));
+}
+
+function renderFreightLocationMarkers(stops: FreightLocation[]) {
+  return stops.map((stop, index) => (
+    <Marker
+      key={`${stop.name}-${stop.position[0]}-${stop.position[1]}`}
+      position={stop.position}
+      icon={createInlineStationStopIcon(stop.name, FREIGHT_BROWN, {
+        endpoint: index === 0 || index === stops.length - 1,
+      })}
+      pane="stationPane"
+      zIndexOffset={3250}
+    >
+      <Popup>
+        <div className="p-3 w-56">
+          <p className="font-semibold text-white">{stop.name}</p>
+          <p className="mt-1 text-xs text-white/70">
+            {stop.kind} · Freight corridor
+          </p>
+        </div>
+      </Popup>
+    </Marker>
   ));
 }
 
@@ -6019,6 +6112,77 @@ function createDebugPointIcon(label: string, color: string) {
     className: "bg-transparent border-none",
     iconSize: [24, 24],
     iconAnchor: [12, 12],
+  });
+}
+
+function escapeInlineMarkerHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function createInlineStationStopIcon(
+  stationName: string,
+  color: string,
+  options?: {
+    endpoint?: boolean;
+  },
+) {
+  const endpoint = options?.endpoint ?? false;
+  const escapedName = escapeInlineMarkerHtml(stationName);
+  const tickHeight = endpoint ? 16 : 14;
+  const iconHeight = endpoint ? 60 : 52;
+
+  return L.divIcon({
+    html: `
+      <div style="
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:flex-end;
+        min-width:136px;
+        transform:translateY(-30px);
+      ">
+        <div style="
+          margin-bottom:4px;
+          color:#ffffff;
+          font-size:12px;
+          font-weight:700;
+          line-height:1.1;
+          white-space:nowrap;
+          text-shadow:0 2px 10px rgba(2,6,23,0.95), 0 0 6px rgba(2,6,23,0.85);
+          letter-spacing:0.01em;
+        ">
+          ${escapedName}
+        </div>
+        <div style="
+          width:3px;
+          height:${tickHeight}px;
+          background:${color};
+          border-radius:999px;
+          box-shadow:0 0 0 1px rgba(255,255,255,0.12);
+        "></div>
+        ${
+          endpoint
+            ? `<div style="
+                width:12px;
+                height:12px;
+                margin-top:-1px;
+                border-radius:999px;
+                background:${color};
+                border:2px solid rgba(255,255,255,0.95);
+                box-shadow:0 0 0 2px rgba(15,23,42,0.92);
+              "></div>`
+            : ""
+        }
+      </div>
+    `,
+    className: "bg-transparent border-none",
+    iconSize: [136, iconHeight],
+    iconAnchor: [68, iconHeight - 2],
   });
 }
 
@@ -6569,6 +6733,10 @@ function getSnapshotConsistId(consist: string) {
   return parts.length > 0 ? parts.join("-") : null;
 }
 
+function normaliseConsistLookupValue(value: string) {
+  return value.trim().toUpperCase().replace(/\s+/g, "");
+}
+
 function splitConsistCars(consist: string) {
   const displayConsist = getDisplayConsist(consist);
   if (!displayConsist) {
@@ -7015,8 +7183,11 @@ export function Map({
   persistedLayerState,
   onLayerStateChange,
   isAdmin = false,
+  isGuest = false,
   isPremium = false,
   premiumPaypalLink = "",
+  favouriteConsists = [],
+  onToggleFavouriteConsist,
   showFilterRail = true,
   focusedVehicleKey = null,
   onFocusedVehicleHandled,
@@ -7024,6 +7195,8 @@ export function Map({
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
   const consistData = { active: false } as any;
+  const [trainLookupQuery, setTrainLookupQuery] = useState("");
+  const [trainLookupMessage, setTrainLookupMessage] = useState("");
   const [activeSurfaceRouteFilters, setActiveSurfaceRouteFilters] = useState<string[]>(
     () => SURFACE_ROUTE_FILTERS.map((filter) => filter.key),
   );
@@ -7039,6 +7212,7 @@ export function Map({
   } = useQuery({
     queryKey: ["/api/ptv/live-trains"],
     queryFn: fetchLiveTrains,
+    enabled: !isGuest,
     refetchInterval: 15000,
     retry: false,
   });
@@ -7048,6 +7222,7 @@ export function Map({
   } = useQuery({
     queryKey: ["/api/ptv/live-buses"],
     queryFn: fetchLiveBuses,
+    enabled: !isGuest,
     refetchInterval: 15000,
     retry: false,
   });
@@ -7057,12 +7232,14 @@ export function Map({
   } = useQuery({
     queryKey: ["/api/ptv/live-trams"],
     queryFn: fetchLiveTrams,
+    enabled: !isGuest,
     refetchInterval: 15000,
     retry: false,
   });
   const { data: featuredConsistSnapshot } = useQuery({
     queryKey: ["consist-snapshot", FEATURED_CONSIST, "featured-marker"],
     queryFn: () => fetchConsistSnapshot(FEATURED_CONSIST),
+    enabled: !isGuest,
     refetchInterval: 30000,
     retry: false,
   });
@@ -7086,7 +7263,7 @@ export function Map({
   const { data: selectedVehicleSnapshot } = useQuery({
     queryKey: ["consist-snapshot", selectedVehicleSnapshotConsist],
     queryFn: () => fetchConsistSnapshot(selectedVehicleSnapshotConsist!),
-    enabled: Boolean(selectedVehicleSnapshotConsist),
+    enabled: !isGuest && Boolean(selectedVehicleSnapshotConsist),
     refetchInterval: 30000,
     retry: false,
   });
@@ -7156,6 +7333,13 @@ export function Map({
   const selectedVehicleTypeLabel = selectedVehicle
     ? (selectedVehicleIsRegional ? getRegionalTrainTypeLabel(selectedVehicle) : getVehicleDisplayType(selectedVehicle))
     : "";
+  const selectedVehicleDisplayConsist = selectedVehicle ? getDisplayConsist(selectedVehicle.consist) : "";
+  const selectedVehicleIsFavouriteConsist = Boolean(
+    selectedVehicleDisplayConsist &&
+      favouriteConsists.some(
+        (consist) => normaliseConsistLookupValue(consist) === normaliseConsistLookupValue(selectedVehicleDisplayConsist),
+      ),
+  );
   const selectedVehicleRelevantAlerts = useMemo(() => {
     if (!selectedVehicleSnapshot?.network_alerts?.length || !selectedVehicle) {
       return [];
@@ -7171,6 +7355,10 @@ export function Map({
       return keywords.some((keyword) => searchable.includes(keyword));
     });
   }, [selectedVehicle, selectedVehicleSnapshot]);
+  useEffect(() => {
+    if (!isGuest) return;
+    setSelectedDetail((current) => (current?.type === "vehicle" ? null : current));
+  }, [isGuest]);
   const featuredConsistLiveVehicle = useMemo(
     () => liveVehicles.find((vehicle) => vehicle.consist === FEATURED_CONSIST) ?? null,
     [liveVehicles],
@@ -7233,6 +7421,83 @@ export function Map({
         (vehicle) => isVlineLiveTrain(vehicle) && getVehicleLayerVisibility(vehicle, layers),
       ),
     [layers, regularLiveVehicles],
+  );
+  const focusVehicleOnMap = useCallback((vehicle: LiveTrain) => {
+    setSelectedDetail({ type: "vehicle", vehicle });
+    mapRef.current?.flyTo([vehicle.lat, vehicle.lng], Math.max(mapRef.current?.getZoom() ?? 13, 14), {
+      animate: true,
+      duration: 0.85,
+    });
+  }, []);
+  const handleTrainLookup = useCallback(() => {
+    const rawQuery = trainLookupQuery.trim();
+    if (!rawQuery) {
+      setTrainLookupMessage("Enter a TDN to find a live service.");
+      return;
+    }
+
+    const normalisedQuery = normaliseConsistLookupValue(rawQuery);
+    const allVehicles = [...metroLiveVehicles, ...vlineLiveVehicles];
+    const matchedByTdn =
+      allVehicles.find((vehicle) => {
+        const rawTdn = stripTdnPrefix(vehicle.tdn);
+        const tdnCandidates = [vehicle.tdn, rawTdn]
+          .filter(Boolean)
+          .map((value) => normaliseConsistLookupValue(value));
+        return tdnCandidates.some(
+          (candidate) =>
+            candidate === normalisedQuery ||
+            candidate.startsWith(normalisedQuery) ||
+            normalisedQuery.startsWith(candidate),
+        );
+      }) ?? null;
+
+    if (matchedByTdn) {
+      focusVehicleOnMap(matchedByTdn);
+      setTrainLookupMessage(`Jumped to TDN ${stripTdnPrefix(matchedByTdn.tdn)}.`);
+      return;
+    }
+
+    if (!isPremium) {
+      setTrainLookupMessage("Premium unlocks consist search. Regular accounts can only track by TDN.");
+      return;
+    }
+
+    const matchedByConsist =
+      allVehicles.find((vehicle) => {
+        const consistCandidates = [vehicle.consist, getDisplayConsist(vehicle.consist), getSnapshotConsistId(vehicle.consist) ?? ""]
+          .filter(Boolean)
+          .map((value) => normaliseConsistLookupValue(value));
+        return consistCandidates.some(
+          (candidate) =>
+            candidate === normalisedQuery ||
+            candidate.startsWith(normalisedQuery) ||
+            normalisedQuery.startsWith(candidate),
+        );
+      }) ?? null;
+
+    if (matchedByConsist) {
+      focusVehicleOnMap(matchedByConsist);
+      setTrainLookupMessage(`Jumped to consist ${getDisplayConsist(matchedByConsist.consist)}.`);
+      return;
+    }
+
+    setTrainLookupMessage("No live train matched that TDN or consist right now.");
+  }, [focusVehicleOnMap, isPremium, metroLiveVehicles, trainLookupQuery, vlineLiveVehicles]);
+  const handleFavouriteConsistClick = useCallback(
+    (consist: string) => {
+      if (!isPremium || !onToggleFavouriteConsist) {
+        setTrainLookupMessage("Premium is required to favourite train consists.");
+        return;
+      }
+
+      onToggleFavouriteConsist(consist);
+      const isSaved = favouriteConsists.some(
+        (item) => normaliseConsistLookupValue(item) === normaliseConsistLookupValue(consist),
+      );
+      setTrainLookupMessage(isSaved ? `Removed ${consist} from favourite consists.` : `Saved ${consist} as a favourite consist.`);
+    },
+    [favouriteConsists, isPremium, onToggleFavouriteConsist],
   );
   const handlePlatformBoardServiceClick = useCallback(
     (
@@ -7652,6 +7917,65 @@ export function Map({
       .sort((left, right) => left.distanceMetres - right.distanceMetres)
       .slice(0, 4);
   }, [selectedSurfaceStop, visibleLiveBuses]);
+  const selectedSurfaceBusRouteStops = useMemo(() => {
+    if (!selectedSurfaceStop || !selectedSurfaceStop.modes.includes("bus")) {
+      return [];
+    }
+
+    return getOrderedSurfaceRouteStops(selectedSurfaceStop);
+  }, [selectedSurfaceStop]);
+  const selectedSurfaceBusLeadVehicle = useMemo(() => {
+    if (selectedSurfaceStopLiveBuses.length === 0) {
+      return null;
+    }
+
+    return (
+      selectedSurfaceStopLiveBuses.find(({ bus }) => {
+        const destination = bus.destination?.trim().toLowerCase();
+        return destination && destination === getPrimarySurfaceDestination(selectedSurfaceStop!).trim().toLowerCase();
+      }) ?? selectedSurfaceStopLiveBuses[0]
+    );
+  }, [selectedSurfaceStop, selectedSurfaceStopLiveBuses]);
+  const selectedSurfaceBusCurrentStopIndex = useMemo(() => {
+    if (selectedSurfaceBusRouteStops.length === 0) {
+      return -1;
+    }
+
+    if (selectedSurfaceBusLeadVehicle) {
+      let bestIndex = 0;
+      let bestDistance = Number.POSITIVE_INFINITY;
+
+      selectedSurfaceBusRouteStops.forEach((stop, index) => {
+        const distance = getDistanceInMetres(stop.position, [
+          selectedSurfaceBusLeadVehicle.bus.lat,
+          selectedSurfaceBusLeadVehicle.bus.lng,
+        ]);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = index;
+        }
+      });
+
+      return bestIndex;
+    }
+
+    return selectedSurfaceBusRouteStops.findIndex((stop) => stop.id === selectedSurfaceStop?.id);
+  }, [selectedSurfaceBusLeadVehicle, selectedSurfaceBusRouteStops, selectedSurfaceStop]);
+  const selectedSurfaceBusTrackingStops = useMemo(() => {
+    if (selectedSurfaceBusRouteStops.length === 0) {
+      return [];
+    }
+
+    const currentIndex =
+      selectedSurfaceBusCurrentStopIndex >= 0
+        ? selectedSurfaceBusCurrentStopIndex
+        : Math.max(
+            0,
+            selectedSurfaceBusRouteStops.findIndex((stop) => stop.id === selectedSurfaceStop?.id),
+          );
+
+    return selectedSurfaceBusRouteStops.slice(currentIndex, currentIndex + 6);
+  }, [selectedSurfaceBusCurrentStopIndex, selectedSurfaceBusRouteStops, selectedSurfaceStop]);
   const selectedSurfaceStopLiveTrams = useMemo(() => {
     if (!selectedSurfaceStop || !selectedSurfaceStop.modes.includes("tram")) {
       return [];
@@ -8299,6 +8623,24 @@ export function Map({
           </>
         )}
 
+        {(modeIsTrainVisible || modeIsVlineVisible) && (
+          <>
+            <Polyline
+              positions={FREIGHT_PORT_TERMINAL_LINE}
+              pathOptions={{ color: FREIGHT_BROWN, weight: 4, opacity: 0.9 }}
+            />
+            <Polyline
+              positions={FREIGHT_WESTERN_CORRIDOR_LINE}
+              pathOptions={{ color: FREIGHT_BROWN, weight: 4, opacity: 0.82 }}
+            />
+            <Polyline
+              positions={FREIGHT_NORTH_CORRIDOR_LINE}
+              pathOptions={{ color: FREIGHT_BROWN, weight: 4, opacity: 0.82 }}
+            />
+            {renderFreightLocationMarkers(FREIGHT_LOCATIONS)}
+          </>
+        )}
+
         {journeyRoute && journeyRoute.length > 1 && (
           <>
             <Polyline
@@ -8366,7 +8708,7 @@ export function Map({
         )}
 
         {userLoc && <LocationCenterer loc={userLoc} />}
-        {modeIsTrainVisible && (
+        {!isGuest && modeIsTrainVisible && (
           <Marker
             position={featuredConsistPosition}
             icon={createFeaturedConsistIcon(featuredConsistIsLive)}
@@ -8683,6 +9025,99 @@ export function Map({
           </div>
           <p className="mt-1.5 text-xs leading-tight sm:text-sm">{liveTrainStatusLabel}</p>
           <p className="mt-1 text-[11px] leading-4 opacity-80 sm:text-xs">{liveTrainStatusDetail}</p>
+        </div>
+      </div>
+      )}
+
+        {!isGuest && (modeIsTrainVisible || modeIsVlineVisible) && (
+      <div className="pointer-events-auto absolute left-3 top-[14.45rem] z-[1000] w-[12.5rem] sm:left-4 sm:top-[12.7rem] sm:w-[18.75rem]">
+        <div className="rounded-2xl border border-white/10 bg-slate-950/88 p-3 shadow-xl backdrop-blur-xl">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
+                {isPremium ? "Premium train lookup" : "TDN lookup"}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {isPremium ? "Search by consist or TDN" : "Search by TDN only"}
+              </p>
+            </div>
+            {isPremium ? (
+              <span className="rounded-full bg-amber-500/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+                Premium
+              </span>
+            ) : null}
+          </div>
+
+          <div className="mt-3 flex gap-2">
+            <label className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" />
+              <input
+                value={trainLookupQuery}
+                onChange={(event) => {
+                  setTrainLookupQuery(event.target.value);
+                  if (trainLookupMessage) {
+                    setTrainLookupMessage("");
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleTrainLookup();
+                  }
+                }}
+                placeholder={isPremium ? "430M or UFD11" : "UFD11"}
+                className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-white outline-none transition focus:border-blue-400/40"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={handleTrainLookup}
+              className="rounded-xl border border-blue-400/30 bg-blue-500/15 px-3 py-2 text-xs font-semibold text-blue-100 transition hover:bg-blue-500/25"
+            >
+              Find
+            </button>
+          </div>
+
+          {trainLookupMessage ? (
+            <p className="mt-2 text-xs leading-4 text-white/60">{trainLookupMessage}</p>
+          ) : (
+            <p className="mt-2 text-xs leading-4 text-white/50">
+              {isPremium
+                ? "Premium members can jump straight to live consists and save favourites."
+                : "Regular accounts can still jump to live trains by TDN."}
+            </p>
+          )}
+
+          {isPremium && favouriteConsists.length > 0 ? (
+            <div className="mt-3 border-t border-white/10 pt-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">Favourite consists</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {favouriteConsists.slice(0, 8).map((consist) => (
+                  <button
+                    key={consist}
+                    type="button"
+                    onClick={() => {
+                      setTrainLookupQuery(consist);
+                      setTrainLookupMessage("");
+                      const liveMatch = [...metroLiveVehicles, ...vlineLiveVehicles].find(
+                        (vehicle) =>
+                          normaliseConsistLookupValue(getDisplayConsist(vehicle.consist)) === normaliseConsistLookupValue(consist),
+                      );
+                      if (liveMatch) {
+                        focusVehicleOnMap(liveMatch);
+                        setTrainLookupMessage(`Jumped to favourite consist ${consist}.`);
+                        return;
+                      }
+                      setTrainLookupMessage(`${consist} is saved, but no live match is showing right now.`);
+                    }}
+                    className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold text-white/75 transition hover:bg-white/10"
+                  >
+                    {consist}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
       )}
@@ -9106,12 +9541,37 @@ export function Map({
 
             {(selectedVehicleRegionalSetLabel || getDisplayConsist(selectedDetail.vehicle.consist)) && (
               <div className="mt-3 border-t border-white/10 pt-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
-                  {selectedVehicleIsRegional ? "Allocated set" : "Consist"}
-                </p>
-                <p className="mt-1.5 text-sm font-semibold text-white">
-                  {selectedVehicleRegionalSetLabel || getDisplayConsist(selectedDetail.vehicle.consist)}
-                </p>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
+                      {selectedVehicleIsRegional ? "Allocated set" : "Consist"}
+                    </p>
+                    <p className="mt-1.5 text-sm font-semibold text-white">
+                      {selectedVehicleRegionalSetLabel || selectedVehicleDisplayConsist}
+                    </p>
+                  </div>
+
+                  {selectedVehicleDisplayConsist ? (
+                    isPremium ? (
+                      <button
+                        type="button"
+                        onClick={() => handleFavouriteConsistClick(selectedVehicleDisplayConsist)}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition ${
+                          selectedVehicleIsFavouriteConsist
+                            ? "border-amber-400/30 bg-amber-500/15 text-amber-100"
+                            : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                        }`}
+                      >
+                        <Star className="h-3 w-3" />
+                        {selectedVehicleIsFavouriteConsist ? "Saved" : "Favourite"}
+                      </button>
+                    ) : (
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45">
+                        TDN only
+                      </span>
+                    )
+                  ) : null}
+                </div>
               </div>
             )}
           </div>
@@ -9402,17 +9862,17 @@ export function Map({
                         </div>
 
                         {freightMovements.length > 0 && isPremium && (
-                          <div className="mt-3 rounded-[1.1rem] border border-amber-400/15 bg-amber-500/[0.06] p-3">
+                          <div className="mt-3 rounded-[1.1rem] border border-[#8b5e34]/30 bg-[#8b5e34]/10 p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-200/85">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#e8c9a7]">
                                   Freight movements
                                 </p>
                                 <p className="mt-1 max-w-[48ch] text-xs leading-relaxed text-white/55">
                                   Indicative freight paths through {selectedDetail.station.name}. These are corridor timings, not passenger departures.
                                 </p>
                               </div>
-                              <span className="rounded-full border border-amber-300/15 bg-black/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-100/85">
+                              <span className="rounded-full border border-[#8b5e34]/35 bg-black/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f0dcc3]">
                                 Through corridor
                               </span>
                             </div>
@@ -9426,7 +9886,7 @@ export function Map({
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                       <div className="flex flex-wrap items-center gap-2">
-                                        <span className="rounded-md bg-amber-300/15 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-amber-100">
+                                        <span className="rounded-md bg-[#8b5e34]/25 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[#f0dcc3]">
                                           {movement.serviceId}
                                         </span>
                                         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70">
@@ -9440,7 +9900,7 @@ export function Map({
                                     </div>
                                     <div className="text-right">
                                       <p className="text-base font-semibold text-white">{movement.timeLabel}</p>
-                                      <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-amber-100/80">
+                                      <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-[#e8c9a7]/90">
                                         {movement.statusLabel}
                                       </p>
                                     </div>
@@ -9458,7 +9918,7 @@ export function Map({
                           <div className="mt-3 rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-yellow-200/85">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#e8c9a7]">
                                   Premium
                                 </p>
                                 <p className="mt-1 text-sm font-semibold text-white">
@@ -9468,7 +9928,7 @@ export function Map({
                                   Unlock corridor freight timing panels and advanced path visibility for major junction stations.
                                 </p>
                               </div>
-                              <span className="rounded-full border border-yellow-300/20 bg-yellow-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-yellow-100/85">
+                              <span className="rounded-full border border-[#8b5e34]/35 bg-[#8b5e34]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f0dcc3]">
                                 Locked
                               </span>
                             </div>
@@ -9477,7 +9937,7 @@ export function Map({
                                 href={premiumPaypalLink}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="mt-3 inline-flex rounded-full border border-yellow-300/20 bg-yellow-500/10 px-3 py-1.5 text-[11px] font-semibold text-yellow-100 transition hover:bg-yellow-500/15"
+                                className="mt-3 inline-flex rounded-full border border-[#8b5e34]/35 bg-[#8b5e34]/10 px-3 py-1.5 text-[11px] font-semibold text-[#f0dcc3] transition hover:bg-[#8b5e34]/15"
                               >
                                 Unlock with PayPal
                               </a>
@@ -9622,6 +10082,85 @@ export function Map({
                       {selectedSurfaceStopLiveBuses.length > 0 ? `${selectedSurfaceStopLiveBuses.length} live` : "No live buses"}
                     </span>
                   </div>
+
+                  {selectedSurfaceBusTrackingStops.length > 0 ? (
+                    <div className="mt-3 overflow-hidden rounded-[1.25rem] border border-sky-300/15 bg-slate-950/70">
+                      <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-sky-500/10 px-3 py-2">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-200/80">
+                            Onboard stop view
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-white">
+                            Route {selectedDetail.stop.routeLabel} to {getPrimarySurfaceDestination(selectedDetail.stop)}
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-sky-300/20 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-100/85">
+                          {selectedSurfaceBusLeadVehicle
+                            ? `Live ${selectedSurfaceBusLeadVehicle.bus.route}`
+                            : "Stop list"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-black/20 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/55">
+                        <span>
+                          {selectedSurfaceBusLeadVehicle?.bus.timestamp
+                            ? getMarkerServiceTime(selectedSurfaceBusLeadVehicle.bus.timestamp)
+                            : "Live now"}
+                        </span>
+                        <span>
+                          {selectedSurfaceBusLeadVehicle
+                            ? selectedSurfaceBusLeadVehicle.bus.destination ?? getPrimarySurfaceDestination(selectedDetail.stop)
+                            : getPrimarySurfaceDestination(selectedDetail.stop)}
+                        </span>
+                      </div>
+
+                      <div className="max-h-64 overflow-y-auto px-3 py-2">
+                        {selectedSurfaceBusTrackingStops.map((stop, stopIndex) => {
+                          const absoluteIndex =
+                            (selectedSurfaceBusCurrentStopIndex >= 0 ? selectedSurfaceBusCurrentStopIndex : 0) + stopIndex;
+                          const isCurrent = absoluteIndex === selectedSurfaceBusCurrentStopIndex;
+                          const isSelectedStop = stop.id === selectedDetail.stop.id;
+
+                          return (
+                            <div
+                              key={`${selectedDetail.stop.id}-bus-sequence-${stop.id}`}
+                              className={`flex items-center gap-3 border-b border-white/5 py-2 last:border-b-0 ${
+                                isCurrent ? "bg-sky-400/8" : ""
+                              }`}
+                            >
+                              <div
+                                className={`min-w-[54px] rounded-full border px-2 py-1 text-center text-[10px] font-bold ${
+                                  isCurrent
+                                    ? "border-sky-300/30 bg-sky-400 text-slate-950"
+                                    : isSelectedStop
+                                      ? "border-emerald-300/30 bg-emerald-400/20 text-emerald-100"
+                                      : "border-white/10 bg-white/5 text-white/70"
+                                }`}
+                              >
+                                {isCurrent ? "Now" : `Stop ${absoluteIndex + 1}`}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className={`truncate text-sm font-semibold ${isCurrent ? "text-white" : "text-white/88"}`}>
+                                  {stop.name}
+                                </p>
+                                <p className="mt-0.5 truncate text-[11px] text-white/45">
+                                  {stop.locality}
+                                  {isCurrent
+                                    ? selectedSurfaceBusLeadVehicle?.bus.timestamp
+                                      ? ` · Updated ${formatDistanceToNow(new Date(selectedSurfaceBusLeadVehicle.bus.timestamp), {
+                                          addSuffix: true,
+                                        })}`
+                                      : " · Live position"
+                                    : isSelectedStop
+                                      ? " · Selected stop"
+                                      : ""}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {selectedSurfaceStopLiveBuses.length > 0 ? (
                     <div className="mt-3 grid gap-2">

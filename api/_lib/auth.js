@@ -12,9 +12,22 @@ export const ROLE_OPTIONS = [
 
 const SESSION_COOKIE = "transitalert_session";
 const SESSION_SECRET = process.env.AUTH_SESSION_SECRET || process.env.SESSION_SECRET || "transitalert-dev-secret";
-const adminUsername = process.env.ADMIN_USERNAME || "tyler";
+const adminUsername = process.env.ADMIN_USERNAME || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD || "AppleJuice";
 const adminEmail = `${adminUsername}@transitalert.local`;
+const DEFAULT_PREMIUM_PRICE_AUD = 5;
+const FALLBACK_USERS = [
+  {
+    id: "ashton",
+    username: "ashton",
+    email: "ashton@transitalert.local",
+    role: "Friend",
+    isAdmin: false,
+    isPremium: true,
+    passwordHash:
+      "b8f28eb7a870c27ec655787dab58ec9a:5b8ae8a17939caf3af87b0ebcbc8f974c223e78b4502e887c5eb5ebcc197b70442e0f9e6f6514bb4c2977267c22da384e076dca4756b0527ce8b3396e73b6f79",
+  },
+];
 let cachedDbContext = undefined;
 
 async function loadDbContext() {
@@ -48,7 +61,12 @@ const defaultPreferences = {
   favouriteRoutes: [],
   selectedMapFilters: {},
   transportModes: ["train", "tram", "bus", "vline"],
-  appPreferences: {},
+  appPreferences: {
+    premiumAccess: false,
+    premiumPriceAud: DEFAULT_PREMIUM_PRICE_AUD,
+    premiumPaypalLink: "",
+    favouriteConsists: [],
+  },
   updatedAt: new Date(),
 };
 
@@ -59,6 +77,54 @@ function getFallbackAdminUser() {
     email: adminEmail,
     role: "Admin",
     isAdmin: true,
+  };
+}
+
+function sanitizeFallbackUser(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    isAdmin: Boolean(user.isAdmin),
+  };
+}
+
+function findFallbackUserByUsernameOrEmail(username, email = "") {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  return (
+    FALLBACK_USERS.find(
+      (user) =>
+        user.username.toLowerCase() === normalizedUsername ||
+        (normalizedEmail && user.email.toLowerCase() === normalizedEmail),
+    ) ?? null
+  );
+}
+
+function findFallbackUserBySessionIdentity(id, username = "", email = "") {
+  const normalizedId = String(id || "").trim().toLowerCase();
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  return (
+    FALLBACK_USERS.find(
+      (user) =>
+        user.id.toLowerCase() === normalizedId ||
+        (normalizedUsername && user.username.toLowerCase() === normalizedUsername) ||
+        (normalizedEmail && user.email.toLowerCase() === normalizedEmail),
+    ) ?? null
+  );
+}
+
+function getFallbackPreferencesForUser(userId) {
+  const fallbackUser = findFallbackUserBySessionIdentity(userId);
+  return {
+    ...defaultPreferences,
+    userId,
+    appPreferences: {
+      ...defaultPreferences.appPreferences,
+      premiumAccess: Boolean(fallbackUser?.isPremium),
+    },
   };
 }
 
@@ -235,6 +301,10 @@ export async function getSessionUser(req) {
     ) {
       return getFallbackAdminUser();
     }
+    const fallbackUser = findFallbackUserBySessionIdentity(parsed.id, parsed.username, parsed.email);
+    if (fallbackUser) {
+      return sanitizeFallbackUser(fallbackUser);
+    }
     return null;
   }
 }
@@ -256,6 +326,10 @@ export async function authenticateUser(username, password) {
     logDbFallback("authenticateUser", error);
     if (username.trim().toLowerCase() === adminUsername.toLowerCase() && password === adminPassword) {
       return getFallbackAdminUser();
+    }
+    const fallbackUser = findFallbackUserByUsernameOrEmail(username);
+    if (fallbackUser && verifyPassword(password, fallbackUser.passwordHash)) {
+      return sanitizeFallbackUser(fallbackUser);
     }
     return null;
   }
@@ -307,7 +381,10 @@ export async function getUserByUsernameOrEmail(username, email) {
     const matchesAdmin =
       username.trim().toLowerCase() === adminUsername.toLowerCase() ||
       email.trim().toLowerCase() === adminEmail.toLowerCase();
-    return matchesAdmin ? getFallbackAdminUser() : null;
+    if (matchesAdmin) {
+      return getFallbackAdminUser();
+    }
+    return findFallbackUserByUsernameOrEmail(username, email);
   }
 }
 
@@ -329,7 +406,7 @@ export async function getUserPreferences(userId) {
     return created;
   } catch (error) {
     logDbFallback("getUserPreferences", error);
-    return { ...defaultPreferences, userId };
+    return getFallbackPreferencesForUser(userId);
   }
 }
 
@@ -369,13 +446,17 @@ export async function upsertUserPreferences(userId, patch) {
     return updated;
   } catch (error) {
     logDbFallback("upsertUserPreferences", error);
+    const fallbackPreferences = getFallbackPreferencesForUser(userId);
     return {
       userId,
-      favouriteStops: patch.favouriteStops ?? defaultPreferences.favouriteStops,
-      favouriteRoutes: patch.favouriteRoutes ?? defaultPreferences.favouriteRoutes,
-      selectedMapFilters: patch.selectedMapFilters ?? defaultPreferences.selectedMapFilters,
-      transportModes: patch.transportModes ?? defaultPreferences.transportModes,
-      appPreferences: patch.appPreferences ?? defaultPreferences.appPreferences,
+      favouriteStops: patch.favouriteStops ?? fallbackPreferences.favouriteStops,
+      favouriteRoutes: patch.favouriteRoutes ?? fallbackPreferences.favouriteRoutes,
+      selectedMapFilters: patch.selectedMapFilters ?? fallbackPreferences.selectedMapFilters,
+      transportModes: patch.transportModes ?? fallbackPreferences.transportModes,
+      appPreferences: {
+        ...fallbackPreferences.appPreferences,
+        ...(patch.appPreferences ?? {}),
+      },
       updatedAt: new Date(),
     };
   }

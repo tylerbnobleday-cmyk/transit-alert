@@ -34,6 +34,14 @@ const ADMIN_SOURCE_KEYS = [
 
 const TRANSITALERT_UPDATE_ENTRIES = [
   {
+    date: "07/05/2026",
+    items: [
+      "Inline station stop markers replaced the older debug-style station labels across the live map.",
+      "Live tram and bus route filters expanded, with onboard-style bus stop tracking added to stop detail panels.",
+      "Premium consist favourites and consist search tools were added for premium accounts.",
+    ],
+  },
+  {
     date: "02/05/2026",
     items: [
       "V/Line live tracking added, including Gippsland service detail support.",

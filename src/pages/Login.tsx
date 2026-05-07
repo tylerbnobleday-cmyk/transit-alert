@@ -2,7 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LockKeyhole, Sparkles, UserPlus } from "lucide-react";
-import { continueAsGuest, fetchAuthSession, fetchRoles, loginWithPassword, registerAccount } from "@/lib/auth";
+import {
+  clearGuestIntent,
+  continueAsGuest,
+  fetchAuthSession,
+  fetchRoles,
+  loginWithPassword,
+  markGuestIntent,
+  registerAccount,
+  logoutSession,
+} from "@/lib/auth";
 
 type AuthMode = "sign-in" | "register";
 
@@ -10,7 +19,7 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<AuthMode>("sign-in");
-  const [username, setUsername] = useState("tyler");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [rememberUser, setRememberUser] = useState(true);
   const [registerUsername, setRegisterUsername] = useState("");
@@ -45,11 +54,26 @@ export default function Login() {
     staleTime: Infinity,
   });
 
+  const clearGuestSessionMutation = useMutation({
+    mutationFn: logoutSession,
+    onSettled: async () => {
+      clearGuestIntent();
+      queryClient.setQueryData(["auth-session"], { authenticated: false, user: null });
+      await queryClient.invalidateQueries({ queryKey: ["auth-session"] });
+    },
+  });
+
   useEffect(() => {
     if (session?.authenticated) {
+      if (session.user?.role === "Guest") {
+        if (clearGuestSessionMutation.isIdle) {
+          clearGuestSessionMutation.mutate();
+        }
+        return;
+      }
       setLocation("/app");
     }
-  }, [session, setLocation]);
+  }, [clearGuestSessionMutation, session, setLocation]);
 
   useEffect(() => {
     if (roles.length > 0 && !roles.includes(registerRole)) {
@@ -63,6 +87,7 @@ export default function Login() {
     mutationFn: ({ username, password }: { username: string; password: string }) =>
       loginWithPassword(username, password),
     onSuccess: async (nextSession) => {
+      clearGuestIntent();
       try {
         if (rememberUser) {
           window.localStorage.setItem(
@@ -94,6 +119,7 @@ export default function Login() {
       role: string;
     }) => registerAccount(username, email, password, role),
     onSuccess: async (nextSession) => {
+      clearGuestIntent();
       queryClient.setQueryData(["auth-session"], nextSession);
       await queryClient.invalidateQueries({ queryKey: ["auth-session"] });
       setLocation("/app");
@@ -103,6 +129,7 @@ export default function Login() {
   const guestMutation = useMutation({
     mutationFn: continueAsGuest,
     onSuccess: async (nextSession) => {
+      markGuestIntent();
       queryClient.setQueryData(["auth-session"], nextSession);
       await queryClient.invalidateQueries({ queryKey: ["auth-session"] });
       setLocation("/app");
@@ -269,6 +296,7 @@ export default function Login() {
                       value={username}
                       onChange={(event) => setUsername(event.target.value)}
                       autoComplete="username"
+                      placeholder="Enter username"
                       className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-blue-400/60"
                     />
                   </label>
