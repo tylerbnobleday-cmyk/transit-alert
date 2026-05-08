@@ -100,23 +100,14 @@ function createCityLoopPillIcon(strokeColor: string, stationName: string) {
     stationName === "Parliament" ||
     stationName === "Southern Cross" ||
     stationName === "State Library" ||
-    stationName === "Town Hall";
+    stationName === "Town Hall" ||
+    SPECIAL_PILL_STATIONS.has(stationName);
   const isCompactHorizontalPill = stationName === "State Library";
   const isCombinedCentralLibrary = stationName === "Melbourne Central / State Library";
   const pillRotation =
-    stationName === "Clayton"
-      ? "25deg"
-      : stationName === "Dandenong"
-        ? "18deg"
-        : stationName === "Pakenham"
-          ? "18deg"
-          : stationName === "Frankston"
-            ? "90deg"
-            : stationName === "Malvern"
-              ? "80deg"
-      : stationName === "Caulfield"
-        ? "80deg"
-        : "0deg";
+    SPECIAL_PILL_STATIONS.has(stationName)
+      ? "0deg"
+      : "0deg";
 
   if (isCombinedCentralLibrary) {
     return L.divIcon({

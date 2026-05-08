@@ -1020,6 +1020,12 @@ export default function Home() {
   }, [adminConfig]);
 
   useEffect(() => {
+    if (!authSession?.user) {
+      setIsUserMenuOpen(false);
+    }
+  }, [authSession?.user]);
+
+  useEffect(() => {
     if (isGuest && activeTab !== "map") {
       setActiveTab("map");
     }
@@ -1694,8 +1700,8 @@ export default function Home() {
           />
           <div className="absolute left-3 right-3 top-[6.2rem] z-[59] w-auto max-w-[19rem] rounded-[1.6rem] border border-white/10 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-2xl sm:left-6 sm:right-auto sm:top-24 sm:w-[280px] sm:max-w-none">
             <div className="rounded-[1.25rem] border border-white/10 bg-white/5 p-3">
-              <p className="text-sm font-semibold text-white">{authSession.user?.username}</p>
-              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">{authSession.user?.role}</p>
+              <p className="text-sm font-semibold text-white">{authSession?.user?.username ?? "Account"}</p>
+              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">{authSession?.user?.role ?? "Session"}</p>
             </div>
             <div className="mt-3 flex flex-col gap-2">
               {isGuest ? (
