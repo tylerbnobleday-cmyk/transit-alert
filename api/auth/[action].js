@@ -1,9 +1,11 @@
 import {
+  getRegistrationPhase,
   ROLE_OPTIONS,
   authenticateUser,
   clearSessionCookie,
   getSessionUser,
   getUserByUsernameOrEmail,
+  isApprovedDebugTester,
   readJsonBody,
   registerUser,
   sendJson,
@@ -24,7 +26,7 @@ export default async function handler(req, res) {
   }
 
   if (action === "roles") {
-    sendJson(res, 200, { roles: ROLE_OPTIONS });
+    sendJson(res, 200, { roles: ROLE_OPTIONS, publicRoles: ["Traveller"], registrationPhase: getRegistrationPhase() });
     return;
   }
 
@@ -102,7 +104,8 @@ export default async function handler(req, res) {
     const normalized = username.toLowerCase();
     const email = String(body.email || "").trim().toLowerCase();
     const password = String(body.password || "");
-    const role = String(body.role || "").trim();
+    const requestedRole = String(body.role || "Traveller").trim();
+    const registrationPhase = getRegistrationPhase();
 
     if (!username || username.length < 3) {
       sendJson(res, 400, { error: "Username must be at least 3 characters" });
@@ -119,8 +122,24 @@ export default async function handler(req, res) {
       return;
     }
 
-    if (!ROLE_OPTIONS.includes(role)) {
+    if (!ROLE_OPTIONS.includes(requestedRole)) {
       sendJson(res, 400, { error: "Please choose a valid role" });
+      return;
+    }
+
+    const approvedTester = isApprovedDebugTester(username, email);
+    if (registrationPhase !== "public" && !approvedTester) {
+      sendJson(res, 403, {
+        error:
+          "Registration is currently limited to approved debug testers. Public Traveller sign-ups open in version 1.0 after Tyler approves access.",
+      });
+      return;
+    }
+
+    if (!approvedTester && requestedRole !== "Traveller") {
+      sendJson(res, 403, {
+        error: "New public accounts can only start as Traveller. Staff, tester, and premium roles are approved manually.",
+      });
       return;
     }
 
@@ -136,8 +155,9 @@ export default async function handler(req, res) {
     }
 
     let user;
+    const finalRole = approvedTester ? (requestedRole === "Traveller" ? "Bug Tester" : requestedRole) : "Traveller";
     try {
-      user = await registerUser({ username, email, password, role });
+      user = await registerUser({ username, email, password, role: finalRole });
     } catch (error) {
       sendJson(res, 503, {
         error: error instanceof Error ? error.message : "Registration is unavailable right now",

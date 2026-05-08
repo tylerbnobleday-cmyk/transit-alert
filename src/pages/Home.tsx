@@ -804,14 +804,18 @@ export default function Home() {
     () => (selectedFleetType ? liveFleetTrips.filter((trip) => trip.fleet === selectedFleetType) : []),
     [liveFleetTrips, selectedFleetType],
   );
+  const fleetTripsToDisplay = useMemo(
+    () => (selectedFleetType ? fleetTripsForSelection : liveFleetTrips),
+    [fleetTripsForSelection, liveFleetTrips, selectedFleetType],
+  );
   const fleetStats = useMemo(() => {
-    const trips = selectedFleetType ? fleetTripsForSelection : liveFleetTrips;
+    const trips = fleetTripsToDisplay;
     return {
       liveTrips: trips.length,
       runningNow: trips.filter((trip) => trip.status === "running").length,
       upcomingSoon: trips.filter((trip) => trip.status === "upcoming").length,
     };
-  }, [fleetTripsForSelection, liveFleetTrips, selectedFleetType]);
+  }, [fleetTripsToDisplay]);
   const serviceDayLabel = useMemo(
     () =>
       new Intl.DateTimeFormat("en-AU", {
@@ -2077,77 +2081,6 @@ export default function Home() {
                   Plan route
                 </button>
 
-                <div className="rounded-[1.7rem] border border-emerald-400/20 bg-emerald-500/8 p-3.5 shadow-2xl">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-200/85">Live trains now</p>
-                      <h3 className="mt-1.5 text-base font-semibold text-white sm:text-lg">
-                        {liveFleetTrips.length > 0
-                          ? `${liveFleetTrips.length} live train${liveFleetTrips.length === 1 ? "" : "s"} on the map`
-                          : "No live trains returned right now"}
-                      </h3>
-                      <p className="mt-1 text-sm text-white/65">
-                        Press any service below to jump to its live marker and trip details.
-                      </p>
-                    </div>
-                    <span className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">
-                      Live tracker
-                    </span>
-                  </div>
-
-                  {liveFleetTrips.length > 0 ? (
-                    <div className="mt-4 grid gap-2">
-                      {liveFleetTrips.slice(0, 6).map((trip) => (
-                        <div
-                          key={`map-live-${trip.id}`}
-                          className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 transition hover:border-emerald-300/30 hover:bg-white/10"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => openLiveTrainOnMap(trip)}
-                            className="min-w-0 flex-1 text-left"
-                          >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
-                                TDN / Trip {trip.tripNumber}
-                              </span>
-                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${trip.lineColor}`}>
-                                {trip.line}
-                              </span>
-                            </div>
-                            <p className="mt-2 truncate text-sm font-semibold text-white">{trip.route}</p>
-                            <p className="mt-1 text-xs text-white/55">{trip.statusLabel}</p>
-                          </button>
-                          <div className="flex shrink-0 items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => attachJourneyToService(trip)}
-                              className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                                attachedJourneyServiceKey === trip.focusKey
-                                  ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-100"
-                                  : "border-white/10 bg-white/5 text-white/80"
-                              }`}
-                            >
-                              {attachedJourneyServiceKey === trip.focusKey ? "Attached" : "Attach"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openLiveTrainOnMap(trip)}
-                              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/80"
-                            >
-                              Track
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-slate-950/55 px-4 py-5 text-sm text-white/60">
-                      The live train overlay is still enabled, but the feed did not return active services on this refresh.
-                    </div>
-                  )}
-                </div>
-
                 <datalist id="station-options">
                   {stationOptions.map((name) => (
                     <option key={name} value={name} />
@@ -2314,7 +2247,7 @@ export default function Home() {
                       <p className="mt-2 text-sm text-white/60">
                         {selectedFleetConfig
                           ? `Showing live tracked ${selectedFleetConfig.label} services from the current train feed.`
-                          : "Choose a fleet type to load live services from the current feed."}
+                          : "Showing all live tracked train services from the current feed. Tap a fleet type to narrow the list."}
                       </p>
                     </div>
 
@@ -2337,7 +2270,7 @@ export default function Home() {
                       { label: "Live Trips", value: fleetStats.liveTrips },
                       { label: "Running Now", value: fleetStats.runningNow },
                       { label: "Upcoming Soon", value: fleetStats.upcomingSoon },
-                      { label: "Selected Type", value: selectedFleetConfig?.label ?? "None" },
+                      { label: "Selected Type", value: selectedFleetConfig?.label ?? "All fleets" },
                     ].map((item) => (
                       <div key={item.label} className="rounded-[1.35rem] border border-white/10 bg-black/20 px-5 py-4">
                         <div className="flex items-center justify-between gap-3">
@@ -2369,10 +2302,9 @@ export default function Home() {
                     })}
                   </div>
 
-                  {selectedFleetConfig ? (
-                    fleetTripsForSelection.length > 0 ? (
+                  {fleetTripsToDisplay.length > 0 ? (
                     <div className="space-y-3">
-                      {fleetTripsForSelection.map((trip, index) => (
+                      {fleetTripsToDisplay.map((trip, index) => (
                         <article
                           key={`${trip.fleet}-${trip.tdn}-${trip.id}`}
                           className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-black/25 shadow-lg"
@@ -2392,7 +2324,7 @@ export default function Home() {
                                   </span>
                                   <span className="inline-flex items-center gap-2 rounded-full bg-blue-950/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-300">
                                     <TrainFront className="h-3.5 w-3.5" />
-                                    {selectedFleetConfig.label}
+                                    {selectedFleetConfig?.label ?? FLEET_TYPES.find((fleet) => fleet.key === trip.fleet)?.label ?? trip.fleet}
                                   </span>
                                 </div>
                                 <p className="mt-3 text-xl font-semibold tracking-tight text-white">{trip.route}</p>
@@ -2420,17 +2352,16 @@ export default function Home() {
                       ))}
 
                       <p className="pt-1 text-sm text-white/60">
-                        Showing {fleetTripsForSelection.length} live trips for {selectedFleetConfig.label}.
+                        {selectedFleetConfig
+                          ? `Showing ${fleetTripsToDisplay.length} live trips for ${selectedFleetConfig.label}.`
+                          : `Showing all ${fleetTripsToDisplay.length} live trips from the current feed.`}
                       </p>
                     </div>
-                    ) : (
-                      <div className="rounded-[1.6rem] border border-dashed border-white/15 bg-black/15 px-6 py-12 text-center text-white/60">
-                        No live {selectedFleetConfig.label} services are in the current feed right now.
-                      </div>
-                    )
                   ) : (
                     <div className="rounded-[1.8rem] border border-dashed border-white/15 bg-black/15 px-6 py-16 text-center text-lg text-white/55">
-                      Choose a fleet type above to load live services from the current feed.
+                      {selectedFleetConfig
+                        ? `No live ${selectedFleetConfig.label} services are in the current feed right now.`
+                        : "No live train services are in the current feed right now."}
                     </div>
                   )}
                 </div>

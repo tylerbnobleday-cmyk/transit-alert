@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LockKeyhole, Sparkles, UserPlus } from "lucide-react";
@@ -77,11 +77,9 @@ export default function Login() {
 
   useEffect(() => {
     if (roles.length > 0 && !roles.includes(registerRole)) {
-      setRegisterRole(roles[0]);
+      setRegisterRole(roles.includes("Traveller") ? "Traveller" : roles[0]);
     }
   }, [roles, registerRole]);
-
-  const roleGroups = useMemo(() => roles, [roles]);
 
   const loginMutation = useMutation({
     mutationFn: ({ username, password }: { username: string; password: string }) =>
@@ -369,7 +367,7 @@ export default function Login() {
                   Create an account
                 </h2>
                 <p className="mt-2 text-sm text-white/60">
-                  Pick a username, email, password, and role to start using saved features across the app.
+                  Registration is currently for approved debug testers only. Public Traveller sign-ups open in version 1.0, and premium or staff-style roles are added manually after approval.
                 </p>
 
                 <form
@@ -380,7 +378,7 @@ export default function Login() {
                       username: registerUsername,
                       email: registerEmail,
                       password: registerPassword,
-                      role: registerRole,
+                      role: "Traveller",
                     });
                   }}
                 >
@@ -423,40 +421,14 @@ export default function Login() {
                     />
                   </label>
 
-                  <label className="block">
-                    <span className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-white/45">
-                      Role
-                    </span>
-                    <select
-                      value={registerRole}
-                      onChange={(event) => setRegisterRole(event.target.value)}
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-blue-400/60"
-                    >
-                      {roleGroups.map((role) => (
-                        <option key={role} value={role} className="bg-slate-950 text-white">
-                          {role}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                     <p className="text-xs font-medium uppercase tracking-[0.18em] text-white/45">
-                      Available roles
+                      Registration access
                     </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {roleGroups.map((role) => (
-                        <span
-                          key={role}
-                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                            role === registerRole
-                              ? "border-blue-400/50 bg-blue-500/10 text-blue-200"
-                              : "border-white/10 bg-white/5 text-white/70"
-                          }`}
-                        >
-                          {role}
-                        </span>
-                      ))}
+                    <div className="mt-3 space-y-2 text-sm text-white/70">
+                      <p>Approved debug testers can create accounts right now after you add them to the tester approval list.</p>
+                      <p>When version 1.0 opens public sign-ups, new accounts will start as <span className="font-semibold text-white">Traveller</span>.</p>
+                      <p>Premium access and any extra roles are granted manually by you or another approved admin.</p>
                     </div>
                   </div>
 
@@ -471,7 +443,7 @@ export default function Login() {
                     disabled={registerMutation.isPending}
                     className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-base font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    {registerMutation.isPending ? "Creating account..." : "Register and enter app"}
+                    {registerMutation.isPending ? "Checking tester approval..." : "Create tester account"}
                   </button>
                 </form>
               </div>

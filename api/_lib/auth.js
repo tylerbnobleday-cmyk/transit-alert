@@ -16,6 +16,13 @@ const adminUsername = process.env.ADMIN_USERNAME || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD || "AppleJuice";
 const adminEmail = `${adminUsername}@transitalert.local`;
 const DEFAULT_PREMIUM_PRICE_AUD = 5;
+const REGISTRATION_PHASE = (process.env.REGISTRATION_PHASE || "debug-testers").trim().toLowerCase();
+const APPROVED_DEBUG_TESTERS = new Set(
+  (process.env.APPROVED_DEBUG_TESTERS || process.env.DEBUG_TESTER_APPROVALS || "")
+    .split(/[,\n;]/)
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+);
 const FALLBACK_USERS = [
   {
     id: "ashton",
@@ -88,6 +95,28 @@ function sanitizeFallbackUser(user) {
     role: user.role,
     isAdmin: Boolean(user.isAdmin),
   };
+}
+
+export function isApprovedDebugTester(username, email) {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+
+  if (!normalizedUsername && !normalizedEmail) {
+    return false;
+  }
+
+  return (
+    APPROVED_DEBUG_TESTERS.has(normalizedUsername) ||
+    APPROVED_DEBUG_TESTERS.has(normalizedEmail) ||
+    FALLBACK_USERS.some(
+      (user) =>
+        user.username.toLowerCase() === normalizedUsername || user.email.toLowerCase() === normalizedEmail,
+    )
+  );
+}
+
+export function getRegistrationPhase() {
+  return REGISTRATION_PHASE;
 }
 
 function findFallbackUserByUsernameOrEmail(username, email = "") {
