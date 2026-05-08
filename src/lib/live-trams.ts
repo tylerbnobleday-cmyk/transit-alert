@@ -126,10 +126,25 @@ function normaliseLiveTram(raw: Partial<LiveTram> & Record<string, unknown>, ind
   };
 }
 
-export async function fetchLiveTrams(): Promise<LiveTram[]> {
+export type LiveViewportBounds = {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+};
+
+export async function fetchLiveTrams(bounds?: LiveViewportBounds): Promise<LiveTram[]> {
   let response: Response;
   try {
-    response = await fetch("/api/ptv/live-trams");
+    const search = bounds
+      ? `?${new URLSearchParams({
+          minLat: String(bounds.minLat),
+          maxLat: String(bounds.maxLat),
+          minLng: String(bounds.minLng),
+          maxLng: String(bounds.maxLng),
+        }).toString()}`
+      : "";
+    response = await fetch(`/api/ptv/live-trams${search}`);
   } catch (error) {
     if (error instanceof TypeError) {
       return [];

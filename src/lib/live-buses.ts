@@ -115,10 +115,25 @@ function normaliseLiveBus(raw: Partial<LiveBus> & Record<string, unknown>, index
   };
 }
 
-export async function fetchLiveBuses(): Promise<LiveBus[]> {
+export type LiveViewportBounds = {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+};
+
+export async function fetchLiveBuses(bounds?: LiveViewportBounds): Promise<LiveBus[]> {
   let response: Response;
   try {
-    response = await fetch("/api/ptv/live-buses");
+    const search = bounds
+      ? `?${new URLSearchParams({
+          minLat: String(bounds.minLat),
+          maxLat: String(bounds.maxLat),
+          minLng: String(bounds.minLng),
+          maxLng: String(bounds.maxLng),
+        }).toString()}`
+      : "";
+    response = await fetch(`/api/ptv/live-buses${search}`);
   } catch (error) {
     if (error instanceof TypeError) {
       return [];

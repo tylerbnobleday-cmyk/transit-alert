@@ -19,7 +19,14 @@ import { AddReportDrawer } from "@/components/AddReportDrawer";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TRANSITALERT_WEB_VERSION } from "@/lib/version";
 import { clearGuestIntent, fetchAuthSession, hasGuestIntent, logoutSession } from "@/lib/auth";
-import { fetchAdminConfig, saveAdminConfig, type AdminRuntimeConfig } from "@/lib/admin-config";
+import {
+  fetchAdminAccounts,
+  fetchAdminConfig,
+  saveAdminConfig,
+  updateAdminAccount,
+  type AdminAccountRecord,
+  type AdminRuntimeConfig,
+} from "@/lib/admin-config";
 import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
 import busButtonIcon from "@/assets/icons/bus.png";
 import tramButtonIcon from "@/assets/icons/tram.png";
@@ -92,6 +99,7 @@ const CURRENT_LOCATION_LABEL = "Current location";
 const JOURNEY_STORAGE_KEY = "transitalert-active-journey-v1";
 const HOME_ORIGIN_COORDS: [number, number] = [-37.9147, 145.0186];
 const VERSION_SEEN_STORAGE_KEY = "transitalert-last-seen-version";
+const ACCOUNT_ROLE_OPTIONS = ["Traveller", "Bug Tester", "Friend", "Special", "Train Driver", "Station Staff", "Admin"] as const;
 
 type PlannerSheetProps = {
   isOpen: boolean;
@@ -705,6 +713,9 @@ export default function Home() {
   const [preferences, setPreferences] = useState<UserPreferences>(defaultPreferences);
   const [hasMergedLocalPreferences, setHasMergedLocalPreferences] = useState(false);
   const [adminConfigDraft, setAdminConfigDraft] = useState<AdminRuntimeConfig>({});
+  const [adminAccountDrafts, setAdminAccountDrafts] = useState<
+    Record<string, Pick<AdminAccountRecord, "role" | "isAdmin" | "isPremium">>
+  >({});
   const isAdmin = authSession?.user?.isAdmin ?? false;
   const isGuest = authSession?.user?.role === "Guest";
   const isPremium = hasPremiumAccess(preferences);
@@ -727,6 +738,14 @@ export default function Home() {
     staleTime: 60_000,
   });
 
+  const { data: adminAccounts = [] } = useQuery({
+    queryKey: ["admin-accounts"],
+    queryFn: fetchAdminAccounts,
+    enabled: isAdmin,
+    retry: false,
+    staleTime: 30_000,
+  });
+
   const signOutMutation = useMutation({
     mutationFn: logoutSession,
     onSuccess: async () => {
@@ -734,6 +753,28 @@ export default function Home() {
       await queryClient.invalidateQueries({ queryKey: ["auth-session"] });
       setActiveTab("map");
       setLocation("/login");
+    },
+  });
+
+  const adminAccountMutation = useMutation({
+    mutationFn: ({ accountId, patch }: { accountId: string; patch: Pick<AdminAccountRecord, "role" | "isAdmin" | "isPremium"> }) =>
+      updateAdminAccount(accountId, patch),
+    onSuccess: async (account) => {
+      if (account) {
+        setAdminAccountDrafts((current) => ({
+          ...current,
+          [account.id]: {
+            role: account.role,
+            isAdmin: account.isAdmin,
+            isPremium: account.isPremium,
+          },
+        }));
+      }
+      setAdminMessage("Account access updated.");
+      await queryClient.invalidateQueries({ queryKey: ["admin-accounts"] });
+    },
+    onError: (error) => {
+      setAdminMessage(error instanceof Error ? error.message : "Failed to update account access.");
     },
   });
 
@@ -1023,6 +1064,22 @@ export default function Home() {
       setAdminConfigDraft(adminConfig);
     }
   }, [adminConfig]);
+
+  useEffect(() => {
+    if (adminAccounts.length === 0) return;
+    setAdminAccountDrafts(
+      Object.fromEntries(
+        adminAccounts.map((account) => [
+          account.id,
+          {
+            role: account.role,
+            isAdmin: account.isAdmin,
+            isPremium: account.isPremium,
+          },
+        ]),
+      ),
+    );
+  }, [adminAccounts]);
 
   useEffect(() => {
     if (!authSession?.user) {
@@ -1354,6 +1411,27 @@ export default function Home() {
       `Draft saved for ${adminSelectedStation}: ${adminLat}, ${adminLng} on ${adminSelectedLine}. Persist this next.`,
     );
   };
+
+  const updateAdminAccountDraft = useCallback(
+    (
+      accountId: string,
+      field: "role" | "isAdmin" | "isPremium",
+      value: string | boolean,
+    ) => {
+      setAdminAccountDrafts((current) => ({
+        ...current,
+        [accountId]: {
+          role: current[accountId]?.role ?? "Traveller",
+          isAdmin: current[accountId]?.isAdmin ?? false,
+          isPremium: current[accountId]?.isPremium ?? false,
+          ...(field === "role" ? { role: String(value) } : {}),
+          ...(field === "isAdmin" ? { isAdmin: Boolean(value) } : {}),
+          ...(field === "isPremium" ? { isPremium: Boolean(value) } : {}),
+        },
+      }));
+    },
+    [],
+  );
 
 
   const updatePreferences = useCallback(
@@ -2392,7 +2470,135 @@ export default function Home() {
                     </button>
                   </div>
                 ) : (
-                  <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                  <div className="space-y-4">
+                    <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                      <div className="rounded-[1.8rem] border border-white/10 bg-white/5 p-5">
+                        <p className="text-sm font-semibold text-white">Account Management</p>
+                        <p className="mt-1 text-xs text-white/60">
+                          Review registered accounts, adjust role/access, and manually control premium while registration stays tester-only.
+                        </p>
+                        <div className="mt-4 space-y-3">
+                          {adminAccounts.length > 0 ? (
+                            adminAccounts.map((account) => {
+                              const draft = adminAccountDrafts[account.id] ?? {
+                                role: account.role,
+                                isAdmin: account.isAdmin,
+                                isPremium: account.isPremium,
+                              };
+                              return (
+                                <div key={account.id} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-sm font-semibold text-white">{account.username}</p>
+                                      <p className="mt-1 text-xs text-white/55">{account.email || "No email saved"}</p>
+                                      <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-white/40">
+                                        Created {account.createdAt ? new Date(account.createdAt).toLocaleString() : "from fallback config"}
+                                      </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/75">
+                                        {account.role}
+                                      </span>
+                                      {account.isAdmin ? (
+                                        <span className="rounded-full border border-blue-400/30 bg-blue-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-200">
+                                          Admin
+                                        </span>
+                                      ) : null}
+                                      {account.isPremium ? (
+                                        <span className="rounded-full border border-amber-400/30 bg-amber-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                                          Premium
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                                    <label className="block sm:col-span-2">
+                                      <span className="mb-1 block text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">Role</span>
+                                      <select
+                                        value={draft.role}
+                                        onChange={(event) => updateAdminAccountDraft(account.id, "role", event.target.value)}
+                                        className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none"
+                                      >
+                                        {ACCOUNT_ROLE_OPTIONS.map((role) => (
+                                          <option key={role} value={role}>
+                                            {role}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white">
+                                      <input
+                                        type="checkbox"
+                                        checked={draft.isAdmin}
+                                        onChange={(event) => updateAdminAccountDraft(account.id, "isAdmin", event.target.checked)}
+                                        className="h-4 w-4 rounded border-white/20 bg-slate-950"
+                                      />
+                                      Admin access
+                                    </label>
+                                    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white">
+                                      <input
+                                        type="checkbox"
+                                        checked={draft.isPremium}
+                                        onChange={(event) => updateAdminAccountDraft(account.id, "isPremium", event.target.checked)}
+                                        className="h-4 w-4 rounded border-white/20 bg-slate-950"
+                                      />
+                                      Premium tools
+                                    </label>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      adminAccountMutation.mutate({
+                                        accountId: account.id,
+                                        patch: draft,
+                                      })
+                                    }
+                                    className="mt-4 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                                    disabled={adminAccountMutation.isPending}
+                                  >
+                                    {adminAccountMutation.isPending ? "Saving account..." : "Save account access"}
+                                  </button>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/50 px-4 py-8 text-center text-sm text-white/55">
+                              No accounts were returned from the current auth source yet.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[1.8rem] border border-white/10 bg-white/5 p-5">
+                        <p className="text-sm font-semibold text-white">How registration works right now</p>
+                        <div className="mt-4 space-y-3 text-sm text-white/70">
+                          <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-white/45">Sign-up gate</p>
+                            <p className="mt-2 text-white">
+                              Registration is currently limited to approved debug testers from the Netlify env var <span className="font-semibold text-blue-200">APPROVED_DEBUG_TESTERS</span>.
+                              Version 1.0 is where normal public traveller sign-up is meant to open.
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-white/45">Stored data</p>
+                            <p className="mt-2 text-white">
+                              We store username, email, password hash, role, admin flag, timestamps, plus preferences like favourites, transport filters, premium access, and saved map behaviour.
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-white/45">Login + live APIs</p>
+                            <p className="mt-2 text-white">
+                              Login creates a signed session cookie. Guests can browse the base map and planner, but live train, tram, bus, and consist feeds stay hidden until a real account signs in.
+                              Premium access is controlled from this admin screen and unlocks things like consist favourites and consist-based search.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                     <div className="rounded-[1.8rem] border border-white/10 bg-white/5 p-5">
                       <p className="text-sm font-semibold text-white">Station Position Editor</p>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -2566,6 +2772,7 @@ export default function Home() {
                         {adminMessage && <p className="text-sm text-blue-200">{adminMessage}</p>}
                       </div>
                     </div>
+                  </div>
                   </div>
                 )}
               </div>

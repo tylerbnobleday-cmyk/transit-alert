@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { eq } from "drizzle-orm";
 
 export const ROLE_OPTIONS = [
   "Admin",
@@ -415,6 +416,75 @@ export async function getUserByUsernameOrEmail(username, email) {
     }
     return findFallbackUserByUsernameOrEmail(username, email);
   }
+}
+
+export async function listAccounts() {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+
+    const accounts = await db.query.appUsersTable.findMany();
+    const decorated = await Promise.all(
+      accounts.map(async (account) => {
+        const preferences = await getUserPreferences(account.id);
+        return {
+          ...sanitizeUser(account),
+          isPremium: Boolean(preferences?.appPreferences?.premiumAccess),
+          createdAt: account.createdAt?.toISOString?.() ?? undefined,
+          updatedAt: account.updatedAt?.toISOString?.() ?? undefined,
+        };
+      }),
+    );
+
+    return decorated.sort((left, right) => left.username.localeCompare(right.username));
+  } catch (error) {
+    logDbFallback("listAccounts", error);
+    return [getFallbackAdminUser(), ...FALLBACK_USERS.map((user) => sanitizeFallbackUser(user))].map((user) => ({
+      ...user,
+      isPremium: FALLBACK_USERS.some((fallback) => fallback.id === user.id && fallback.isPremium),
+    }));
+  }
+}
+
+export async function updateAccountAccess(accountId, patch) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
+  const appUsersTable = context?.appUsersTable;
+  if (!db || !appUsersTable) {
+    throw new Error("Account updates require DATABASE_URL to be configured.");
+  }
+
+  const [updatedUser] = await db
+    .update(appUsersTable)
+    .set({
+      role: patch.role,
+      isAdmin: Boolean(patch.isAdmin),
+      updatedAt: new Date(),
+    })
+    .where(eq(appUsersTable.id, accountId))
+    .returning();
+
+  if (!updatedUser) {
+    throw new Error("Account not found.");
+  }
+
+  const existingPreferences = await getUserPreferences(accountId);
+  const nextPreferences = await upsertUserPreferences(accountId, {
+    appPreferences: {
+      ...(existingPreferences?.appPreferences ?? {}),
+      premiumAccess: Boolean(patch.isPremium),
+    },
+  });
+
+  return {
+    ...sanitizeUser(updatedUser),
+    isPremium: Boolean(nextPreferences?.appPreferences?.premiumAccess),
+    createdAt: updatedUser.createdAt?.toISOString?.() ?? undefined,
+    updatedAt: updatedUser.updatedAt?.toISOString?.() ?? undefined,
+  };
 }
 
 export async function getUserPreferences(userId) {

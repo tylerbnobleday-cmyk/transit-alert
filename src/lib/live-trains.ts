@@ -55,6 +55,13 @@ type LiveTrainResponse =
       trains?: LiveTrain[];
     };
 
+export type LiveViewportBounds = {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+};
+
 function normaliseConsistLabel(value: unknown) {
   if (typeof value !== "string") {
     return "Unknown";
@@ -253,10 +260,17 @@ async function fetchTrackedConsistFallback(): Promise<LiveTrain[]> {
   ];
 }
 
-export async function fetchLiveTrains(): Promise<LiveTrain[]> {
+export async function fetchLiveTrains(bounds?: LiveViewportBounds): Promise<LiveTrain[]> {
+  const searchParams = new URLSearchParams();
+  if (bounds) {
+    searchParams.set("minLat", String(bounds.minLat));
+    searchParams.set("maxLat", String(bounds.maxLat));
+    searchParams.set("minLng", String(bounds.minLng));
+    searchParams.set("maxLng", String(bounds.maxLng));
+  }
   let response: Response;
   try {
-    response = await fetch("/api/ptv/live-trains");
+    response = await fetch(`/api/ptv/live-trains${searchParams.size ? `?${searchParams.toString()}` : ""}`);
   } catch (error) {
     if (error instanceof TypeError) {
       return [];

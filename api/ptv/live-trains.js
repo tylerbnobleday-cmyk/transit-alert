@@ -41,6 +41,29 @@ const NSW_TRAINLINK_KEYWORDS = [
   "goulburn",
 ];
 
+function readBoundsFilter(query = {}) {
+  const minLat = Number(query.minLat);
+  const maxLat = Number(query.maxLat);
+  const minLng = Number(query.minLng);
+  const maxLng = Number(query.maxLng);
+
+  if ([minLat, maxLat, minLng, maxLng].some((value) => Number.isNaN(value))) {
+    return null;
+  }
+
+  return { minLat, maxLat, minLng, maxLng };
+}
+
+function withinBounds(item, bounds) {
+  if (!bounds) return true;
+  return (
+    item.lat >= bounds.minLat &&
+    item.lat <= bounds.maxLat &&
+    item.lng >= bounds.minLng &&
+    item.lng <= bounds.maxLng
+  );
+}
+
 function normalisePtvRouteId(routeId) {
   const code = routeId?.match(/vic-02-([A-Z0-9]+):/i)?.[1]?.toUpperCase() ?? String(routeId || "Metro");
   const routeMap = {
@@ -261,6 +284,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const bounds = readBoundsFilter(req.query ?? {});
     const feedRequests = [
       ...(ptvSubscriptionKey
         ? PTV_FEEDS.map(async (source) => {
@@ -308,7 +332,8 @@ export default async function handler(req, res) {
 
     const fulfilled = responses
       .filter((result) => result.status === "fulfilled")
-      .flatMap((result) => result.value);
+      .flatMap((result) => result.value)
+      .filter((train) => withinBounds(train, bounds));
 
     if (fulfilled.length > 0) {
       res.status(200).json({ trains: fulfilled });

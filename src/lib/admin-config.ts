@@ -5,6 +5,17 @@ export type RuntimeSourceConfig = {
 
 export type AdminRuntimeConfig = Record<string, RuntimeSourceConfig>;
 
+export type AdminAccountRecord = {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  isAdmin: boolean;
+  isPremium: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export async function fetchAdminConfig() {
   const response = await fetch("/api/admin/settings");
   if (!response.ok) {
@@ -27,4 +38,31 @@ export async function saveAdminConfig(config: AdminRuntimeConfig) {
   }
   const payload = (await response.json()) as { config?: AdminRuntimeConfig };
   return payload.config ?? {};
+}
+
+export async function fetchAdminAccounts() {
+  const response = await fetch("/api/admin/accounts");
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({ error: "Failed to load accounts" }))) as { error?: string };
+    throw new Error(payload.error || "Failed to load accounts");
+  }
+  const payload = (await response.json()) as { accounts?: AdminAccountRecord[] };
+  return payload.accounts ?? [];
+}
+
+export async function updateAdminAccount(
+  accountId: string,
+  patch: Pick<AdminAccountRecord, "role" | "isAdmin" | "isPremium">,
+) {
+  const response = await fetch("/api/admin/accounts", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accountId, patch }),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({ error: "Failed to update account" }))) as { error?: string };
+    throw new Error(payload.error || "Failed to update account");
+  }
+  const payload = (await response.json()) as { account?: AdminAccountRecord };
+  return payload.account;
 }

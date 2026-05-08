@@ -96,6 +96,29 @@ function buildPtvLiveTrams(feed) {
     .filter(Boolean);
 }
 
+function readBoundsFilter(query = {}) {
+  const minLat = Number(query.minLat);
+  const maxLat = Number(query.maxLat);
+  const minLng = Number(query.minLng);
+  const maxLng = Number(query.maxLng);
+
+  if ([minLat, maxLat, minLng, maxLng].some((value) => Number.isNaN(value))) {
+    return null;
+  }
+
+  return { minLat, maxLat, minLng, maxLng };
+}
+
+function withinBounds(item, bounds) {
+  if (!bounds) return true;
+  return (
+    item.lat >= bounds.minLat &&
+    item.lat <= bounds.maxLat &&
+    item.lng >= bounds.minLng &&
+    item.lng <= bounds.maxLng
+  );
+}
+
 export default async function handler(req, res) {
   const ptvSubscriptionKey =
     process.env.PTV_SUBSCRIPTION_KEY ||
@@ -109,6 +132,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const bounds = readBoundsFilter(req.query);
     const response = await fetch(`${PTV_BASE_URL}/vehicle-positions`, {
       headers: {
         KeyID: ptvSubscriptionKey,
@@ -127,7 +151,7 @@ export default async function handler(req, res) {
 
     const buffer = await response.arrayBuffer();
     const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
-    res.status(200).json({ trams: buildPtvLiveTrams(feed) });
+    res.status(200).json({ trams: buildPtvLiveTrams(feed).filter((tram) => withinBounds(tram, bounds)) });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to load live trams",

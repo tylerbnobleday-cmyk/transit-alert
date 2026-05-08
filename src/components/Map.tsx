@@ -1945,6 +1945,46 @@ const FREIGHT_NORTH_CORRIDOR_LINE: [number, number][] = [
   [-36.5515, 145.9843], // Benalla
   [-36.1212, 146.8879], // Wodonga
 ];
+const XPT_INTERSTATE_LINE: [number, number][] = [
+  [-37.81767225337158, 144.950639128634], // Southern Cross
+  [-37.6805, 144.9191], // Broadmeadows
+  [-37.0264, 145.1337], // Seymour
+  [-36.3582, 146.3181], // Wangaratta
+  [-36.0796, 146.924], // Albury
+  [-35.6682, 147.0396], // Culcairn
+  [-35.5209, 147.0399], // Henty
+  [-35.2741, 147.1133], // The Rock
+  [-35.1082, 147.3673], // Wagga Wagga
+  [-34.8654, 147.5859], // Junee
+  [-34.6393, 148.0273], // Cootamundra
+  [-34.5537, 148.373], // Harden
+  [-34.8428, 148.9118], // Yass Junction
+  [-34.7874, 149.2661], // Gunning
+  [-34.7545, 149.7202], // Goulburn
+  [-34.5519, 150.3717], // Moss Vale
+  [-34.0657, 150.8148], // Campbelltown
+  [-33.883, 151.207], // Sydney Central
+];
+const XPT_INTERSTATE_STOPS: Array<{ name: string; position: [number, number] }> = [
+  { name: "Southern Cross", position: [-37.81767225337158, 144.950639128634] },
+  { name: "Broadmeadows", position: [-37.6805, 144.9191] },
+  { name: "Seymour", position: [-37.0264, 145.1337] },
+  { name: "Wangaratta", position: [-36.3582, 146.3181] },
+  { name: "Albury", position: [-36.0796, 146.924] },
+  { name: "Culcairn", position: [-35.6682, 147.0396] },
+  { name: "Henty", position: [-35.5209, 147.0399] },
+  { name: "The Rock", position: [-35.2741, 147.1133] },
+  { name: "Wagga Wagga", position: [-35.1082, 147.3673] },
+  { name: "Junee", position: [-34.8654, 147.5859] },
+  { name: "Cootamundra", position: [-34.6393, 148.0273] },
+  { name: "Harden", position: [-34.5537, 148.373] },
+  { name: "Yass Junction", position: [-34.8428, 148.9118] },
+  { name: "Gunning", position: [-34.7874, 149.2661] },
+  { name: "Goulburn", position: [-34.7545, 149.7202] },
+  { name: "Moss Vale", position: [-34.5519, 150.3717] },
+  { name: "Campbelltown", position: [-34.0657, 150.8148] },
+  { name: "Sydney Central", position: [-33.883, 151.207] },
+];
 export const ALL_STATIONS: Station[] = [
     ...CLIFTONHILLGROUPLOOP_STATIONS,
   ...MERNDA_STATIONS,
@@ -5818,7 +5858,7 @@ function getRegionalTrainTypeLabel(vehicle: LiveTrain) {
     return vehicle.trainType;
   }
 
-  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn}`.toUpperCase();
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
   const genericRegionalLabel =
     !vehicle.trainType.trim() ||
     /^(REGIONAL TRAIN|TRAIN|V\/LINE|VLINE|UNKNOWN)$/i.test(vehicle.trainType.trim());
@@ -5830,6 +5870,14 @@ function getRegionalTrainTypeLabel(vehicle: LiveTrain) {
 
   if (/SPRINTER/.test(joined)) {
     return "Sprinter";
+  }
+
+  if (/XPT/.test(joined)) {
+    return "NSW TrainLink XPT";
+  }
+
+  if (/XPLORER/.test(joined)) {
+    return "NSW TrainLink Xplorer";
   }
 
   if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) {
@@ -6131,8 +6179,11 @@ function renderRouteStopMarkers(
   fillColor: string,
   strokeColor: string,
   subtitle: string,
+  visibleBounds?: L.LatLngBounds | null,
 ) {
-  return stops.map((stop, index) => (
+  return stops
+    .filter((stop) => !visibleBounds || visibleBounds.contains(L.latLng(stop.position[0], stop.position[1])))
+    .map((stop, index) => (
     <Marker
       key={`${stop.name}-${stop.position[0]}-${stop.position[1]}`}
       position={stop.position}
@@ -6151,8 +6202,10 @@ function renderRouteStopMarkers(
   ));
 }
 
-function renderFreightLocationMarkers(stops: FreightLocation[]) {
-  return stops.map((stop, index) => (
+function renderFreightLocationMarkers(stops: FreightLocation[], visibleBounds?: L.LatLngBounds | null) {
+  return stops
+    .filter((stop) => !visibleBounds || visibleBounds.contains(L.latLng(stop.position[0], stop.position[1])))
+    .map((stop, index) => (
     <Marker
       key={`${stop.name}-${stop.position[0]}-${stop.position[1]}`}
       position={stop.position}
@@ -6179,8 +6232,11 @@ function renderSurfaceStops(
   fillColor: string,
   strokeColor: string,
   onSelect: (stop: SurfaceStop) => void,
+  visibleBounds?: L.LatLngBounds | null,
 ) {
-  return stops.map((stop) => (
+  return stops
+    .filter((stop) => !visibleBounds || visibleBounds.contains(L.latLng(stop.position[0], stop.position[1])))
+    .map((stop) => (
     <CircleMarker
       key={stop.id}
       center={stop.position}
@@ -6485,8 +6541,51 @@ const WAURN_PONDS_REGIONAL_PROFILE: RegionalServiceProfile = {
   ],
 };
 
+const XPT_SYDNEY_PROFILE: RegionalServiceProfile = {
+  line: "NSW TrainLink XPT",
+  accent: "#d9480f",
+  serviceType: "Interstate long-distance service",
+  origin: "Southern Cross",
+  destination: "Sydney Central",
+  window: "19:50 - 06:47",
+  duration: "10h 57m",
+  platform: "1",
+  stops: [
+    { time: "19:50", name: "Southern Cross", platform: "1", side: "Right", delayMinutes: 0 },
+    { time: "20:16", name: "Broadmeadows", platform: "3", side: "Right", note: "Pick up only", delayMinutes: 0 },
+    { time: "21:01", name: "Seymour", platform: "1", side: "Right", note: "Pick up only", delayMinutes: 0 },
+    { time: "22:22", name: "Wangaratta", platform: "2", side: "Right", delayMinutes: 0 },
+    { time: "23:07", name: "Albury", platform: "1", side: "Right", delayMinutes: 0 },
+    { time: "23:36", name: "Culcairn", platform: "1", side: "Right", note: "Request stop", delayMinutes: 0 },
+    { time: "23:47", name: "Henty", platform: "1", side: "Right", note: "Request stop", delayMinutes: 0 },
+    { time: "00:04", name: "The Rock", platform: "1", side: "Right", note: "Request stop", delayMinutes: 0 },
+    { time: "00:22", name: "Wagga Wagga", platform: "1", side: "Right", delayMinutes: 0 },
+    { time: "00:48", name: "Junee", platform: "1", side: "Right", delayMinutes: 0 },
+    { time: "01:35", name: "Cootamundra", platform: "1", side: "Right", delayMinutes: 0 },
+    { time: "02:16", name: "Harden", platform: "1", side: "Right", note: "Request stop", delayMinutes: 0 },
+    { time: "03:07", name: "Yass Junction", platform: "1", side: "Right", note: "Request stop", delayMinutes: 0 },
+    { time: "03:35", name: "Gunning", platform: "1", side: "Right", note: "Request stop", delayMinutes: 0 },
+    { time: "04:13", name: "Goulburn", platform: "1", side: "Right", delayMinutes: 0 },
+    { time: "05:01", name: "Moss Vale", platform: "1", side: "Right", delayMinutes: 0 },
+    { time: "06:09", name: "Campbelltown", platform: "2", side: "Right", note: "Drop off only", delayMinutes: 0 },
+    { time: "06:47", name: "Sydney Central", platform: "1", side: "Right", delayMinutes: 0 },
+  ],
+};
+
 function getRegionalServiceProfile(vehicle: LiveTrain, snapshot?: ConsistSnapshot): RegionalServiceProfile | null {
   const joined = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+
+  if (/(xpt|nsw trainlink|sydney central|albury|wagga|cootamundra)/.test(joined)) {
+    return {
+      ...XPT_SYDNEY_PROFILE,
+      origin: snapshot?.current_trip?.origin ?? XPT_SYDNEY_PROFILE.origin,
+      destination: snapshot?.current_trip?.destination ?? XPT_SYDNEY_PROFILE.destination,
+      window:
+        snapshot?.current_trip
+          ? `${formatRouteWindow(snapshot.current_trip.departs)} - ${formatRouteWindow(snapshot.current_trip.arrives)}`
+          : XPT_SYDNEY_PROFILE.window,
+    };
+  }
 
   if (joined.includes("traralgon")) {
     return {
@@ -6573,6 +6672,7 @@ function getRegionalFallbackMeta(
     /southern cross|flinders street|melbourne central|flagstaff|parliament|city/i.test(vehicle.destination);
 
   const explicitMetas = [
+    { match: /(xpt|nsw trainlink|sydney central|campbelltown|goulburn|albury)/, outbound: "Sydney Central", inbound: "Southern Cross", serviceLabel: "NSW TrainLink XPT" },
     { match: /(waurn ponds|geelong|warrnambool)/, outbound: "Waurn Ponds", inbound: "Southern Cross", serviceLabel: "Geelong line" },
     { match: /(ballarat|wendouree|ararat|maryborough)/, outbound: "Ballarat", inbound: "Southern Cross", serviceLabel: "Ballarat line" },
     { match: /(bendigo|castlemaine|echuca|swan hill)/, outbound: "Bendigo", inbound: "Southern Cross", serviceLabel: "Bendigo line" },
@@ -6592,6 +6692,12 @@ function getRegionalFallbackMeta(
 
   const position: [number, number] = [vehicle.lat, vehicle.lng];
   const inferredMetas = [
+    {
+      outbound: "Sydney Central",
+      inbound: "Southern Cross",
+      serviceLabel: "NSW TrainLink XPT",
+      distance: getPolylinePointDistanceMetres(position, XPT_INTERSTATE_LINE),
+    },
     {
       outbound: "Waurn Ponds",
       inbound: "Southern Cross",
@@ -6969,6 +7075,10 @@ function getVehicleDisplayType(vehicle: LiveTrain) {
 }
 
 function getVehicleTypeIcon(vehicle: LiveTrain) {
+  const joined = `${vehicle.line} ${vehicle.destination} ${vehicle.trainType} ${vehicle.consist}`.toLowerCase();
+  if (/(xpt|nsw trainlink)/.test(joined)) {
+    return "/images/xpt.svg";
+  }
   const formation = getVehicleFormation(vehicle);
 
   switch (formation.family) {
@@ -7336,6 +7446,25 @@ export function Map({
   const [activeSurfaceRouteFilters, setActiveSurfaceRouteFilters] = useState<string[]>(
     () => SURFACE_ROUTE_FILTERS.map((filter) => filter.key),
   );
+  const [mapZoom, setMapZoom] = useState(13);
+  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
+  const viewportBoundsQuery = useMemo(() => {
+    const sourceBounds = mapBounds?.pad(0.35) ?? L.latLngBounds([-38.25, 144.35], [-37.45, 145.55]);
+    return {
+      minLat: Number(sourceBounds.getSouth().toFixed(5)),
+      maxLat: Number(sourceBounds.getNorth().toFixed(5)),
+      minLng: Number(sourceBounds.getWest().toFixed(5)),
+      maxLng: Number(sourceBounds.getEast().toFixed(5)),
+    };
+  }, [mapBounds]);
+  const visibleViewportBounds = useMemo(
+    () =>
+      L.latLngBounds(
+        [viewportBoundsQuery.minLat, viewportBoundsQuery.minLng],
+        [viewportBoundsQuery.maxLat, viewportBoundsQuery.maxLng],
+      ),
+    [viewportBoundsQuery],
+  );
 
   const { data } = useGetReports({
     query: { refetchInterval: 30000 },
@@ -7346,8 +7475,8 @@ export function Map({
     isLoading: isLiveTrainsLoading,
     error: liveTrainsError,
   } = useQuery({
-    queryKey: ["/api/ptv/live-trains"],
-    queryFn: fetchLiveTrains,
+    queryKey: ["/api/ptv/live-trains", viewportBoundsQuery],
+    queryFn: () => fetchLiveTrains(viewportBoundsQuery),
     enabled: !isGuest,
     refetchInterval: 15000,
     retry: false,
@@ -7356,8 +7485,8 @@ export function Map({
     data: liveBuses = [],
     isLoading: isLiveBusesLoading,
   } = useQuery({
-    queryKey: ["/api/ptv/live-buses"],
-    queryFn: fetchLiveBuses,
+    queryKey: ["/api/ptv/live-buses", viewportBoundsQuery],
+    queryFn: () => fetchLiveBuses(viewportBoundsQuery),
     enabled: !isGuest,
     refetchInterval: 15000,
     retry: false,
@@ -7366,8 +7495,8 @@ export function Map({
     data: liveTrams = [],
     isLoading: isLiveTramsLoading,
   } = useQuery({
-    queryKey: ["/api/ptv/live-trams"],
-    queryFn: fetchLiveTrams,
+    queryKey: ["/api/ptv/live-trams", viewportBoundsQuery],
+    queryFn: () => fetchLiveTrams(viewportBoundsQuery),
     enabled: !isGuest,
     refetchInterval: 15000,
     retry: false,
@@ -7547,16 +7676,24 @@ export function Map({
   const metroLiveVehicles = useMemo(
     () =>
       regularLiveVehicles.filter(
-        (vehicle) => !isVlineLiveTrain(vehicle) && getVehicleLayerVisibility(vehicle, layers),
+        (vehicle) =>
+          !isVlineLiveTrain(vehicle) &&
+          getVehicleLayerVisibility(vehicle, layers) &&
+          (visibleViewportBounds.contains(L.latLng(vehicle.lat, vehicle.lng)) ||
+            getVehicleFocusKey(vehicle) === focusedVehicleKey),
       ),
-    [layers, regularLiveVehicles],
+    [focusedVehicleKey, layers, regularLiveVehicles, visibleViewportBounds],
   );
   const vlineLiveVehicles = useMemo(
     () =>
       regularLiveVehicles.filter(
-        (vehicle) => isVlineLiveTrain(vehicle) && getVehicleLayerVisibility(vehicle, layers),
+        (vehicle) =>
+          isVlineLiveTrain(vehicle) &&
+          getVehicleLayerVisibility(vehicle, layers) &&
+          (visibleViewportBounds.contains(L.latLng(vehicle.lat, vehicle.lng)) ||
+            getVehicleFocusKey(vehicle) === focusedVehicleKey),
       ),
-    [layers, regularLiveVehicles],
+    [focusedVehicleKey, layers, regularLiveVehicles, visibleViewportBounds],
   );
   const focusVehicleOnMap = useCallback((vehicle: LiveTrain) => {
     setSelectedDetail({ type: "vehicle", vehicle });
@@ -7707,9 +7844,6 @@ export function Map({
   const [isMarkerEditMode, setIsMarkerEditMode] = useState(false);
   const [draftMarkerOverrides, setDraftMarkerOverrides] = useState<Record<string, MarkerOverride>>({});
   const [hoveredVehicleKey, setHoveredVehicleKey] = useState<string | null>(null);
-  const [mapZoom, setMapZoom] = useState(13);
-  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
-
   const [userLoc, setUserLoc] = useState<[number, number] | null>(null);
 
   const { data: markerOverrides = [], refetch: refetchMarkerOverrides } = useQuery({
@@ -8032,12 +8166,22 @@ export function Map({
   );
 
   const visibleLiveBuses = useMemo(
-    () => liveBuses.filter((bus) => isSurfaceRouteVisible("bus", bus.route)),
-    [isSurfaceRouteVisible, liveBuses],
+    () =>
+      liveBuses.filter(
+        (bus) =>
+          isSurfaceRouteVisible("bus", bus.route) &&
+          visibleViewportBounds.contains(L.latLng(bus.lat, bus.lng)),
+      ),
+    [isSurfaceRouteVisible, liveBuses, visibleViewportBounds],
   );
   const visibleLiveTrams = useMemo(
-    () => liveTrams.filter((tram) => isSurfaceRouteVisible("tram", tram.route)),
-    [isSurfaceRouteVisible, liveTrams],
+    () =>
+      liveTrams.filter(
+        (tram) =>
+          isSurfaceRouteVisible("tram", tram.route) &&
+          visibleViewportBounds.contains(L.latLng(tram.lat, tram.lng)),
+      ),
+    [isSurfaceRouteVisible, liveTrams, visibleViewportBounds],
   );
   const selectedSurfaceStopLiveBuses = useMemo(() => {
     if (!selectedSurfaceStop || !selectedSurfaceStop.modes.includes("bus")) {
@@ -8756,6 +8900,17 @@ export function Map({
                 {isAdmin ? renderTrackDebugMarkers("BAIRNSDALE_LINE", BAIRNSDALE_DEBUG_TRACK_POINTS, "#c4b5fd") : null}
               </>
             )}
+            <Polyline
+              positions={XPT_INTERSTATE_LINE}
+              pathOptions={{ color: "#d9480f", weight: 4, opacity: 0.9, dashArray: "10 7" }}
+            />
+            {renderRouteStopMarkers(
+              XPT_INTERSTATE_STOPS,
+              "#d9480f",
+              "#d9480f",
+              "NSW TrainLink XPT standard-gauge interstate route",
+              visibleViewportBounds,
+            )}
           </>
         )}
 
@@ -8773,7 +8928,7 @@ export function Map({
               positions={FREIGHT_NORTH_CORRIDOR_LINE}
               pathOptions={{ color: FREIGHT_BROWN, weight: 4, opacity: 0.82 }}
             />
-            {renderFreightLocationMarkers(FREIGHT_LOCATIONS)}
+            {renderFreightLocationMarkers(FREIGHT_LOCATIONS, visibleViewportBounds)}
           </>
         )}
 
@@ -9020,6 +9175,7 @@ export function Map({
             "#FF8200",
             "#FF8200",
             (stop) => setSelectedDetail({ type: "surfaceStop", stop }),
+            visibleViewportBounds,
           )}
         {modeIsTramVisible &&
           renderSurfaceStops(
@@ -9029,6 +9185,7 @@ export function Map({
             "#78BE20",
             "#78BE20",
             (stop) => setSelectedDetail({ type: "surfaceStop", stop }),
+            visibleViewportBounds,
           )}
         {visibleReports.map((report) => {
           if (!report.lat || !report.lng) return null;
