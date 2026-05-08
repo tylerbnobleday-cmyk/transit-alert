@@ -219,7 +219,7 @@ const VERSION_LOG: ChangelogEntry[] = [
     ],
   },
   {
-    version: "V0.6.9",
+    version: "V0.70",
     date: "02/05/2026",
     notes: [
       "V/Line live tracking landed with Gippsland service detail support and better Southern Cross departure boards.",
@@ -228,14 +228,14 @@ const VERSION_LOG: ChangelogEntry[] = [
     ],
   },
   {
-    version: "V0.6.8",
+    version: "V0.68",
     date: "29/04/2026",
     notes: [
       "Raw feed IDs were stripped out of live transit labels to clean up user-facing data.",
     ],
   },
   {
-    version: "V0.6.7",
+    version: "V0.67",
     date: "21/06/2025",
     notes: [
       "Searching by station code now picks the station directly.",
@@ -243,7 +243,7 @@ const VERSION_LOG: ChangelogEntry[] = [
     ],
   },
   {
-    version: "V0.6.6",
+    version: "V0.66",
     date: "15/06/2025",
     notes: [
       "Major departures template refresh.",
@@ -695,6 +695,7 @@ export default function Home() {
   const [originPickerMessage, setOriginPickerMessage] = useState("");
   const [isOriginPickerOpen, setIsOriginPickerOpen] = useState(false);
   const [originSearch, setOriginSearch] = useState("");
+  const [journeyPlannerMessage, setJourneyPlannerMessage] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
   const [adminSelectedStation, setAdminSelectedStation] = useState("Flinders Street");
   const [adminLat, setAdminLat] = useState("-37.8184161");
@@ -880,7 +881,7 @@ export default function Home() {
   }, []);
 
   const useCurrentLocationForOrigin = () => {
-    if (!navigator.geolocation) {
+    if (typeof window === "undefined" || typeof navigator === "undefined" || !navigator.geolocation) {
       setOriginPickerMessage("Current location is not available in this browser.");
       return;
     }
@@ -1176,19 +1177,21 @@ export default function Home() {
   };
 
   const computeJourneyRoute = () => {
-    const trimmedDestination = journeyDestination.trim();
-    const destination =
-      stationByName.get(trimmedDestination) ??
-      stationByNormalizedName.get(trimmedDestination.toLowerCase()) ??
-      null;
-    const isHomeOrigin = journeyOrigin === HOME_ORIGIN_LABEL;
-    const isCurrentLocationOrigin = currentLocationOrigin !== null && journeyOrigin === currentLocationOrigin;
+    try {
+      setJourneyPlannerMessage("");
+      const trimmedDestination = journeyDestination.trim();
+      const destination =
+        stationByName.get(trimmedDestination) ??
+        stationByNormalizedName.get(trimmedDestination.toLowerCase()) ??
+        null;
+      const isHomeOrigin = journeyOrigin === HOME_ORIGIN_LABEL;
+      const isCurrentLocationOrigin = currentLocationOrigin !== null && journeyOrigin === currentLocationOrigin;
 
-    let resolvedOrigin =
-      stationByName.get(journeyOrigin) ??
-      stationByNormalizedName.get(journeyOrigin.trim().toLowerCase()) ??
-      null;
-    let accessLeg: JourneyLeg | null = null;
+      let resolvedOrigin =
+        stationByName.get(journeyOrigin) ??
+        stationByNormalizedName.get(journeyOrigin.trim().toLowerCase()) ??
+        null;
+      let accessLeg: JourneyLeg | null = null;
 
     if (isHomeOrigin) {
       const nearestHomeStation = findNearestStation(HOME_ORIGIN_COORDS);
@@ -1218,112 +1221,119 @@ export default function Home() {
       }
     }
 
-    if (!resolvedOrigin || !destination) {
-      applyJourneyPlan([], "Pick a valid destination and start point, then plan the trip again.");
-      return;
-    }
-
-    if (resolvedOrigin.name === destination.name) {
-      const singleLegs: JourneyLeg[] = [
-        ...(accessLeg ? [accessLeg] : []),
-        {
-          mode: "walk",
-          title: "You have arrived",
-          from: resolvedOrigin.name,
-          to: destination.name,
-          detail: "No further travel needed.",
-          badge: "Arrived",
-        },
-      ];
-      applyJourneyPlan(
-        [resolvedOrigin],
-        "You're already at your destination.",
-        buildJourneyDisplay([resolvedOrigin], "You're already at your destination.", singleLegs, "Already there", "Station access"),
-      );
-      return;
-    }
-
-    const path = buildJourneyPath(resolvedOrigin.name, destination.name);
-    if (!path) {
-      applyJourneyPlan(
-        [resolvedOrigin, destination],
-        "No clean through-route was found right now, so the planner kept your start and end pinned.",
-        buildJourneyDisplay(
-          [resolvedOrigin, destination],
-          "No clean through-route was found right now.",
-          [
-            ...(accessLeg ? [accessLeg] : []),
-            {
-              mode: "walk",
-              title: "Manual transfer",
-              from: resolvedOrigin.name,
-              to: destination.name,
-              detail: "Check live services manually or attach yourself to a specific trip below.",
-              badge: "Fallback",
-            },
-          ],
-          "Manual transfer",
-          "Fallback route",
-        ),
-      );
-      return;
-    }
-
-    const routeStations = path.stationNames
-      .map((stationName) => stationByName.get(stationName))
-      .filter((station): station is Station => Boolean(station));
-    const trainLegs: JourneyLeg[] = [];
-
-    if (path.edgeLines.length > 0) {
-      let segmentStartIndex = 0;
-      let activeLine = path.edgeLines[0] ?? "";
-
-      for (let index = 1; index <= path.edgeLines.length; index += 1) {
-        const lineAtIndex = path.edgeLines[index];
-        if (lineAtIndex === activeLine) continue;
-
-        const from = path.stationNames[segmentStartIndex] ?? resolvedOrigin.name;
-        const to = path.stationNames[index] ?? destination.name;
-        const stopCount = Math.max(index - segmentStartIndex, 0);
-        trainLegs.push({
-          mode: "train",
-          title: `${activeLine} line`,
-          from,
-          to,
-          detail: `${stopCount} stop${stopCount === 1 ? "" : "s"}${index < path.stationNames.length - 1 ? " before changing" : ""}`,
-          badge: "Train",
-        });
-
-        segmentStartIndex = index;
-        activeLine = lineAtIndex ?? "";
+      if (!resolvedOrigin || !destination) {
+        applyJourneyPlan([], "Pick a valid destination and start point, then plan the trip again.");
+        setJourneyPlannerMessage("Choose a recognised start point and destination before planning.");
+        return;
       }
-    }
 
-    const journeyLegs = [...(accessLeg ? [accessLeg] : []), ...trainLegs];
-    const changeStations = trainLegs
-      .slice(0, -1)
-      .map((leg) => leg.to)
-      .filter(Boolean);
-    const summary =
-      trainLegs.length <= 1
-        ? `Direct journey via the ${trainLegs[0]?.title ?? "rail network"} (${Math.max(routeStations.length - 1, 0)} stops).`
-        : `Stay on board, then change at ${changeStations.join(", ")} to finish the trip to ${destination.name}.`;
-    const pattern =
-      trainLegs.length <= 1
-        ? trainLegs[0]?.title ?? "Direct service"
-        : `Change at ${changeStations.join(" + ")}`;
+      if (resolvedOrigin.name === destination.name) {
+        const singleLegs: JourneyLeg[] = [
+          ...(accessLeg ? [accessLeg] : []),
+          {
+            mode: "walk",
+            title: "You have arrived",
+            from: resolvedOrigin.name,
+            to: destination.name,
+            detail: "No further travel needed.",
+            badge: "Arrived",
+          },
+        ];
+        applyJourneyPlan(
+          [resolvedOrigin],
+          "You're already at your destination.",
+          buildJourneyDisplay([resolvedOrigin], "You're already at your destination.", singleLegs, "Already there", "Station access"),
+        );
+        return;
+      }
 
-    applyJourneyPlan(
-      routeStations,
-      summary,
-      buildJourneyDisplay(
+      const path = buildJourneyPath(resolvedOrigin.name, destination.name);
+      if (!path) {
+        applyJourneyPlan(
+          [resolvedOrigin, destination],
+          "No clean through-route was found right now, so the planner kept your start and end pinned.",
+          buildJourneyDisplay(
+            [resolvedOrigin, destination],
+            "No clean through-route was found right now.",
+            [
+              ...(accessLeg ? [accessLeg] : []),
+              {
+                mode: "walk",
+                title: "Manual transfer",
+                from: resolvedOrigin.name,
+                to: destination.name,
+                detail: "Check live services manually or attach yourself to a specific trip below.",
+                badge: "Fallback",
+              },
+            ],
+            "Manual transfer",
+            "Fallback route",
+          ),
+        );
+        return;
+      }
+
+      const routeStations = path.stationNames
+        .map((stationName) => stationByName.get(stationName))
+        .filter((station): station is Station => Boolean(station));
+      const trainLegs: JourneyLeg[] = [];
+
+      if (path.edgeLines.length > 0) {
+        let segmentStartIndex = 0;
+        let activeLine = path.edgeLines[0] ?? "";
+
+        for (let index = 1; index <= path.edgeLines.length; index += 1) {
+          const lineAtIndex = path.edgeLines[index];
+          if (lineAtIndex === activeLine) continue;
+
+          const from = path.stationNames[segmentStartIndex] ?? resolvedOrigin.name;
+          const to = path.stationNames[index] ?? destination.name;
+          const stopCount = Math.max(index - segmentStartIndex, 0);
+          trainLegs.push({
+            mode: "train",
+            title: `${activeLine} line`,
+            from,
+            to,
+            detail: `${stopCount} stop${stopCount === 1 ? "" : "s"}${index < path.stationNames.length - 1 ? " before changing" : ""}`,
+            badge: "Train",
+          });
+
+          segmentStartIndex = index;
+          activeLine = lineAtIndex ?? "";
+        }
+      }
+      
+
+      const journeyLegs = [...(accessLeg ? [accessLeg] : []), ...trainLegs];
+      const changeStations = trainLegs
+        .slice(0, -1)
+        .map((leg) => leg.to)
+        .filter(Boolean);
+      const summary =
+        trainLegs.length <= 1
+          ? `Direct journey via the ${trainLegs[0]?.title ?? "rail network"} (${Math.max(routeStations.length - 1, 0)} stops).`
+          : `Stay on board, then change at ${changeStations.join(", ")} to finish the trip to ${destination.name}.`;
+      const pattern =
+        trainLegs.length <= 1
+          ? trainLegs[0]?.title ?? "Direct service"
+          : `Change at ${changeStations.join(" + ")}`;
+
+      applyJourneyPlan(
         routeStations,
         summary,
-        journeyLegs,
-        pattern,
-        accessLeg ? "Multi-stage journey" : "Rail journey",
-      ),
-    );
+        buildJourneyDisplay(
+          routeStations,
+          summary,
+          journeyLegs,
+          pattern,
+          accessLeg ? "Multi-stage journey" : "Rail journey",
+        ),
+      );
+    } catch (error) {
+      console.error("Journey planning failed", error);
+      setJourneyPlannerMessage("Journey planning hit a problem. Your inputs were kept, so please try again.");
+      applyJourneyPlan([], "Journey planning hit a problem before the route could be drawn.");
+    }
   };
 
   const loadStationDraft = (stationName: string) => {
@@ -1801,7 +1811,7 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="grid gap-5 p-5 lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="grid max-h-[75vh] gap-5 overflow-y-auto p-5 lg:grid-cols-[1.05fr_0.95fr]">
               <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-4">
                 <p className="text-lg font-semibold text-white">Stops Near</p>
                 <p className="mt-1 text-sm text-white/60">Quick-start stations for testing departures and route planning.</p>
@@ -2054,6 +2064,19 @@ export default function Home() {
                   )}
                 </div>
 
+                {journeyPlannerMessage && (
+                  <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    {journeyPlannerMessage}
+                  </div>
+                )}
+
+                <button
+                  onClick={computeJourneyRoute}
+                  className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-base font-semibold text-white transition hover:bg-blue-500"
+                >
+                  Plan route
+                </button>
+
                 <div className="rounded-[1.7rem] border border-emerald-400/20 bg-emerald-500/8 p-3.5 shadow-2xl">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -2131,13 +2154,6 @@ export default function Home() {
                   ))}
                 </datalist>
 
-                <button
-                  onClick={computeJourneyRoute}
-                  className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-base font-semibold text-white transition hover:bg-blue-500"
-                >
-                  Plan route
-                </button>
-
                 <div className="rounded-[1.75rem] border border-white/10 bg-slate-900/85 p-4 text-sm text-white/75">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -2149,7 +2165,7 @@ export default function Home() {
                         <p className="mt-1 text-xs text-white/45">Started {formatJourneyStarted(journeyStartedAt)}</p>
                       )}
                     </div>
-                    {journeyDisplay && journeyRoute.length > 0 && (
+                    {journeyDisplay && journeyDisplay.legs.length > 0 && journeyRoute.length > 0 && (
                       <div className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200">
                         {journeyDisplay.stopCountLabel}
                       </div>
@@ -2195,7 +2211,7 @@ export default function Home() {
                     </div>
                   )}
 
-                  {journeyDisplay && journeyRoute.length > 0 && (
+                  {journeyDisplay && journeyDisplay.legs.length > 0 && journeyRoute.length > 0 && (
                     <div className="mt-4 space-y-4">
                       <div className="rounded-[1.7rem] border border-white/10 bg-white/5 p-5">
                         <div className="grid gap-4 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
