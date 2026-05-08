@@ -1965,24 +1965,24 @@ const XPT_INTERSTATE_LINE: [number, number][] = [
   [-34.0657, 150.8148], // Campbelltown
   [-33.883, 151.207], // Sydney Central
 ];
-const XPT_INTERSTATE_STOPS: Array<{ name: string; position: [number, number] }> = [
+const XPT_INTERSTATE_STOPS: Array<{ name: string; position: [number, number]; note?: string }> = [
   { name: "Southern Cross", position: [-37.81767225337158, 144.950639128634] },
-  { name: "Broadmeadows", position: [-37.6805, 144.9191] },
-  { name: "Seymour", position: [-37.0264, 145.1337] },
+  { name: "Broadmeadows", position: [-37.6805, 144.9191], note: "Pick up only" },
+  { name: "Seymour", position: [-37.0264, 145.1337], note: "Pick up only" },
   { name: "Wangaratta", position: [-36.3582, 146.3181] },
   { name: "Albury", position: [-36.0796, 146.924] },
-  { name: "Culcairn", position: [-35.6682, 147.0396] },
-  { name: "Henty", position: [-35.5209, 147.0399] },
-  { name: "The Rock", position: [-35.2741, 147.1133] },
+  { name: "Culcairn", position: [-35.6682, 147.0396], note: "Request stop" },
+  { name: "Henty", position: [-35.5209, 147.0399], note: "Request stop" },
+  { name: "The Rock", position: [-35.2741, 147.1133], note: "Request stop" },
   { name: "Wagga Wagga", position: [-35.1082, 147.3673] },
   { name: "Junee", position: [-34.8654, 147.5859] },
   { name: "Cootamundra", position: [-34.6393, 148.0273] },
-  { name: "Harden", position: [-34.5537, 148.373] },
-  { name: "Yass Junction", position: [-34.8428, 148.9118] },
-  { name: "Gunning", position: [-34.7874, 149.2661] },
+  { name: "Harden", position: [-34.5537, 148.373], note: "Request stop" },
+  { name: "Yass Junction", position: [-34.8428, 148.9118], note: "Request stop" },
+  { name: "Gunning", position: [-34.7874, 149.2661], note: "Request stop" },
   { name: "Goulburn", position: [-34.7545, 149.7202] },
   { name: "Moss Vale", position: [-34.5519, 150.3717] },
-  { name: "Campbelltown", position: [-34.0657, 150.8148] },
+  { name: "Campbelltown", position: [-34.0657, 150.8148], note: "Drop off only" },
   { name: "Sydney Central", position: [-33.883, 151.207] },
 ];
 export const ALL_STATIONS: Station[] = [
@@ -6175,7 +6175,7 @@ function renderStationMarkers(
 }
 
 function renderRouteStopMarkers(
-  stops: Array<{ name: string; position: [number, number] }>,
+  stops: Array<{ name: string; position: [number, number]; note?: string }>,
   fillColor: string,
   strokeColor: string,
   subtitle: string,
@@ -6196,6 +6196,7 @@ function renderRouteStopMarkers(
         <div className="p-3 w-48">
           <p className="font-semibold text-white">{stop.name}</p>
           <p className="text-xs text-white/60 mt-1">{subtitle}</p>
+          {stop.note ? <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">{stop.note}</p> : null}
         </div>
       </Popup>
     </Marker>
@@ -6819,6 +6820,10 @@ function getVehicleStoppingPattern(vehicle: LiveTrain) {
     return summary;
   }
 
+  if (/(xpt|nsw trainlink|sydney central|albury|wagga|cootamundra)/i.test(`${vehicle.line} ${vehicle.destination}`)) {
+    return "NSW TrainLink XPT interstate service to Sydney Central";
+  }
+
   if (/traralgon/i.test(`${vehicle.line} ${vehicle.destination}`)) {
     return "Traralgon express service to Southern Cross";
   }
@@ -6831,6 +6836,18 @@ function getVehicleStoppingPattern(vehicle: LiveTrain) {
   }
 
   return `${vehicle.line} line service to ${vehicle.destination}`;
+}
+
+function getRegionalRestrictionSummary(profile?: RegionalServiceProfile | null) {
+  if (!profile) return "";
+  const notes = Array.from(
+    new Set(
+      profile.stops
+        .map((stop) => stop.note?.trim())
+        .filter((note): note is string => Boolean(note) && !/^express$/i.test(note)),
+    ),
+  );
+  return notes.join(" · ");
 }
 
 function getVehicleWindowLabel(snapshot: ConsistSnapshot | undefined, vehicle: LiveTrain) {
@@ -7569,6 +7586,7 @@ export function Map({
           ? `Waiting to form ${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
           : `Following ${selectedVehicleOriginLabel} to ${selectedVehicleDestinationLabel}`
     : "";
+  const selectedRegionalRestrictionSummary = getRegionalRestrictionSummary(selectedRegionalProfile);
   const selectedVehicleAccent = selectedVehicle ? getLiveLineColor(selectedVehicle.line) : "#3b82f6";
   const selectedVehicleIsRegional = Boolean(selectedVehicle && isVlineLiveTrain(selectedVehicle));
   const selectedVehicleDelayMinutes = selectedRegionalProfile?.stops[selectedRegionalProfile.stops.length - 1]?.delayMinutes ?? 0;
@@ -9696,6 +9714,11 @@ export function Map({
                   ? `Departs ${formatRouteWindow(selectedVehicleSnapshot.next_trip.departs)} and arrives ${formatRouteWindow(selectedVehicleSnapshot.next_trip.arrives)}`
                   : "Using the live feed fallback while trip-level timing is unavailable."}
             </p>
+            {selectedRegionalRestrictionSummary ? (
+              <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+                Stop restrictions: {selectedRegionalRestrictionSummary}
+              </p>
+            ) : null}
           </div>
 
           {selectedRegionalProfile && (
@@ -9897,6 +9920,11 @@ export function Map({
                     Journey
                   </p>
                   <p className="mt-1 text-sm font-semibold text-white">{selectedVehicleJourneyLabel || "Live"}</p>
+                  {selectedRegionalRestrictionSummary ? (
+                    <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-200">
+                      {selectedRegionalRestrictionSummary}
+                    </p>
+                  ) : null}
                 </div>
                 <span
                   className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white"
