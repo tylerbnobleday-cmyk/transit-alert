@@ -1669,12 +1669,9 @@ export default function Home() {
           }}
           onOpenAlerts={() => setLocation("/alerts/today")}
           onOpenUserMenu={() => {
-          if (isGuest) {
-            setLocation("/login");
-            return;
-          }
-          setIsUserMenuOpen((value) => !value);
-        }}
+            setUserMenuMessage("");
+            setIsUserMenuOpen((value) => !value);
+          }}
         user={authSession?.user ?? null}
       />
 
@@ -1701,6 +1698,36 @@ export default function Home() {
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">{authSession.user?.role}</p>
             </div>
             <div className="mt-3 flex flex-col gap-2">
+              {isGuest ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      setUserMenuMessage("");
+                      setLocation("/login");
+                    }}
+                    className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-3 text-left text-sm font-semibold text-blue-100 transition hover:bg-blue-500/15"
+                  >
+                    Log in
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      setUserMenuMessage("");
+                      setLocation("/register");
+                    }}
+                    className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-left text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/15"
+                  >
+                    Create account
+                  </button>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs leading-relaxed text-white/65">
+                    Guest mode hides live vehicles and premium account tools. Log in or register to unlock the full app.
+                  </div>
+                </>
+              ) : (
+                <>
               <button
                 type="button"
                 onClick={() => {
@@ -1733,6 +1760,8 @@ export default function Home() {
               >
                 {signOutMutation.isPending ? "Signing out..." : "Log out"}
               </button>
+                </>
+              )}
             </div>
             {userMenuMessage && (
               <p className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs text-white/65">
