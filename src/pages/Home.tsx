@@ -91,6 +91,7 @@ const HOME_ORIGIN_LABEL = "Home · 15 Louise St, Brighton East";
 const CURRENT_LOCATION_LABEL = "Current location";
 const JOURNEY_STORAGE_KEY = "transitalert-active-journey-v1";
 const HOME_ORIGIN_COORDS: [number, number] = [-37.9147, 145.0186];
+const VERSION_SEEN_STORAGE_KEY = "transitalert-last-seen-version";
 
 type PlannerSheetProps = {
   isOpen: boolean;
@@ -110,6 +111,7 @@ type DockedPanelSheetProps = {
 type VersionModalProps = {
   isOpen: boolean;
   onClose: () => void;
+  showWelcome: boolean;
 };
 
 type FleetTypeKey =
@@ -209,11 +211,11 @@ const FLEET_TYPES: FleetTypeConfig[] = [
 const VERSION_LOG: ChangelogEntry[] = [
   {
     version: TRANSITALERT_WEB_VERSION,
-    date: "07/05/2026",
+    date: "08/05/2026",
     notes: [
-      "Inline station stop markers replaced the older debug station labels across the live map.",
-      "Live tram and bus coverage expanded, including route filters and onboard-style bus stop tracking.",
-      "Premium consist search, favourite consist tools, and fallback premium account support were added.",
+      "First-open update boards and station boarding guides were added so major changes are easier to understand.",
+      "Journey planning, alerts, freight overlays, and premium tools were refined for a steadier daily experience.",
+      "Optional NSW TrainLink / XPT live rail support was wired into the broader live train layer.",
     ],
   },
   {
@@ -257,6 +259,21 @@ const TRANSITALERT_SYSTEM_NOTES = [
   "Data can be delayed, incomplete, or unavailable, so the app should never be treated as an official operator source.",
   "Usage, diagnostics, and stability logging may be collected to improve reliability, performance, and safety of the system.",
 ];
+
+const VERSION_HIGHLIGHT_CARDS = [
+  {
+    title: "What’s new in 0.85",
+    body: "Cleaner onboarding, better station guidance, and steadier live-map behaviour across metro, regional, tram, bus, and freight layers.",
+  },
+  {
+    title: "Journey planning",
+    body: "Trips persist more reliably, GPS starts are friendlier, and attached live services stay visible while your journey is active.",
+  },
+  {
+    title: "Boarding guides",
+    body: "Key interchange stations now show best-carriage advice for 6-car sets, legacy Metro fleets, and HCMT services.",
+  },
+] as const;
 
 const PLANNER_LINES = [
   { name: "Frankston", stations: LINES.frankston },
@@ -514,7 +531,7 @@ function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
   );
 }
 
-function VersionModal({ isOpen, onClose }: VersionModalProps) {
+function VersionModal({ isOpen, onClose, showWelcome }: VersionModalProps) {
   if (!isOpen) return null;
 
   return (
@@ -542,8 +559,34 @@ function VersionModal({ isOpen, onClose }: VersionModalProps) {
           </div>
         </div>
 
-        <div className="overflow-y-auto px-5 py-5 sm:px-6">
-          <div className="rounded-[1.35rem] border border-white/10 bg-white/5 p-4">
+          <div className="overflow-y-auto px-5 py-5 sm:px-6">
+            {showWelcome && (
+              <div className="mb-4 rounded-[1.35rem] border border-blue-400/20 bg-blue-500/10 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-200/90">First open</p>
+                    <p className="mt-2 text-xl font-semibold text-white">Welcome to TransitAlert {TRANSITALERT_WEB_VERSION}</p>
+                    <p className="mt-1 max-w-3xl text-sm text-blue-50/80">
+                      This board shows the main changes for the current build so new or returning users know what shifted straight away.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-blue-300/20 bg-slate-950/50 px-3 py-1 text-xs font-semibold text-blue-100">
+                    New in {TRANSITALERT_WEB_VERSION}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  {VERSION_HIGHLIGHT_CARDS.map((card) => (
+                    <div key={card.title} className="rounded-[1.15rem] border border-white/10 bg-black/20 p-3">
+                      <p className="text-sm font-semibold text-white">{card.title}</p>
+                      <p className="mt-2 text-sm leading-6 text-white/72">{card.body}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-[1.35rem] border border-white/10 bg-white/5 p-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-300/85">About This System</p>
             <div className="mt-3 grid gap-2">
               {TRANSITALERT_SYSTEM_NOTES.map((note) => (
@@ -633,6 +676,7 @@ export default function Home() {
   const [isUtilityPanelOpen, setIsUtilityPanelOpen] = useState(true);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isVersionOpen, setIsVersionOpen] = useState(false);
+  const [isVersionFirstOpen, setIsVersionFirstOpen] = useState(false);
   const [userMenuMessage, setUserMenuMessage] = useState("");
   const [selectedFleetType, setSelectedFleetType] = useState<FleetTypeKey | null>(null);
   const [focusedVehicleKey, setFocusedVehicleKey] = useState<string | null>(null);
@@ -987,6 +1031,29 @@ export default function Home() {
     clearGuestIntent();
     setLocation("/login");
   }, [isAuthenticated, isGuest, setLocation]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const lastSeenVersion = window.localStorage.getItem(VERSION_SEEN_STORAGE_KEY);
+      if (lastSeenVersion !== TRANSITALERT_WEB_VERSION) {
+        setIsVersionFirstOpen(true);
+        setIsVersionOpen(true);
+      }
+    } catch {
+      // Ignore local storage failures.
+    }
+  }, []);
+
+  const handleCloseVersionModal = useCallback(() => {
+    setIsVersionOpen(false);
+    setIsVersionFirstOpen(false);
+    try {
+      window.localStorage.setItem(VERSION_SEEN_STORAGE_KEY, TRANSITALERT_WEB_VERSION);
+    } catch {
+      // Ignore local storage failures.
+    }
+  }, []);
 
   useEffect(() => {
     if (activeTab === "map") return;
@@ -1596,7 +1663,10 @@ export default function Home() {
   return (
     <main className="relative h-[100dvh] w-full overflow-hidden bg-background">
         <TopBar
-          onOpenVersion={() => setIsVersionOpen(true)}
+          onOpenVersion={() => {
+            setIsVersionFirstOpen(false);
+            setIsVersionOpen(true);
+          }}
           onOpenAlerts={() => setLocation("/alerts/today")}
           onOpenUserMenu={() => {
           if (isGuest) {
@@ -2170,7 +2240,7 @@ export default function Home() {
         </div>
       )}
 
-      <VersionModal isOpen={isVersionOpen} onClose={() => setIsVersionOpen(false)} />
+      <VersionModal isOpen={isVersionOpen} onClose={handleCloseVersionModal} showWelcome={isVersionFirstOpen} />
 
       {activeTab !== "map" && (
         <div className="absolute inset-x-0 bottom-0 z-40 pointer-events-none">

@@ -168,6 +168,84 @@ export type Station = {
   zone?: string;
 };
 
+type BoardingZoneKey = "front" | "middle" | "rear";
+
+type StationBoardingGuide = {
+  summary: string;
+  interchange: string;
+  boardingZones: Array<{
+    fleet: string;
+    formation: string;
+    bestBoarding: BoardingZoneKey;
+    note: string;
+  }>;
+};
+
+const STATION_BOARDING_GUIDES: Record<string, StationBoardingGuide> = {
+  "Southern Cross": {
+    summary: "Best for regional interchange, XPT, coach links, and walking straight into the main concourse.",
+    interchange: "Front cars usually help most for concourse exits, regional platforms, and coach transfers.",
+    boardingZones: [
+      { fleet: "Metro 6-car", formation: "6 cars", bestBoarding: "front", note: "Best for concourse exits and quick regional interchange." },
+      { fleet: "Metro 7-car HCMT", formation: "7 cars", bestBoarding: "front", note: "Front half is still the safest all-round choice for Southern Cross exits." },
+      { fleet: "V/Line", formation: "Regional", bestBoarding: "front", note: "Usually easiest for coach links, waiting room access, and concourse exits." },
+    ],
+  },
+  "Flinders Street": {
+    summary: "Best all-round CBD arrival point with strong tram, subway, and city interchange access.",
+    interchange: "Middle cars are the most balanced choice for Swanston Street, Degraves subway, and city-loop style transfers.",
+    boardingZones: [
+      { fleet: "Metro 6-car", formation: "6 cars", bestBoarding: "middle", note: "Best for subway exits, tram changes, and platform swaps." },
+      { fleet: "Metro 7-car HCMT", formation: "7 cars", bestBoarding: "middle", note: "Middle cars give the cleanest access to the core concourse and exits." },
+      { fleet: "Regional / interstate", formation: "Long distance", bestBoarding: "middle", note: "A safer all-round spot if you are meeting city connections instead of exiting quickly." },
+    ],
+  },
+  Richmond: {
+    summary: "Main east-side transfer hub for Burnley, Clifton Hill, Frankston, Sandringham, and Caulfield group swaps.",
+    interchange: "Middle cars minimise the walk when switching between almost every east and south-east corridor.",
+    boardingZones: [
+      { fleet: "Metro 6-car", formation: "6 cars", bestBoarding: "middle", note: "Best for cross-platform style changes and concourse access." },
+      { fleet: "Metro 7-car HCMT", formation: "7 cars", bestBoarding: "middle", note: "The middle remains the least risky spot for busy Richmond interchanges." },
+    ],
+  },
+  Caulfield: {
+    summary: "Best transfer point between Frankston, Cranbourne, Pakenham, Route 3, Route 64, and Route 67 corridors.",
+    interchange: "Middle-to-front boarding works best here because most onward movement flows toward the main interchange spine.",
+    boardingZones: [
+      { fleet: "Metro 6-car", formation: "6 cars", bestBoarding: "middle", note: "Strongest option for Frankston and Dandenong-side interchange movement." },
+      { fleet: "Metro 7-car HCMT", formation: "7 cars", bestBoarding: "middle", note: "Middle cars stay closest to the busiest interchange paths." },
+      { fleet: "Regional Gippsland", formation: "Regional", bestBoarding: "front", note: "Front side helps with concourse access and metro transfers." },
+    ],
+  },
+  Clayton: {
+    summary: "Important Monash corridor station where front-to-middle boarding tends to reduce the platform walk.",
+    interchange: "Best for Monash bus interchange and Dandenong corridor changes.",
+    boardingZones: [
+      { fleet: "Metro 6-car", formation: "6 cars", bestBoarding: "middle", note: "Keeps you closest to the main station entrance and bus interchange." },
+      { fleet: "Metro 7-car HCMT", formation: "7 cars", bestBoarding: "middle", note: "Middle section is still the safest all-round choice here." },
+      { fleet: "Regional Gippsland", formation: "Regional", bestBoarding: "front", note: "Front half is generally better for exits and station transfer paths." },
+    ],
+  },
+  "North Melbourne": {
+    summary: "Useful for Craigieburn, Upfield, Sunbury, airport-coach style links, and future Arden-side interchange movement.",
+    interchange: "Front third is usually best for exits and northern platform changes.",
+    boardingZones: [
+      { fleet: "Metro 6-car", formation: "6 cars", bestBoarding: "front", note: "Best for concourse links and northern line platform swaps." },
+      { fleet: "Metro 7-car HCMT", formation: "7 cars", bestBoarding: "front", note: "Front half gives the cleaner exit for transfers." },
+      { fleet: "Regional / interstate", formation: "Regional", bestBoarding: "front", note: "Best for terminal-side movement and quick exits." },
+    ],
+  },
+  Dandenong: {
+    summary: "Best transfer point for Cranbourne, Pakenham, Gippsland, buses, and south-east freight corridor viewing.",
+    interchange: "Middle-to-front boarding is usually the best tradeoff for exits and platform changes.",
+    boardingZones: [
+      { fleet: "Metro 6-car", formation: "6 cars", bestBoarding: "middle", note: "Best for rapid interchange between metro platforms." },
+      { fleet: "Metro 7-car HCMT", formation: "7 cars", bestBoarding: "middle", note: "Middle cars keep the station walk manageable." },
+      { fleet: "Regional Gippsland", formation: "Regional", bestBoarding: "front", note: "Front side usually feels closest to the main station access." },
+    ],
+  },
+};
+
 type SurfaceStop = {
   id: string;
   name: string;
@@ -2263,24 +2341,24 @@ function createLiveTramIcon(tram: LiveTram) {
     .trim()
     .slice(0, 18);
   const rotation = typeof tram.heading === "number" && Number.isFinite(tram.heading) ? tram.heading : 0;
-  const { fillColor } = getSurfaceRouteColors(routeLabel, "#00ab8e", "#065f56");
+  const { fillColor, strokeColor } = getSurfaceRouteColors(routeLabel, "#00ab8e", "#065f56");
 
   return L.divIcon({
-    html: `
-      <div style="position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;">
-        <div style="position:absolute;inset:0;border-radius:50%;background:${fillColor};opacity:0.2;animation:ping 2.2s infinite;"></div>
-        <div style="
-          width:28px;
-          height:28px;
-          border-radius:9999px;
-          background:${fillColor};
-          border:2px solid white;
-          box-shadow:0 4px 14px rgba(0,0,0,0.55);
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          transform:rotate(${rotation}deg);
-        ">
+      html: `
+        <div style="position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;">
+          <div style="position:absolute;inset:0;border-radius:50%;background:${fillColor};opacity:0.18;animation:ping 2.2s infinite;"></div>
+          <div style="
+            width:28px;
+            height:28px;
+            border-radius:9999px;
+            background:${fillColor};
+            border:2px solid ${strokeColor};
+            box-shadow:0 4px 14px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.9);
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            transform:rotate(${rotation}deg);
+          ">
           <img src="${tramIcon}" alt="" style="width:14px;height:14px;object-fit:contain;filter:brightness(0) invert(1);" />
         </div>
         <div style="
@@ -2288,18 +2366,18 @@ function createLiveTramIcon(tram: LiveTram) {
           top:-8px;
           left:50%;
           transform:translateX(-50%);
-          background:#0f172a;
-          color:white;
-          font-size:9px;
-          font-weight:700;
-          padding:2px 6px;
-          border-radius:6px;
-          border:1px solid rgba(255,255,255,0.15);
-          box-shadow:0 4px 10px rgba(0,0,0,0.4);
-          white-space:nowrap;
-        ">
-          ${routeLabel}
-        </div>
+            background:#0f172a;
+            color:white;
+            font-size:9px;
+            font-weight:700;
+            padding:2px 6px;
+            border-radius:6px;
+            border:1px solid ${strokeColor};
+            box-shadow:0 4px 10px rgba(0,0,0,0.4);
+            white-space:nowrap;
+          ">
+            ${routeLabel}
+          </div>
         <div style="
           position:absolute;
           left:50%;
@@ -5259,6 +5337,73 @@ function getStationDetails(station: Station): string {
   if (FREIGHT_MOVEMENT_BOARD[station.name]?.length) details.push("Freight corridor");
 
   return details.length ? details.join(" · ") : "Metro station";
+}
+
+function renderBoardingZoneGraphic(bestBoarding: BoardingZoneKey, accentColor: string) {
+  return (
+    <div className="mt-3 grid grid-cols-3 gap-1.5">
+      {(["front", "middle", "rear"] as BoardingZoneKey[]).map((zone) => {
+        const active = zone === bestBoarding;
+        return (
+          <div
+            key={zone}
+            className={`rounded-full border px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-[0.16em] ${
+              active ? "text-white" : "text-white/45"
+            }`}
+            style={{
+              borderColor: active ? accentColor : "rgba(255,255,255,0.10)",
+              background: active ? accentColor : "rgba(255,255,255,0.03)",
+            }}
+          >
+            {zone}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function renderStationBoardingGuide(stationName: string) {
+  const guide = STATION_BOARDING_GUIDES[stationName];
+  if (!guide) return null;
+
+  return (
+    <div className="rounded-[1.1rem] border border-cyan-400/20 bg-cyan-500/10 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-200">Boarding guide</p>
+          <p className="mt-1 text-sm font-semibold text-white">{stationName}</p>
+          <p className="mt-1 text-xs leading-relaxed text-white/65">{guide.summary}</p>
+        </div>
+        <span className="rounded-full border border-cyan-300/20 bg-black/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100">
+          Interchange help
+        </span>
+      </div>
+
+      <div className="mt-3 rounded-[0.95rem] border border-white/10 bg-black/20 p-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">Best general advice</p>
+        <p className="mt-2 text-sm leading-relaxed text-white/78">{guide.interchange}</p>
+      </div>
+
+      <div className="mt-3 grid gap-2 lg:grid-cols-3">
+        {guide.boardingZones.map((zone) => (
+          <div key={`${stationName}-${zone.fleet}-${zone.formation}`} className="rounded-[0.95rem] border border-white/10 bg-black/20 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-white">{zone.fleet}</p>
+                <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-white/45">{zone.formation}</p>
+              </div>
+              <span className="rounded-full border border-cyan-300/20 bg-cyan-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                Best: {zone.bestBoarding}
+              </span>
+            </div>
+            {renderBoardingZoneGraphic(zone.bestBoarding, "#06b6d4")}
+            <p className="mt-3 text-xs leading-relaxed text-white/65">{zone.note}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function getFreightMovements(stationName: string) {
@@ -9673,6 +9818,7 @@ export function Map({
           {selectedDetail.type === "station" && (
             <div className="mt-3 space-y-3 text-sm text-white/70">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-3">{getStationDetails(selectedDetail.station)}</div>
+              {renderStationBoardingGuide(selectedDetail.station.name)}
 
               {selectedDetail.station.name === "Southern Cross" && (
                 <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">

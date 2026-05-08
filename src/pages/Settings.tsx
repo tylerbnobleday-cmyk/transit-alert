@@ -34,11 +34,11 @@ const ADMIN_SOURCE_KEYS = [
 
 const TRANSITALERT_UPDATE_ENTRIES = [
   {
-    date: "07/05/2026",
+    date: "08/05/2026",
     items: [
-      "Inline station stop markers replaced the older debug-style station labels across the live map.",
-      "Live tram and bus route filters expanded, with onboard-style bus stop tracking added to stop detail panels.",
-      "Premium consist favourites and consist search tools were added for premium accounts.",
+      "First-open update boards and station boarding guides were added for key interchanges.",
+      "Journey planning, alerts, freight overlays, and premium tools were refined for more stable daily use.",
+      "Optional NSW TrainLink / XPT live rail support was wired into the shared live train layer.",
     ],
   },
   {
@@ -554,7 +554,7 @@ export default function Settings() {
             <div className="mt-5">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">Version {TRANSITALERT_WEB_VERSION}</p>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/35">02/05/2026</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/35">08/05/2026</p>
               </div>
 
               <div className="mt-4 space-y-4">
