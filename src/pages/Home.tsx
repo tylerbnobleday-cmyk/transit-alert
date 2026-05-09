@@ -2727,8 +2727,7 @@ export default function Home() {
                           </select>
                         </label>
                         <p className="mt-3 text-xs text-white/55">
-                          For Glen Waverley and Mount Waverley shape edits in VS Code, update <span className="font-semibold text-white">GLEN_WAVERLEY_STATIONS</span> in <span className="font-semibold text-white">src/components/Map.tsx</span>.
-                          The drawn line follows that station coordinate array directly.
+                          For Glen Waverley and Mount Waverley edits in VS Code, use <span className="font-semibold text-white">GLEN_WAVERLEY_STATIONS</span> for stop locations and <span className="font-semibold text-white">GLEN_WAVERLEY_TRACK_POINTS</span> in <span className="font-semibold text-white">src/components/Map.tsx</span> for the drawn route shape between them.
                         </p>
                       </div>
 
