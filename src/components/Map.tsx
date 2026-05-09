@@ -278,6 +278,7 @@ interface MapProps {
   showFilterRail?: boolean;
   focusedVehicleKey?: string | null;
   onFocusedVehicleHandled?: () => void;
+  debugLineKey?: AdminDebugLineKey;
 }
 
 export interface LayerState {
@@ -328,6 +329,22 @@ export type ServiceFilterKey =
   | "upfieldCraigieburnCityLoop";
 
 export type TransportMode = "train" | "tram" | "bus" | "vline";
+export type AdminDebugLineKey =
+  | "none"
+  | "glenWaverleyLine"
+  | "bairnsdaleLine"
+  | "cliftonHillLoop"
+  | "northernLoop"
+  | "caulfieldLoop";
+
+export const ADMIN_DEBUG_LINE_OPTIONS: Array<{ key: AdminDebugLineKey; label: string }> = [
+  { key: "none", label: "Off" },
+  { key: "glenWaverleyLine", label: "Glen Waverley Line" },
+  { key: "bairnsdaleLine", label: "Bairnsdale Line" },
+  { key: "cliftonHillLoop", label: "Clifton Hill Loop" },
+  { key: "northernLoop", label: "Northern Loop" },
+  { key: "caulfieldLoop", label: "Caulfield Loop" },
+];
 
 type SurfaceRouteFilter = {
   key: string;
@@ -1115,20 +1132,20 @@ const ALAMEIN_STATIONS: Station[] = [
 
 const GLEN_WAVERLEY_STATIONS: Station[] = [
   { name: "Richmond", position: [-37.82359625345165, 144.9891977969667] },
-  { name: "East Richmond", position: [-37.8260, 145.0007] },
-  { name: "Burnley", position: [-37.8270, 145.0074] },
-  { name: "Heyington", position: [-37.8347, 145.0240] },
-  { name: "Kooyong", position: [-37.8401, 145.0337] },
-  { name: "Tooronga", position: [-37.8415, 145.0428] },
-  { name: "Gardiner", position: [-37.8534, 145.0446] },
-  { name: "Glen Iris", position: [-37.8597, 145.0501] },
-  { name: "Darling", position: [-37.8675, 145.0604] },
-  { name: "East Malvern", position: [-37.8761, 145.0695] },
-  { name: "Holmesglen", position: [-37.8747, 145.0866] },
-  { name: "Jordanville", position: [-37.8735, 145.1025] },
-  { name: "Mount Waverley", position: [-37.8769, 145.1291] },
-  { name: "Syndal", position: [-37.8756, 145.1472] },
-  { name: "Glen Waverley", position: [-37.8794, 145.1633] },
+  { name: "East Richmond", position: [-37.82632740224405, 144.9972673053531] },
+  { name: "Burnley", position: [-37.82767802049741, 145.00771393724537] },
+  { name: "Heyington", position: [-37.83472931277994, 145.02262594154345] },
+  { name: "Kooyong", position: [-37.83975647035526, 145.032989610259] },
+  { name: "Tooronga", position: [-37.84933641308045, 145.04169596793076] },
+  { name: "Gardiner", position: [-37.85319254950284, 145.0519567538175] },
+  { name: "Glen Iris", position: [-37.85924791323599, 145.05815226608306] },
+  { name: "Darling", position: [-37.868960963389696, 145.0628898525902] },
+  { name: "East Malvern", position: [-37.876943166140485, 145.06928548142633] },
+  { name: "Holmesglen", position: [-37.874467434174626, 145.0901950084133] },
+  { name: "Jordanville", position: [-37.8736209099283, 145.11208946608417] },
+  { name: "Mount Waverley", position: [-37.87535549299886, 145.12775620827145] },
+  { name: "Syndal", position: [-37.876238755103856, 145.14971636451426] },
+  { name: "Glen Waverley", position: [-37.87945446561707, 145.16198233013415] },
 ];
 const BURNLEYGROUPLOOP_STATIONS: Station[] = [
   { name: "Richmond", position: [-37.82359625345165, 144.9891977969667] },
@@ -1147,8 +1164,7 @@ const JOLIMONT_TO_FLINDERS_PORTAL: [number, number][] = [
   [-37.81778485426324, 144.96826388056115], // Jolimont / MCG side
   [-37.8184161, 144.9664779], // Flinders Street eastern portal
 ];
-const BURNLEY_LOOP: [number, number][] = [
-];
+const BURNLEY_LOOP: [number, number][] = BURNLEYGROUPLOOP_STATIONS.map((station) => station.position);
 
 const PAKENHAM_STATIONS: Station[] = [
   { name: "Anzac", position: [-37.83323797420302, 144.97276854232885] },
@@ -1746,6 +1762,10 @@ const FRANKSTON_TRACK: [number, number][] = [
 ];
 const UPFIELD_DEBUG_TRACK_POINTS = offsetPolylineCoordinates(UPFIELD_LINE, "right", 0.45)
   .map((position, index) => ({ position, index }));
+const GLEN_WAVERLEY_DEBUG_TRACK_POINTS = GLEN_WAVERLEY_LINE.map((position, index) => ({ position, index }));
+const CAULFIELD_DEBUG_TRACK_POINTS = CAUFIELD_LOOP.map((position, index) => ({ position, index }));
+const CLIFTON_HILL_DEBUG_TRACK_POINTS = CLIFTONHILL_LOOP.map((position, index) => ({ position, index }));
+const NORTHERN_DEBUG_TRACK_POINTS = NORTHERN_LOOP.map((position, index) => ({ position, index }));
 const CRANBOURNE_LINE = CRANBOURNE_STATIONS.map((station) => station.position);
 const PAKENHAM_LINE = PAKENHAM_STATIONS.map((station) => station.position);
 const PAKENHAM_PRE_HAWKSBURN_LINE = PAKENHAM_STATIONS.slice(
@@ -2376,32 +2396,32 @@ function createLiveTramIcon(tram: LiveTram) {
 
   return L.divIcon({
       html: `
-        <div style="position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;">
           <div style="position:absolute;inset:0;border-radius:50%;background:${fillColor};opacity:0.18;animation:ping 2.2s infinite;"></div>
           <div style="
-            width:28px;
-            height:28px;
+            width:22px;
+            height:22px;
             border-radius:9999px;
             background:${fillColor};
             border:2px solid ${strokeColor};
-            box-shadow:0 4px 14px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.9);
+            box-shadow:0 4px 14px rgba(0,0,0,0.55);
             display:flex;
             align-items:center;
             justify-content:center;
             transform:rotate(${rotation}deg);
           ">
-          <img src="${tramIcon}" alt="" style="width:14px;height:14px;object-fit:contain;filter:brightness(0) invert(1);" />
+          <img src="${tramIcon}" alt="" style="width:11px;height:11px;object-fit:contain;filter:brightness(0) invert(1);" />
         </div>
         <div style="
           position:absolute;
-          top:-8px;
+          top:-6px;
           left:50%;
           transform:translateX(-50%);
             background:#0f172a;
             color:white;
-            font-size:9px;
+            font-size:8px;
             font-weight:700;
-            padding:2px 6px;
+            padding:2px 5px;
             border-radius:6px;
             border:1px solid ${strokeColor};
             box-shadow:0 4px 10px rgba(0,0,0,0.4);
@@ -2412,18 +2432,18 @@ function createLiveTramIcon(tram: LiveTram) {
         <div style="
           position:absolute;
           left:50%;
-          bottom:-16px;
+          bottom:-14px;
           transform:translateX(-50%);
           background:rgba(15,23,42,0.92);
           color:white;
-          font-size:9px;
+          font-size:8px;
           font-weight:700;
-          padding:2px 6px;
+          padding:2px 5px;
           border-radius:9999px;
           border:1px solid rgba(255,255,255,0.14);
           box-shadow:0 4px 10px rgba(0,0,0,0.35);
           white-space:nowrap;
-          max-width:120px;
+          max-width:110px;
           overflow:hidden;
           text-overflow:ellipsis;
         ">
@@ -2432,9 +2452,9 @@ function createLiveTramIcon(tram: LiveTram) {
       </div>
     `,
     className: "bg-transparent border-none",
-    iconSize: [56, 56],
-    iconAnchor: [28, 28],
-    popupAnchor: [0, -22],
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
+    popupAnchor: [0, -18],
   });
 }
 
@@ -6234,6 +6254,7 @@ function renderSurfaceStops(
   strokeColor: string,
   onSelect: (stop: SurfaceStop) => void,
   visibleBounds?: L.LatLngBounds | null,
+  mode: "bus" | "tram" = "bus",
 ) {
   return stops
     .filter((stop) => !visibleBounds || visibleBounds.contains(L.latLng(stop.position[0], stop.position[1])))
@@ -6241,11 +6262,12 @@ function renderSurfaceStops(
     <CircleMarker
       key={stop.id}
       center={stop.position}
-      radius={5}
+      radius={mode === "tram" ? 3.5 : 5}
       pathOptions={{
         ...getSurfaceRouteColors(stop.routeLabel, fillColor, strokeColor),
         fillOpacity: 0.98,
-        weight: 2,
+        stroke: mode !== "tram",
+        weight: mode === "tram" ? 0 : 2,
       }}
       eventHandlers={{
         click: () => onSelect(stop),
@@ -7454,6 +7476,7 @@ export function Map({
   showFilterRail = true,
   focusedVehicleKey = null,
   onFocusedVehicleHandled,
+  debugLineKey = "none",
 }: MapProps = {}) {
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
@@ -7482,6 +7505,22 @@ export function Map({
       ),
     [viewportBoundsQuery],
   );
+  const selectedAdminDebugOverlay = useMemo(() => {
+    switch (debugLineKey) {
+      case "glenWaverleyLine":
+        return renderTrackDebugMarkers("GLEN_WAVERLEY_LINE", GLEN_WAVERLEY_DEBUG_TRACK_POINTS, "#93c5fd");
+      case "bairnsdaleLine":
+        return renderTrackDebugMarkers("BAIRNSDALE_LINE", BAIRNSDALE_DEBUG_TRACK_POINTS, "#c4b5fd");
+      case "cliftonHillLoop":
+        return renderTrackDebugMarkers("CLIFTON_HILL_LOOP", CLIFTON_HILL_DEBUG_TRACK_POINTS, "#fda4af");
+      case "northernLoop":
+        return renderTrackDebugMarkers("NORTHERN_LOOP", NORTHERN_DEBUG_TRACK_POINTS, "#fde68a");
+      case "caulfieldLoop":
+        return renderTrackDebugMarkers("CAULFIELD_LOOP", CAULFIELD_DEBUG_TRACK_POINTS, "#86efac");
+      default:
+        return null;
+    }
+  }, [debugLineKey]);
 
   const { data } = useGetReports({
     query: { refetchInterval: 30000 },
@@ -8915,7 +8954,6 @@ export function Map({
                   (station) => setSelectedDetail({ type: "station", station }),
                   toggleStationPillLine,
                 )}
-                {isAdmin ? renderTrackDebugMarkers("BAIRNSDALE_LINE", BAIRNSDALE_DEBUG_TRACK_POINTS, "#c4b5fd") : null}
               </>
             )}
             <Polyline
@@ -9194,6 +9232,7 @@ export function Map({
             "#FF8200",
             (stop) => setSelectedDetail({ type: "surfaceStop", stop }),
             visibleViewportBounds,
+            "bus",
           )}
         {modeIsTramVisible &&
           renderSurfaceStops(
@@ -9204,6 +9243,7 @@ export function Map({
             "#78BE20",
             (stop) => setSelectedDetail({ type: "surfaceStop", stop }),
             visibleViewportBounds,
+            "tram",
           )}
         {visibleReports.map((report) => {
           if (!report.lat || !report.lng) return null;
@@ -9285,6 +9325,8 @@ export function Map({
             </Marker>
           );
         })}
+
+        {isAdmin ? selectedAdminDebugOverlay : null}
 
         {isAdmin &&
           isMarkerEditMode &&
@@ -9462,9 +9504,17 @@ export function Map({
                     {mode.icon === "train" ? (
                       <img src={trainIcon} alt="" className="h-3.5 w-3.5 shrink-0 object-contain opacity-90 sm:h-4 sm:w-4" />
                     ) : mode.icon === "bus" ? (
-                      <img src={smartbusIcon} alt="" className="h-3.5 w-3.5 shrink-0 object-contain opacity-90 sm:h-4 sm:w-4" />
+                      <img
+                        src={smartbusIcon}
+                        alt=""
+                        className={`h-3.5 w-3.5 shrink-0 object-contain opacity-90 sm:h-4 sm:w-4 ${active ? "" : "grayscale brightness-75 opacity-55"}`}
+                      />
                     ) : mode.icon === "tram" ? (
-                      <img src={tramIcon} alt="" className="h-3.5 w-3.5 shrink-0 object-contain opacity-90 sm:h-4 sm:w-4" />
+                      <img
+                        src={tramIcon}
+                        alt=""
+                        className={`h-3.5 w-3.5 shrink-0 object-contain opacity-90 sm:h-4 sm:w-4 ${active ? "" : "grayscale brightness-75 opacity-55"}`}
+                      />
                     ) : (
                       <span className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-current/25 px-1 text-[8px] font-bold leading-none sm:h-4 sm:min-w-4 sm:text-[9px]">
                         V

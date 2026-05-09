@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ArrowLeft, BellRing, ExternalLink, MessageSquareWarning, TrainFront, X } from "lucide-react";
 import { useGetReports } from "@/lib/api-client-react/src/generated/api";
-import { fetchMetroNotifyAlerts, getTodaysCommunityAlerts, isAlertCurrent, isProminentAlert, type MetroNotifyAlert } from "@/lib/todays-alerts";
+import { fetchMetroNotifyAlerts, getTodaysCommunityAlerts, isAlertCurrent, isHeadlineAlert, isProminentAlert, type MetroNotifyAlert } from "@/lib/todays-alerts";
 
 type FeaturedAlert =
   | Awaited<ReturnType<typeof fetchMetroNotifyAlerts>>[number]
@@ -64,7 +64,7 @@ const ALERT_BROWSER_NOTIFICATIONS_KEY = "transitalert-alert-browser-notification
 
 const ALERT_GROUPS: AlertGroup[] = [
   { id: "all", label: "All groups", activeClassName: "border-white/25 bg-white/12 text-white", inactiveBadgeClassName: "border-white/10 bg-white/5 text-white/70", activeBadgeClassName: "border-white/25 bg-white/12 text-white" },
-  { id: "metro-tunnel", label: "Cranbourne, Pakenham and Sunbury", aliases: ["metro tunnel", "pakenham line", "cranbourne line", "sunbury line", "town hall", "state library", "anzac", "arden", "parkville", "watergardens", "st albans", "sunshine", "west footscray", "middle footscray", "footscray", "hawksburn", "toorak", "armadale", "malvern", "caulfield", "carnegie", "murrumbeena", "hughesdale", "oakleigh", "huntingdale", "clayton", "westall", "springvale", "sandown park", "noble park", "yarraman", "dandenong", "lynbrook", "merinda park", "cranbourne", "hallam", "narre warren", "berwick", "beaconsfield", "officer", "cardinia road", "pakenham", "east pakenham"], activeClassName: "border-cyan-400/35 bg-cyan-500/15 text-cyan-100", inactiveBadgeClassName: "border-cyan-400/15 bg-cyan-500/10 text-cyan-100/85", activeBadgeClassName: "border-cyan-400/35 bg-cyan-500/15 text-cyan-100" },
+  { id: "metro-tunnel", label: "Cranbourne, Pakenham and Sunbury", aliases: ["metro tunnel", "pakenham line", "cranbourne line", "sunbury line", "town hall", "state library", "anzac", "arden", "parkville", "watergardens", "st albans", "sunshine", "west footscray", "middle footscray", "footscray", "carnegie", "murrumbeena", "hughesdale", "oakleigh", "huntingdale", "clayton", "westall", "springvale", "sandown park", "noble park", "yarraman", "dandenong", "lynbrook", "merinda park", "cranbourne", "hallam", "narre warren", "berwick", "beaconsfield", "officer", "cardinia road", "pakenham", "east pakenham"], activeClassName: "border-cyan-400/35 bg-cyan-500/15 text-cyan-100", inactiveBadgeClassName: "border-cyan-400/15 bg-cyan-500/10 text-cyan-100/85", activeBadgeClassName: "border-cyan-400/35 bg-cyan-500/15 text-cyan-100" },
   { id: "cross-city", label: "Laverton, Werribee and Williamstown", aliases: ["laverton", "werribee line", "williamstown line", "altona loop", "north williamstown", "williamstown beach", "williamstown", "newport", "spotswood", "yarraville", "seddon", "south kensington", "aircraft", "williams landing", "hoppers crossing", "seaholme", "altona", "westona", "werribee", "point cook", "galvin", "paisley"], activeClassName: "border-fuchsia-400/35 bg-fuchsia-500/15 text-fuchsia-100", inactiveBadgeClassName: "border-fuchsia-400/15 bg-fuchsia-500/10 text-fuchsia-100/85", activeBadgeClassName: "border-fuchsia-400/35 bg-fuchsia-500/15 text-fuchsia-100" },
   { id: "burnley", label: "Burnley group", aliases: ["belgrave line", "lilydale line", "glen waverley line", "alamein line", "burnley", "east richmond", "hawthorn", "glenferrie", "auburn", "camberwell", "east camberwell", "canterbury", "chatham", "surrey hills", "mont albert", "box hill", "laburnum", "blackburn", "nunawading", "mitcham", "heatherdale", "ringwood", "ringwood east", "croydon", "mooroolbark", "lilydale", "upper ferntree gully", "ferntree gully", "boronia", "bayswater", "heathmont", "tecoma", "belgrave", "riversdale", "willison", "hartwell", "burwood", "ashburton", "alamein", "heyington", "kooyong", "tooronga", "gardiner", "glen iris", "darling", "east malvern", "holmesglen", "jordanville", "mount waverley", "syndal", "glen waverley"], activeClassName: "border-blue-400/35 bg-blue-500/15 text-blue-100", inactiveBadgeClassName: "border-blue-400/15 bg-blue-500/10 text-blue-100/85", activeBadgeClassName: "border-blue-400/35 bg-blue-500/15 text-blue-100" },
   { id: "clifton-hill", label: "Clifton Hill", aliases: ["mernda line", "hurstbridge line", "jolimont", "west richmond", "north richmond", "collingwood", "victoria park", "clifton hill", "rushall", "merri", "northcote", "croxton", "thornbury", "bell", "preston", "regent", "reservoir", "ruthven", "keon park", "thomastown", "lalor", "epping", "south morang", "middle gorge", "hawkstowe", "mernda", "westgarth", "dennis", "fairfield", "alphington", "darebin", "ivanhoe", "eaglemont", "heidelberg", "rosanna", "macleod", "watsonia", "greensborough", "montmorency", "eltham", "diamond creek", "wattle glen", "hurstbridge"], activeClassName: "border-rose-400/35 bg-rose-500/15 text-rose-100", inactiveBadgeClassName: "border-rose-400/15 bg-rose-500/10 text-rose-100/85", activeBadgeClassName: "border-rose-400/35 bg-rose-500/15 text-rose-100" },
@@ -176,7 +176,16 @@ function getAlertFilter(alert: MetroNotifyAlert): AlertFilter {
 function getAlertGroup(alert: MetroNotifyAlert): AlertGroup {
   const titleText = cleanAlertCopy(alert.title).toLowerCase();
   const summaryText = cleanAlertCopy(alert.summary).toLowerCase();
+  const searchable = `${titleText} ${summaryText}`;
   const normalisedLines = alert.lines.map((line) => line.trim().toLowerCase());
+
+  if (
+    /\bparliament\b/.test(searchable) &&
+    /\bcaulfield\b/.test(searchable) &&
+    /buses replace trains|replacement buses|bus replacement|coach replacement/.test(searchable)
+  ) {
+    return ALERT_GROUPS.find((group) => group.id === "frankston")!;
+  }
 
   const scoredGroups = ALERT_GROUPS.map((group) => {
     if (group.id === "all" || group.id === "other") {
@@ -494,15 +503,23 @@ export default function TodaysAlerts() {
     () => metroAlerts.filter((alert) => !shouldHideExpiredAlert(alert) && isAlertCurrent(alert)),
     [metroAlerts],
   );
+  const headlineMetroAlerts = useMemo(
+    () => activeMetroAlerts.filter((alert) => isHeadlineAlert(alert)),
+    [activeMetroAlerts],
+  );
   const prominentMetroAlerts = useMemo(
     () => activeMetroAlerts.filter((alert) => isProminentAlert(alert)),
     [activeMetroAlerts],
   );
-  const sortedMetroAlerts = [...prominentMetroAlerts].sort((a, b) => {
-    const left = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-    const right = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-    return right - left;
-  });
+  const sortedMetroAlerts = useMemo(
+    () =>
+      [...headlineMetroAlerts].sort((a, b) => {
+        const left = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const right = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return right - left;
+      }),
+    [headlineMetroAlerts],
+  );
   const filteredMetroAlerts = useMemo(() => {
     return sortedMetroAlerts.filter((alert) => {
       const typeMatches = selectedFilter === "all" || getAlertFilter(alert).id === selectedFilter;
@@ -528,7 +545,7 @@ export default function TodaysAlerts() {
   const expandedGroupAlerts = expandedGroup
     ? sortedMetroAlerts.filter((alert) => getAlertGroups(alert).some((group) => group.id === expandedGroup.id))
     : [];
-  const featuredAlert = filteredMetroAlerts[0] ?? prominentMetroAlerts[0] ?? communityAlerts[0];
+  const featuredAlert = filteredMetroAlerts[0] ?? sortedMetroAlerts[0] ?? prominentMetroAlerts[0] ?? communityAlerts[0];
   const operationCards = filteredMetroAlerts.slice(0, 3);
   const activeFilterLabel = ALERT_FILTERS.find((filter) => filter.id === selectedFilter)?.label ?? "All alerts";
   const activeGroupLabel = ALERT_GROUPS.find((group) => group.id === selectedGroup)?.label ?? "All groups";
@@ -653,7 +670,7 @@ export default function TodaysAlerts() {
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-white/45">Metro Notify</p>
-                <p className="mt-2 text-3xl font-bold text-white">{prominentMetroAlerts.length}</p>
+                <p className="mt-2 text-3xl font-bold text-white">{sortedMetroAlerts.length}</p>
                 <p className="mt-1 text-xs text-white/55">Service notifications</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">

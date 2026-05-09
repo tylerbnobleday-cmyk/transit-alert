@@ -4,11 +4,13 @@ import { useLocation } from "wouter";
 import { ChevronDown, ChevronUp, MapPin, Plus, Search, TrainFront } from "lucide-react";
 import {
   Map as TransitMap,
+  ADMIN_DEBUG_LINE_OPTIONS,
   Station,
   ALL_STATIONS,
   LINES,
   SERVICE_FILTERS,
   getFilterChips,
+  type AdminDebugLineKey,
   type LayerState,
   type ServiceFilterKey,
   type TransportMode,
@@ -97,6 +99,7 @@ const SIMPLE_SURFACE_ROUTES = [
 const HOME_ORIGIN_LABEL = "Home · 15 Louise St, Brighton East";
 const CURRENT_LOCATION_LABEL = "Current location";
 const JOURNEY_STORAGE_KEY = "transitalert-active-journey-v1";
+const ADMIN_DEBUG_STORAGE_KEY = "transitalert-admin-debug-line-v1";
 const HOME_ORIGIN_COORDS: [number, number] = [-37.9147, 145.0186];
 const VERSION_SEEN_STORAGE_KEY = "transitalert-last-seen-version";
 const ACCOUNT_ROLE_OPTIONS = ["Traveller", "Bug Tester", "Friend", "Special", "Train Driver", "Station Staff", "Admin"] as const;
@@ -709,6 +712,16 @@ export default function Home() {
   const [adminLat, setAdminLat] = useState("-37.8184161");
   const [adminLng, setAdminLng] = useState("144.9664779");
   const [adminSelectedLine, setAdminSelectedLine] = useState("metroTunnel");
+  const [adminDebugLineKey, setAdminDebugLineKey] = useState<AdminDebugLineKey>(() => {
+    if (typeof window === "undefined") {
+      return "none";
+    }
+
+    const stored = window.localStorage.getItem(ADMIN_DEBUG_STORAGE_KEY);
+    return ADMIN_DEBUG_LINE_OPTIONS.some((option) => option.key === stored)
+      ? (stored as AdminDebugLineKey)
+      : "none";
+  });
   const [splitCrossCityGroup, setSplitCrossCityGroup] = useState(true);
   const [preferences, setPreferences] = useState<UserPreferences>(defaultPreferences);
   const [hasMergedLocalPreferences, setHasMergedLocalPreferences] = useState(false);
@@ -721,6 +734,11 @@ export default function Home() {
   const isPremium = hasPremiumAccess(preferences);
   const premiumPaypalLink = getPremiumPaypalLink(preferences);
   const favouriteConsists = getFavouriteConsists(preferences);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(ADMIN_DEBUG_STORAGE_KEY, adminDebugLineKey);
+  }, [adminDebugLineKey]);
 
   const { data: accountPreferences } = useQuery({
     queryKey: ["account-preferences", authSession?.user?.id],
@@ -2037,6 +2055,7 @@ export default function Home() {
         showFilterRail={false}
         focusedVehicleKey={focusedVehicleKey}
         onFocusedVehicleHandled={() => setFocusedVehicleKey(null)}
+        debugLineKey={adminDebugLineKey}
       />
 
       {activeTab === "map" && <RiskyRoutes />}
@@ -2124,7 +2143,13 @@ export default function Home() {
                           aria-label={mode.key}
                         >
                           {mode.isImage ? (
-                            <img src={mode.icon} alt="" className="h-8 w-8 rounded-full object-contain sm:h-9 sm:w-9" />
+                            <img
+                              src={mode.icon}
+                              alt=""
+                              className={`h-8 w-8 rounded-full object-contain transition sm:h-9 sm:w-9 ${
+                                active ? "" : "grayscale brightness-75 opacity-60"
+                              }`}
+                            />
                           ) : (
                             mode.icon
                           )}
@@ -2680,6 +2705,31 @@ export default function Home() {
                         >
                           {splitCrossCityGroup ? "Change back to combined Bayside filter" : "Split Sandringham and Werribee / Williamstown"}
                         </button>
+                      </div>
+
+                      <div className="mt-4 rounded-[1.4rem] border border-white/10 bg-slate-950/60 p-4">
+                        <p className="text-sm font-semibold text-white">Map Debug Overlay</p>
+                        <p className="mt-1 text-xs text-white/60">
+                          Pick one line or loop to show admin debug markers on the live map.
+                        </p>
+                        <label className="mt-3 block">
+                          <span className="mb-1 block text-xs font-medium text-white/60">Debug line</span>
+                          <select
+                            value={adminDebugLineKey}
+                            onChange={(event) => setAdminDebugLineKey(event.target.value as AdminDebugLineKey)}
+                            className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none"
+                          >
+                            {ADMIN_DEBUG_LINE_OPTIONS.map((option) => (
+                              <option key={option.key} value={option.key}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <p className="mt-3 text-xs text-white/55">
+                          For Glen Waverley and Mount Waverley shape edits in VS Code, update <span className="font-semibold text-white">GLEN_WAVERLEY_STATIONS</span> in <span className="font-semibold text-white">src/components/Map.tsx</span>.
+                          The drawn line follows that station coordinate array directly.
+                        </p>
                       </div>
 
                       <div className="mt-4 rounded-[1.4rem] border border-white/10 bg-slate-950/60 p-4">
