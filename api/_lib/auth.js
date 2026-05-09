@@ -24,6 +24,7 @@ const APPROVED_DEBUG_TESTERS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean),
 );
+const FALLBACK_APPROVED_DEBUG_TESTERS = new Set(["jackzilla110"]);
 const FALLBACK_USERS = [
   {
     id: "ashton",
@@ -109,6 +110,7 @@ export function isApprovedDebugTester(username, email) {
   return (
     APPROVED_DEBUG_TESTERS.has(normalizedUsername) ||
     APPROVED_DEBUG_TESTERS.has(normalizedEmail) ||
+    FALLBACK_APPROVED_DEBUG_TESTERS.has(normalizedUsername) ||
     FALLBACK_USERS.some(
       (user) =>
         user.username.toLowerCase() === normalizedUsername || user.email.toLowerCase() === normalizedEmail,
