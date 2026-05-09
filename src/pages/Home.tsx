@@ -273,7 +273,7 @@ const TRANSITALERT_SYSTEM_NOTES = [
 
 const VERSION_HIGHLIGHT_CARDS = [
   {
-    title: "What’s new in 0.85",
+    title: "What’s new in 0.87",
     body: "Cleaner onboarding, better station guidance, and steadier live-map behaviour across metro, regional, tram, bus, and freight layers.",
   },
   {
