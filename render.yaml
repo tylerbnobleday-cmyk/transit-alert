@@ -3,8 +3,8 @@ services:
     name: transit-alert
     runtime: node
     plan: free
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
-    startCommand: pnpm start
+    buildCommand: corepack pnpm install --frozen-lockfile && corepack pnpm build
+    startCommand: corepack pnpm start
     autoDeploy: true
     envVars:
       - key: NODE_VERSION

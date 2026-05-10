@@ -9,8 +9,8 @@ This repo can now run on Render as a single Node web service.
 
 ## Build + start
 
-- Build command: `corepack enable && pnpm install --frozen-lockfile && pnpm build`
-- Start command: `pnpm start`
+- Build command: `corepack pnpm install --frozen-lockfile && corepack pnpm build`
+- Start command: `corepack pnpm start`
 
 Render can also read these from [render.yaml](./render.yaml).
 
@@ -35,3 +35,4 @@ Render can also read these from [render.yaml](./render.yaml).
 - `DATABASE_URL` is still recommended if you want persistent accounts, preferences, and admin-managed state.
 - Without `DATABASE_URL`, fallback auth/config behaviour still works, but it is not the long-term account store.
 - The Render server serves SPA routes like `/app` by falling back to `dist/index.html`.
+- Render was failing on `corepack enable` because its filesystem is read-only there, so use `corepack pnpm ...` directly instead.
