@@ -9,6 +9,7 @@
     "build": "vite build --config vite.config.ts",
     "build:workspace": "pnpm run typecheck:workspace && pnpm -r --if-present run build",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
+    "start": "node server/render-server.js",
     "typecheck": "node ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "typecheck:libs": "node ./node_modules/typescript/bin/tsc --build",
     "typecheck:workspace": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
