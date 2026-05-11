@@ -1796,6 +1796,7 @@ const FRANKSTON_TRACK: [number, number][] = [
 [-37.81883627840431, 144.96497044269884], // Flinders Street
 
 ];
+const GLEN_WAVERLEY_LINE = GLEN_WAVERLEY_TRACK_POINTS;
 const UPFIELD_DEBUG_TRACK_POINTS = offsetPolylineCoordinates(UPFIELD_LINE, "right", 0.45)
   .map((position, index) => ({ position, index }));
 const GLEN_WAVERLEY_DEBUG_TRACK_POINTS = GLEN_WAVERLEY_LINE.map((position, index) => ({ position, index }));
@@ -1822,7 +1823,6 @@ const SUNBURY_LINE = SUNBURY_STATIONS.map((station) => station.position);
 const LILYDALE_LINE = LILYDALE_STATIONS.map((station) => station.position);
 const BELGRAVE_LINE = BELGRAVE_STATIONS.map((station) => station.position);
 const ALAMEIN_LINE = ALAMEIN_STATIONS.map((station) => station.position);
-const GLEN_WAVERLEY_LINE = GLEN_WAVERLEY_TRACK_POINTS;
 const METRO_TUNNEL_LINE = METRO_TUNNEL_STATIONS.map((station) => station.position);
 const GIPPSLAND_LINE: [number, number][] = [
   [-37.81760709859187, 144.95075647527574], // Southern Cross PL 15 
