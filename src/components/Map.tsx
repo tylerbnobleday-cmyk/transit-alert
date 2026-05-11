@@ -6156,6 +6156,7 @@ function renderStationMarkers(
   onSelectStation: (station: Station) => void,
   onToggleStationLine?: (station: Station) => boolean,
 ) {
+  const useCompactInlineStops = stations === GLEN_WAVERLEY_STATIONS;
   return stations.map((station, index) => {
     const resolvedStation = resolveStation(station);
     const isCityLoopPill =
@@ -6215,7 +6216,7 @@ function renderStationMarkers(
         icon={createInlineStationStopIcon(
           resolvedStation.name,
           isSharedCaulfieldMetroStation || isCraigieburnLineStation ? "#ffffff" : strokeColor,
-          { endpoint: isEndpoint },
+          { endpoint: isEndpoint, compact: useCompactInlineStops },
         )}
         zIndexOffset={3300}
         eventHandlers={{
@@ -6380,12 +6381,16 @@ function createInlineStationStopIcon(
   color: string,
   options?: {
     endpoint?: boolean;
+    compact?: boolean;
   },
 ) {
   const endpoint = options?.endpoint ?? false;
+  const compact = options?.compact ?? false;
   const escapedName = escapeInlineMarkerHtml(stationName);
-  const tickHeight = endpoint ? 16 : 14;
-  const iconHeight = endpoint ? 60 : 52;
+  const tickHeight = endpoint ? (compact ? 14 : 16) : compact ? 10 : 14;
+  const iconHeight = endpoint ? (compact ? 46 : 60) : compact ? 40 : 52;
+  const labelMargin = compact ? 2 : 4;
+  const translateY = compact ? -22 : -30;
 
   return L.divIcon({
     html: `
@@ -6395,10 +6400,10 @@ function createInlineStationStopIcon(
         align-items:center;
         justify-content:flex-end;
         min-width:136px;
-        transform:translateY(-30px);
+        transform:translateY(${translateY}px);
       ">
         <div style="
-          margin-bottom:4px;
+          margin-bottom:${labelMargin}px;
           color:#ffffff;
           font-size:12px;
           font-weight:700;
