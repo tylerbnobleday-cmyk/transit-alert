@@ -37,6 +37,14 @@ const FALLBACK_USERS = [
       "b8f28eb7a870c27ec655787dab58ec9a:5b8ae8a17939caf3af87b0ebcbc8f974c223e78b4502e887c5eb5ebcc197b70442e0f9e6f6514bb4c2977267c22da384e076dca4756b0527ce8b3396e73b6f79",
   },
 ];
+
+function createFallbackUserId(username) {
+  return `tester-${String(username || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "user"}`;
+}
 let cachedDbContext = undefined;
 
 async function loadDbContext() {
@@ -373,7 +381,27 @@ export async function registerUser(input) {
   const userPreferencesTable = context?.userPreferencesTable;
   const appUsersTable = context?.appUsersTable;
   if (!db) {
-    throw new Error("Registration is unavailable until DATABASE_URL is configured.");
+    const existingFallbackUser = findFallbackUserByUsernameOrEmail(input.username, input.email);
+    if (existingFallbackUser) {
+      throw new Error(
+        existingFallbackUser.username.toLowerCase() === input.username.trim().toLowerCase()
+          ? "That username is already taken"
+          : "That email address is already registered",
+      );
+    }
+
+    const fallbackUser = {
+      id: createFallbackUserId(input.username),
+      username: input.username,
+      email: input.email,
+      role: input.role,
+      isAdmin: false,
+      isPremium: false,
+      passwordHash: createPasswordHash(input.password),
+    };
+
+    FALLBACK_USERS.push(fallbackUser);
+    return sanitizeFallbackUser(fallbackUser);
   }
   const [user] = await db
     .insert(appUsersTable)
