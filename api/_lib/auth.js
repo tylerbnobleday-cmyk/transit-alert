@@ -46,6 +46,7 @@ function createFallbackUserId(username) {
     .replace(/^-+|-+$/g, "") || "user"}`;
 }
 let cachedDbContext = undefined;
+const loggedDbFallbackScopes = new Set();
 
 async function loadDbContext() {
   if (cachedDbContext !== undefined) {
@@ -169,6 +170,10 @@ function getFallbackPreferencesForUser(userId) {
 }
 
 function logDbFallback(scope, error) {
+  if (loggedDbFallbackScopes.has(scope)) {
+    return;
+  }
+  loggedDbFallbackScopes.add(scope);
   const message = error instanceof Error ? error.message : String(error);
   console.warn(`[transitalert-auth] ${scope} falling back: ${message}`);
 }

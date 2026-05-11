@@ -10,7 +10,7 @@ This repo can now run on Render as a single Node web service.
 ## Build + start
 
 - Build command: `corepack pnpm install --frozen-lockfile && corepack pnpm build`
-- Start command: `corepack pnpm start`
+- Start command: `node server/render-server.js`
 
 Render can also read these from [render.yaml](./render.yaml).
 
