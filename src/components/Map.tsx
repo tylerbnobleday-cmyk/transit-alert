@@ -1958,6 +1958,28 @@ const BALLARAT_SHARED_VLINE_TRUNK: [number, number][] = [
   [-37.801696124765726, 144.90150029345793], // Footscray
   [-37.78812106172095, 144.83237218696007], // Sunshine
 ];
+const BALLARAT_LINE: [number, number][] = [
+  ...BALLARAT_SHARED_VLINE_TRUNK,
+  [-37.7295, 144.7752], // Deer Park corridor
+  [-37.6918, 144.6151], // Rockbank corridor
+  [-37.6832, 144.5837], // Cobblebank corridor
+  [-37.6841, 144.5698], // Melton
+  [-37.7017, 144.4419], // Bacchus Marsh
+  [-37.7085, 144.2291], // Ballan
+  [-37.7376, 144.1065], // Gordon corridor
+  [-37.5622, 143.8521], // Ballarat
+  [-37.5309, 143.8487], // Wendouree
+];
+const ARARAT_BRANCH_LINE: [number, number][] = [
+  [-37.5622, 143.8521], // Ballarat
+  [-37.7268, 143.6925], // Beaufort
+  [-37.2867, 142.9479], // Ararat
+];
+const MARYBOROUGH_BRANCH_LINE: [number, number][] = [
+  [-37.5622, 143.8521], // Ballarat
+  [-37.4084, 143.7954], // Creswick
+  [-37.0462, 143.7397], // Maryborough
+];
 const FREIGHT_LOCATIONS: FreightLocation[] = [
   { name: "Appleton Dock", kind: "Dock terminal", position: [-37.8261, 144.9159] },
   { name: "Dynon", kind: "Freight terminal", position: [-37.8139, 144.9388] },
@@ -7099,6 +7121,39 @@ function inferComengVariant(vehicle: LiveTrain) {
   return "South-side Comeng";
 }
 
+function normaliseMetroLineGroup(vehicle: LiveTrain) {
+  const searchable = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  if (/(metro tunnel|town hall|state library)/i.test(searchable)) return "metro-tunnel";
+  if (/(cranbourne|pakenham|east pakenham)/i.test(searchable)) return "hcmt-corridor";
+  if (/(sunbury|watergardens)/i.test(searchable)) return "sunbury";
+  if (/(mernda|hurstbridge)/i.test(searchable)) return "clifton-hill";
+  if (/(belgrave|lilydale|glen waverley|alamein)/i.test(searchable)) return "burnley";
+  if (/(craigieburn|upfield)/i.test(searchable)) return "northern";
+  if (/(frankston|werribee|williamstown|sandringham|altona)/i.test(searchable)) return "bayside";
+  return "unknown";
+}
+
+function resolveVehicleFamilyForLine(vehicle: LiveTrain, explicitFamily: string | null) {
+  switch (normaliseMetroLineGroup(vehicle)) {
+    case "metro-tunnel":
+    case "hcmt-corridor":
+    case "sunbury":
+      return "HCMT";
+    case "clifton-hill":
+    case "burnley":
+      return "Xâ€™Trapolis 100";
+    case "northern":
+      return explicitFamily === "Xâ€™Trapolis 100" ? explicitFamily : "North-side Comeng";
+    case "bayside":
+      if (explicitFamily === "South-side Comeng" || explicitFamily === "Siemens Nexas") {
+        return explicitFamily;
+      }
+      return "Siemens Nexas";
+    default:
+      return explicitFamily;
+  }
+}
+
 function getVehicleFormation(vehicle: LiveTrain) {
   const cars = splitConsistCars(vehicle.consist);
   const trailerCars = cars.filter((car) => /\d+T$/i.test(car));
@@ -7130,6 +7185,7 @@ function getVehicleFormation(vehicle: LiveTrain) {
   } else if (/COMENG/.test(upperTrainType) || hasComengTrailer || /3\d{2}M|4\d{2}M|5\d{2}M|6\d{2}M/.test(joinedCars)) {
     family = inferComengVariant(vehicle);
   }
+  family = resolveVehicleFamilyForLine(vehicle, family);
   return {
     family,
     cars: inferredCarCount,
@@ -8969,6 +9025,22 @@ export function Map({
                 positions={BALLARAT_SHARED_VLINE_TRUNK}
                 pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
               />
+            )}
+            {layers.ballaratRegional && (
+              <>
+                <Polyline
+                  positions={BALLARAT_LINE}
+                  pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
+                />
+                <Polyline
+                  positions={ARARAT_BRANCH_LINE}
+                  pathOptions={{ color: "#7c3aed", weight: 4, opacity: 0.82, dashArray: "9 7" }}
+                />
+                <Polyline
+                  positions={MARYBOROUGH_BRANCH_LINE}
+                  pathOptions={{ color: "#7c3aed", weight: 4, opacity: 0.82, dashArray: "9 7" }}
+                />
+              </>
             )}
             {layers.geelongRegional && (
               <Polyline

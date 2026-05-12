@@ -210,7 +210,7 @@ type ChangelogEntry = {
 };
 
 const FLEET_TYPES: FleetTypeConfig[] = [
-  { key: "hcmt", label: "HCMT", emoji: "Train", total: 33 },
+  { key: "hcmt", label: "HCMT", emoji: "Train", total: 37 },
   { key: "xtrapolis", label: "X'Trapolis", emoji: "Train", total: 32 },
   { key: "siemens", label: "Siemens", emoji: "Train", total: 20 },
   { key: "ss-comeng", label: "SS Comeng", emoji: "Train", total: 12 },
@@ -326,19 +326,54 @@ function getFleetLineTone(line: string) {
   return "bg-slate-500 text-white";
 }
 
+function normaliseFleetLineGroup(vehicle: LiveTrain) {
+  const searchable = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  if (/(metro tunnel|town hall|state library)/i.test(searchable)) return "metro-tunnel";
+  if (/(cranbourne|pakenham|east pakenham)/i.test(searchable)) return "hcmt-corridor";
+  if (/(sunbury|watergardens)/i.test(searchable)) return "sunbury";
+  if (/(mernda|hurstbridge)/i.test(searchable)) return "clifton-hill";
+  if (/(belgrave|lilydale|glen waverley|alamein)/i.test(searchable)) return "burnley";
+  if (/(craigieburn|upfield)/i.test(searchable)) return "northern";
+  if (/(frankston|werribee|williamstown|sandringham|altona)/i.test(searchable)) return "bayside";
+  return "unknown";
+}
+
+function resolveMetroFleetKey(vehicle: LiveTrain, explicitFleet: FleetTypeKey | null): FleetTypeKey {
+  const lineGroup = normaliseFleetLineGroup(vehicle);
+
+  switch (lineGroup) {
+    case "metro-tunnel":
+    case "hcmt-corridor":
+    case "sunbury":
+      return "hcmt";
+    case "clifton-hill":
+    case "burnley":
+      return "xtrapolis";
+    case "northern":
+      return explicitFleet === "xtrapolis" ? "xtrapolis" : "ns-comeng";
+    case "bayside":
+      if (explicitFleet === "ss-comeng" || explicitFleet === "siemens") {
+        return explicitFleet;
+      }
+      return "siemens";
+    default:
+      return explicitFleet ?? "xtrapolis";
+  }
+}
+
 function inferFleetTypeKey(vehicle: LiveTrain): FleetTypeKey {
   const searchable = `${vehicle.trainType} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
   if (/(hcmt)/i.test(searchable)) return "hcmt";
   if (/(x'?trapolis)/i.test(searchable)) return "xtrapolis";
-  if (/(siemens)/i.test(searchable)) return "siemens";
   if (/(vlocity)/i.test(searchable)) return "vlocity";
   if (/(n class|swan hill|bairnsdale|geelong|ballarat|traralgon)/i.test(searchable)) return "n-class";
-  if (/(comeng)/i.test(searchable)) {
-    return /(craigieburn|upfield|sunbury|mernda|hurstbridge)/i.test(searchable) ? "ns-comeng" : "ss-comeng";
+  let explicitFleet: FleetTypeKey | null = null;
+  if (/(siemens)/i.test(searchable)) {
+    explicitFleet = "siemens";
+  } else if (/(comeng)/i.test(searchable)) {
+    explicitFleet = /(craigieburn|upfield)/i.test(searchable) ? "ns-comeng" : "ss-comeng";
   }
-  if (/(craigieburn|upfield|sunbury|mernda|hurstbridge)/i.test(searchable)) return "ns-comeng";
-  if (/(frankston|werribee|williamstown|sandringham|altona)/i.test(searchable)) return "ss-comeng";
-  return "siemens";
+  return resolveMetroFleetKey(vehicle, explicitFleet);
 }
 
 function buildFleetRoute(vehicle: LiveTrain) {
