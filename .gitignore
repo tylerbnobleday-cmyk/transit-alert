@@ -49,3 +49,8 @@ Thumbs.db
 .local/
 .env.*
 .env
+.codex-temp/
+.tmp-bus-gtfs/
+.tmp-tram-gtfs/
+gtfs.zip
+temp_healthboard_alerts.json

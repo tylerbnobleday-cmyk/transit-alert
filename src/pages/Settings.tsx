@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, ExternalLink, LogOut, Save, Shield, SlidersHorizontal, User2 } from "lucide-react";
+import { ArrowLeft, Crown, ExternalLink, LogOut, Save, Shield, SlidersHorizontal, User2 } from "lucide-react";
 import { fetchAuthSession, logoutSession } from "@/lib/auth";
 import { fetchAdminConfig, saveAdminConfig, type AdminRuntimeConfig } from "@/lib/admin-config";
+import { TRANSITALERT_WEB_VERSION } from "@/lib/version";
 import {
   DEFAULT_TRANSPORT_MODES,
   defaultPreferences,
   fetchAccountPreferences,
+  getPremiumPaypalLink,
+  getPremiumPriceAud,
+  hasPremiumAccess,
   readLocalPreferences,
   saveAccountPreferences,
   type UserPreferences,
@@ -26,6 +30,71 @@ const ADMIN_SOURCE_KEYS = [
   { key: "plannedWorks", label: "Planned works source" },
   { key: "liveTrains", label: "Live trains API" },
   { key: "reports", label: "Community reports API" },
+] as const;
+
+const TRANSITALERT_UPDATE_ENTRIES = [
+  {
+    date: "08/05/2026",
+    items: [
+      "First-open update boards and station boarding guides were added for key interchanges.",
+      "Journey planning, alerts, freight overlays, and premium tools were refined for more stable daily use.",
+      "Optional NSW TrainLink / XPT live rail support was wired into the shared live train layer.",
+    ],
+  },
+  {
+    date: "02/05/2026",
+    items: [
+      "V/Line live tracking added, including Gippsland service detail support.",
+      "Southern Cross departure board layouts refined.",
+      "Settings and preferences UI improved.",
+    ],
+  },
+  {
+    date: "29/04/2026",
+    items: ["Removed raw feed IDs from live transit labels to clean up user-facing data."],
+  },
+  {
+    date: "25/04/2026",
+    items: ["Refactored core transit data flow and UI for better stability and maintainability."],
+  },
+  {
+    date: "22/04/2026",
+    items: [
+      "Fixed infinite loop issues affecting app performance.",
+      "Refined map UI and reduced and cleaned auth role handling.",
+    ],
+  },
+  {
+    date: "20/04/2026",
+    items: [
+      "Improved mobile map interaction, including drag area tuning.",
+      "Improved layout fit for map overlays on smaller screens.",
+      "Added station platform departure preview.",
+      "Raised station detail sheet above planner for better layering.",
+      "Fixed Vercel auth runtime loader issues.",
+      "Prevented crashes when the database is unavailable.",
+      "Consolidated API routes to stay within Hobby limits.",
+      "Fixed auth helper imports and converted helpers to JavaScript.",
+      "Fixed NodeNext import and TypeScript config issues.",
+      "Fixed live metro train feed and tracker map interaction bugs.",
+    ],
+  },
+  {
+    date: "19/04/2026",
+    items: [
+      "Added transport mode filtering.",
+      "Added marker editing support.",
+      "Major feature drop: mobile planner, authentication system, live tracking, alerts overhaul, and filtering improvements.",
+    ],
+  },
+  {
+    date: "14/04/2026",
+    items: ["Initial City Loop and train config testing."],
+  },
+  {
+    date: "13/04/2026",
+    items: ["Initial project setup: Vite configuration, Vercel setup, submodule fixes, and initial commit."],
+  },
 ] as const;
 
 function areStringArraysEqual(left: string[], right: string[]) {
@@ -142,6 +211,9 @@ export default function Settings() {
     () => (Array.isArray(preferences.transportModes) && preferences.transportModes.length > 0 ? preferences.transportModes : [...DEFAULT_TRANSPORT_MODES]),
     [preferences.transportModes],
   );
+  const premiumEnabled = hasPremiumAccess(preferences);
+  const premiumPaypalLink = getPremiumPaypalLink(preferences);
+  const premiumPriceAud = getPremiumPriceAud(preferences);
 
   const hasUnsavedPreferenceChanges = useMemo(() => {
     const baseline = accountPreferences && !isGuest
@@ -279,6 +351,107 @@ export default function Settings() {
 
         <section className="rounded-[2rem] border border-white/10 bg-card/80 p-6 shadow-2xl backdrop-blur-xl">
           <div className="flex items-center gap-3">
+            <Crown className="h-5 w-5 text-yellow-300" />
+            <div>
+              <h2 className="text-lg font-semibold">TransitAlert Premium</h2>
+              <p className="text-sm text-white/60">Simple PayPal-based premium access for advanced map tools.</p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <p className="text-sm font-semibold text-white">
+                {premiumEnabled ? "Premium is active on this account/device." : `Premium unlock is $${premiumPriceAud} AUD.`}
+              </p>
+              <p className="mt-2 text-sm text-white/60">
+                Premium currently unlocks freight tracking panels and advanced stop schedules in the live map.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                {premiumPaypalLink ? (
+                  <a
+                    href={premiumPaypalLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-yellow-300/20 bg-yellow-500/10 px-4 py-2.5 text-sm font-semibold text-yellow-100 transition hover:bg-yellow-500/15"
+                  >
+                    Pay with PayPal
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                ) : (
+                  <span className="inline-flex rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/55">
+                    No PayPal link configured yet
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-white/45">Premium access</p>
+                    <p className="mt-2 text-sm font-semibold text-white">{premiumEnabled ? "Unlocked" : "Locked"}</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!isAdmin}
+                    onClick={() => {
+                      setSavedMessage("");
+                      setPreferences((current) => ({
+                        ...current,
+                        appPreferences: {
+                          ...current.appPreferences,
+                          premiumAccess: !(current.appPreferences?.premiumAccess === true),
+                        },
+                      }));
+                    }}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                      premiumEnabled
+                        ? "border border-emerald-400/20 bg-emerald-500/15 text-emerald-100"
+                        : "border border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
+                    } disabled:cursor-not-allowed disabled:opacity-50`}
+                  >
+                    {premiumEnabled ? "Disable" : "Enable"}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-white/55">
+                  {isAdmin
+                    ? "Use this to manually grant premium after a PayPal payment lands."
+                    : "An admin needs to grant premium after payment is received."}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-white/45">PayPal unlock link</p>
+                <input
+                  value={premiumPaypalLink}
+                  disabled={!isAdmin}
+                  onChange={(event) => {
+                    setSavedMessage("");
+                    const nextValue = event.target.value;
+                    setPreferences((current) => ({
+                      ...current,
+                      appPreferences: {
+                        ...current.appPreferences,
+                        premiumPaypalLink: nextValue,
+                      },
+                    }));
+                  }}
+                  placeholder="https://paypal.me/yourname/5"
+                  className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-blue-400/40 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <p className="mt-2 text-xs text-white/55">
+                  {isAdmin
+                    ? "Locked premium cards use this link across the app."
+                    : "Ask an admin to configure the PayPal unlock link if it is missing."}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-white/10 bg-card/80 p-6 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-center gap-3">
             <SlidersHorizontal className="h-5 w-5 text-blue-300" />
             <div>
               <h2 className="text-lg font-semibold">App preferences</h2>
@@ -343,6 +516,62 @@ export default function Settings() {
               Reload local preferences
             </button>
             {savedMessage && <p className="text-sm text-white/65">{savedMessage}</p>}
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-white/10 bg-card/80 p-6 shadow-2xl backdrop-blur-xl">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/80">TransitAlert Melbourne</p>
+            <h2 className="mt-2 text-2xl font-semibold">TransitAlert updates</h2>
+            <p className="mt-2 max-w-3xl text-sm text-white/65">
+              System notes, version history, and recent release changes for the planner, live tracking, maps, alerts, and related tools.
+            </p>
+          </div>
+
+          <div className="mt-5 rounded-[1.6rem] border border-white/10 bg-slate-950/55 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-lg font-semibold text-white">TransitAlert Web Version {TRANSITALERT_WEB_VERSION} (in progress)</p>
+                <p className="mt-1 text-sm text-white/55">Current development stream</p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[1.35rem] border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">About This System</p>
+              <div className="mt-3 space-y-3 text-sm leading-6 text-white/72">
+                <p>
+                  TransitAlert is an independent real-time transport platform combining public feeds, available operator data, and app-side logic.
+                </p>
+                <p>
+                  Data may be delayed, incomplete, or unavailable. This app should not be treated as an official operator source.
+                </p>
+                <p>
+                  Diagnostics and usage logging may be used to improve stability, performance, and reliability.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">Version {TRANSITALERT_WEB_VERSION}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/35">08/05/2026</p>
+              </div>
+
+              <div className="mt-4 space-y-4">
+                {TRANSITALERT_UPDATE_ENTRIES.map((entry) => (
+                  <div key={entry.date} className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-white">{entry.date}</p>
+                    </div>
+                    <div className="mt-3 space-y-2 text-sm leading-6 text-white/72">
+                      {entry.items.map((item) => (
+                        <p key={`${entry.date}-${item}`}>{item}</p>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </section>
 

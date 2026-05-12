@@ -4,11 +4,13 @@ import { useLocation } from "wouter";
 import { ChevronDown, ChevronUp, MapPin, Plus, Search, TrainFront } from "lucide-react";
 import {
   Map as TransitMap,
+  ADMIN_DEBUG_LINE_OPTIONS,
   Station,
   ALL_STATIONS,
   LINES,
   SERVICE_FILTERS,
   getFilterChips,
+  type AdminDebugLineKey,
   type LayerState,
   type ServiceFilterKey,
   type TransportMode,
@@ -18,8 +20,15 @@ import { RiskyRoutes } from "@/components/RiskyRoutes";
 import { AddReportDrawer } from "@/components/AddReportDrawer";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TRANSITALERT_WEB_VERSION } from "@/lib/version";
-import { fetchAuthSession, logoutSession } from "@/lib/auth";
-import { fetchAdminConfig, saveAdminConfig, type AdminRuntimeConfig } from "@/lib/admin-config";
+import { clearGuestIntent, fetchAuthSession, hasGuestIntent, logoutSession } from "@/lib/auth";
+import {
+  fetchAdminAccounts,
+  fetchAdminConfig,
+  saveAdminConfig,
+  updateAdminAccount,
+  type AdminAccountRecord,
+  type AdminRuntimeConfig,
+} from "@/lib/admin-config";
 import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
 import busButtonIcon from "@/assets/icons/bus.png";
 import tramButtonIcon from "@/assets/icons/tram.png";
@@ -27,6 +36,9 @@ import {
   DEFAULT_TRANSPORT_MODES,
   defaultPreferences,
   fetchAccountPreferences,
+  getFavouriteConsists,
+  getPremiumPaypalLink,
+  hasPremiumAccess,
   mergeLocalPreferences,
   readLocalPreferences,
   saveAccountPreferences,
@@ -86,6 +98,11 @@ const SIMPLE_SURFACE_ROUTES = [
 
 const HOME_ORIGIN_LABEL = "Home · 15 Louise St, Brighton East";
 const CURRENT_LOCATION_LABEL = "Current location";
+const JOURNEY_STORAGE_KEY = "transitalert-active-journey-v1";
+const ADMIN_DEBUG_STORAGE_KEY = "transitalert-admin-debug-line-v1";
+const HOME_ORIGIN_COORDS: [number, number] = [-37.9147, 145.0186];
+const VERSION_SEEN_STORAGE_KEY = "transitalert-last-seen-version";
+const ACCOUNT_ROLE_OPTIONS = ["Traveller", "Bug Tester", "Friend", "Special", "Train Driver", "Station Staff", "Admin"] as const;
 
 type PlannerSheetProps = {
   isOpen: boolean;
@@ -105,6 +122,7 @@ type DockedPanelSheetProps = {
 type VersionModalProps = {
   isOpen: boolean;
   onClose: () => void;
+  showWelcome: boolean;
 };
 
 type FleetTypeKey =
@@ -171,6 +189,20 @@ type JourneyDisplay = {
   legs: JourneyLeg[];
 };
 
+type PersistedJourneyState = {
+  journeyOrigin: string;
+  journeyDestination: string;
+  currentLocationOrigin: string | null;
+  currentLocationCoords: [number, number] | null;
+  routeStationNames: string[];
+  summary: string;
+  boardingAdvice: string;
+  display: JourneyDisplay | null;
+  attachedServiceKey: string | null;
+  attachedServiceLabel: string | null;
+  startedAt: string | null;
+};
+
 type ChangelogEntry = {
   version: string;
   date: string;
@@ -190,33 +222,31 @@ const FLEET_TYPES: FleetTypeConfig[] = [
 const VERSION_LOG: ChangelogEntry[] = [
   {
     version: TRANSITALERT_WEB_VERSION,
-    date: "11/10/2025",
+    date: "08/05/2026",
     notes: [
-      "New icons and a refreshed header landed.",
-      "Fleet colours now follow route names instead of relying on TDN guesses.",
-      "General real-time improvements helped V/Line trips appear more reliably.",
+      "First-open update boards and station boarding guides were added so major changes are easier to understand.",
+      "Journey planning, alerts, freight overlays, and premium tools were refined for a steadier daily experience.",
+      "Optional NSW TrainLink / XPT live rail support was wired into the broader live train layer.",
     ],
   },
   {
-    version: "V0.6.9",
-    date: "29/08/2025",
+    version: "V0.70",
+    date: "02/05/2026",
     notes: [
-      "Trip, departures, fleet, and WebPID pages moved off the older DB collection.",
-      "PTDB backend work sped up loading and cleaned up direct consist matching.",
-      "WebPID bumped to TransitAlert PID 0.7 alpha.",
+      "V/Line live tracking landed with Gippsland service detail support and better Southern Cross departure boards.",
+      "Settings, preferences, and surface route layers were refined across the app.",
+      "Regional route shaping and live service presentation improved for newer map overlays.",
     ],
   },
   {
-    version: "V0.6.8",
-    date: "18/08/2025",
+    version: "V0.68",
+    date: "29/04/2026",
     notes: [
-      "Profile became the main settings area.",
-      "Alerts bubble drag and desktop opening behaviour were refined.",
-      "Admin password resets now include a visible reason for the user.",
+      "Raw feed IDs were stripped out of live transit labels to clean up user-facing data.",
     ],
   },
   {
-    version: "V0.6.7",
+    version: "V0.67",
     date: "21/06/2025",
     notes: [
       "Searching by station code now picks the station directly.",
@@ -224,7 +254,7 @@ const VERSION_LOG: ChangelogEntry[] = [
     ],
   },
   {
-    version: "V0.6.6",
+    version: "V0.66",
     date: "15/06/2025",
     notes: [
       "Major departures template refresh.",
@@ -240,6 +270,21 @@ const TRANSITALERT_SYSTEM_NOTES = [
   "Data can be delayed, incomplete, or unavailable, so the app should never be treated as an official operator source.",
   "Usage, diagnostics, and stability logging may be collected to improve reliability, performance, and safety of the system.",
 ];
+
+const VERSION_HIGHLIGHT_CARDS = [
+  {
+    title: "What’s new in 0.87",
+    body: "Cleaner onboarding, better station guidance, and steadier live-map behaviour across metro, regional, tram, bus, and freight layers.",
+  },
+  {
+    title: "Journey planning",
+    body: "Trips persist more reliably, GPS starts are friendlier, and attached live services stay visible while your journey is active.",
+  },
+  {
+    title: "Boarding guides",
+    body: "Key interchange stations now show best-carriage advice for 6-car sets, legacy Metro fleets, and HCMT services.",
+  },
+] as const;
 
 const PLANNER_LINES = [
   { name: "Frankston", stations: LINES.frankston },
@@ -410,6 +455,37 @@ function arePreferencePatchesEqual(current: UserPreferences, next: UserPreferenc
   );
 }
 
+function formatJourneyStarted(timestamp: string | null) {
+  if (!timestamp) return "";
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
+}
+
+function readPersistedJourneyState(): PersistedJourneyState | null {
+  try {
+    const raw = window.localStorage.getItem(JOURNEY_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PersistedJourneyState;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedJourneyState(state: PersistedJourneyState) {
+  try {
+    window.localStorage.setItem(JOURNEY_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Ignore local storage failures.
+  }
+}
+
 const STATION_SERVICE_LOOKUP: Record<string, string[]> = {
   "Town Hall": ["Sunbury", "Cranbourne", "Pakenham", "Metro Tunnel"],
   "State Library": ["Sunbury", "Cranbourne", "Pakenham", "Metro Tunnel"],
@@ -442,31 +518,31 @@ function getStationDepartureBoard(stationName: string) {
 function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
   return (
     <div
-      className={`pointer-events-none overflow-hidden rounded-t-[2rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[2rem] ${
-        isOpen ? "translate-y-0" : "translate-y-[calc(100%-78px)]"
+      className={`pointer-events-none overflow-hidden rounded-t-[1.75rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[1.85rem] ${
+        isOpen ? "translate-y-0" : "translate-y-[calc(100%-66px)]"
       }`}
     >
       <button
         onClick={onToggle}
-        className="pointer-events-auto flex w-full flex-col items-center justify-center px-4 pb-3 pt-3 text-white"
+        className="pointer-events-auto flex w-full flex-col items-center justify-center px-4 pb-2.5 pt-2.5 text-white"
         aria-expanded={isOpen}
         aria-label={isOpen ? "Hide planner" : "Show planner"}
       >
-        <span className="mb-3 h-1.5 w-14 rounded-full bg-white/20" />
-        <span className="inline-flex items-center gap-2 rounded-full border border-blue-400/30 bg-blue-600 px-4 py-2 text-sm font-semibold shadow-lg shadow-blue-950/40">
+        <span className="mb-2 h-1.5 w-12 rounded-full bg-white/20" />
+        <span className="inline-flex items-center gap-2 rounded-full border border-blue-400/30 bg-blue-600 px-3.5 py-1.5 text-sm font-semibold shadow-lg shadow-blue-950/35">
           <ChevronUp className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
           {isOpen ? "Hide Planner" : "Show Planner"}
         </span>
       </button>
 
-      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[70vh] overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-5`}>
+      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[64vh] overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-4.5`}>
         {children}
       </div>
     </div>
   );
 }
 
-function VersionModal({ isOpen, onClose }: VersionModalProps) {
+function VersionModal({ isOpen, onClose, showWelcome }: VersionModalProps) {
   if (!isOpen) return null;
 
   return (
@@ -494,8 +570,34 @@ function VersionModal({ isOpen, onClose }: VersionModalProps) {
           </div>
         </div>
 
-        <div className="overflow-y-auto px-5 py-5 sm:px-6">
-          <div className="rounded-[1.35rem] border border-white/10 bg-white/5 p-4">
+          <div className="overflow-y-auto px-5 py-5 sm:px-6">
+            {showWelcome && (
+              <div className="mb-4 rounded-[1.35rem] border border-blue-400/20 bg-blue-500/10 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-200/90">First open</p>
+                    <p className="mt-2 text-xl font-semibold text-white">Welcome to TransitAlert {TRANSITALERT_WEB_VERSION}</p>
+                    <p className="mt-1 max-w-3xl text-sm text-blue-50/80">
+                      This board shows the main changes for the current build so new or returning users know what shifted straight away.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-blue-300/20 bg-slate-950/50 px-3 py-1 text-xs font-semibold text-blue-100">
+                    New in {TRANSITALERT_WEB_VERSION}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  {VERSION_HIGHLIGHT_CARDS.map((card) => (
+                    <div key={card.title} className="rounded-[1.15rem] border border-white/10 bg-black/20 p-3">
+                      <p className="text-sm font-semibold text-white">{card.title}</p>
+                      <p className="mt-2 text-sm leading-6 text-white/72">{card.body}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-[1.35rem] border border-white/10 bg-white/5 p-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-300/85">About This System</p>
             <div className="mt-3 grid gap-2">
               {TRANSITALERT_SYSTEM_NOTES.map((note) => (
@@ -564,18 +666,19 @@ function DockedPanelSheet({ isOpen, onToggle, eyebrow, title, summary, children 
 export default function Home() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { data: liveFleetVehicles = [], isFetching: isFleetRefreshing } = useQuery({
-    queryKey: ["live-fleet-board"],
-    queryFn: fetchLiveTrains,
-    retry: false,
-    refetchInterval: 15_000,
-    staleTime: 10_000,
-  });
   const { data: authSession } = useQuery({
     queryKey: ["auth-session"],
     queryFn: fetchAuthSession,
     retry: false,
     staleTime: 60_000,
+  });
+  const { data: liveFleetVehicles = [], isFetching: isFleetRefreshing } = useQuery({
+    queryKey: ["live-fleet-board"],
+    queryFn: fetchLiveTrains,
+    enabled: (authSession?.user?.role ?? "") !== "Guest",
+    retry: false,
+    refetchInterval: 15_000,
+    staleTime: 10_000,
   });
     const isAuthenticated = authSession?.authenticated ?? false;
     const [activeTab, setActiveTab] = useState<"map" | "fleets" | "admin">("map");
@@ -584,6 +687,7 @@ export default function Home() {
   const [isUtilityPanelOpen, setIsUtilityPanelOpen] = useState(true);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isVersionOpen, setIsVersionOpen] = useState(false);
+  const [isVersionFirstOpen, setIsVersionFirstOpen] = useState(false);
   const [userMenuMessage, setUserMenuMessage] = useState("");
   const [selectedFleetType, setSelectedFleetType] = useState<FleetTypeKey | null>(null);
   const [focusedVehicleKey, setFocusedVehicleKey] = useState<string | null>(null);
@@ -594,20 +698,47 @@ export default function Home() {
   const [journeyBoardingAdvice, setJourneyBoardingAdvice] = useState<string>("");
   const [journeyDisplay, setJourneyDisplay] = useState<JourneyDisplay | null>(null);
   const [currentLocationOrigin, setCurrentLocationOrigin] = useState<string | null>(null);
+  const [currentLocationCoords, setCurrentLocationCoords] = useState<[number, number] | null>(null);
+  const [journeyStartedAt, setJourneyStartedAt] = useState<string | null>(null);
+  const [attachedJourneyServiceKey, setAttachedJourneyServiceKey] = useState<string | null>(null);
+  const [attachedJourneyServiceLabel, setAttachedJourneyServiceLabel] = useState<string | null>(null);
+  const [hasHydratedJourney, setHasHydratedJourney] = useState(false);
   const [originPickerMessage, setOriginPickerMessage] = useState("");
   const [isOriginPickerOpen, setIsOriginPickerOpen] = useState(false);
   const [originSearch, setOriginSearch] = useState("");
+  const [journeyPlannerMessage, setJourneyPlannerMessage] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
   const [adminSelectedStation, setAdminSelectedStation] = useState("Flinders Street");
   const [adminLat, setAdminLat] = useState("-37.8184161");
   const [adminLng, setAdminLng] = useState("144.9664779");
   const [adminSelectedLine, setAdminSelectedLine] = useState("metroTunnel");
+  const [adminDebugLineKey, setAdminDebugLineKey] = useState<AdminDebugLineKey>(() => {
+    if (typeof window === "undefined") {
+      return "none";
+    }
+
+    const stored = window.localStorage.getItem(ADMIN_DEBUG_STORAGE_KEY);
+    return ADMIN_DEBUG_LINE_OPTIONS.some((option) => option.key === stored)
+      ? (stored as AdminDebugLineKey)
+      : "none";
+  });
   const [splitCrossCityGroup, setSplitCrossCityGroup] = useState(true);
   const [preferences, setPreferences] = useState<UserPreferences>(defaultPreferences);
   const [hasMergedLocalPreferences, setHasMergedLocalPreferences] = useState(false);
   const [adminConfigDraft, setAdminConfigDraft] = useState<AdminRuntimeConfig>({});
+  const [adminAccountDrafts, setAdminAccountDrafts] = useState<
+    Record<string, Pick<AdminAccountRecord, "role" | "isAdmin" | "isPremium">>
+  >({});
   const isAdmin = authSession?.user?.isAdmin ?? false;
   const isGuest = authSession?.user?.role === "Guest";
+  const isPremium = hasPremiumAccess(preferences);
+  const premiumPaypalLink = getPremiumPaypalLink(preferences);
+  const favouriteConsists = getFavouriteConsists(preferences);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(ADMIN_DEBUG_STORAGE_KEY, adminDebugLineKey);
+  }, [adminDebugLineKey]);
 
   const { data: accountPreferences } = useQuery({
     queryKey: ["account-preferences", authSession?.user?.id],
@@ -625,6 +756,14 @@ export default function Home() {
     staleTime: 60_000,
   });
 
+  const { data: adminAccounts = [] } = useQuery({
+    queryKey: ["admin-accounts"],
+    queryFn: fetchAdminAccounts,
+    enabled: isAdmin,
+    retry: false,
+    staleTime: 30_000,
+  });
+
   const signOutMutation = useMutation({
     mutationFn: logoutSession,
     onSuccess: async () => {
@@ -635,6 +774,28 @@ export default function Home() {
     },
   });
 
+  const adminAccountMutation = useMutation({
+    mutationFn: ({ accountId, patch }: { accountId: string; patch: Pick<AdminAccountRecord, "role" | "isAdmin" | "isPremium"> }) =>
+      updateAdminAccount(accountId, patch),
+    onSuccess: async (account) => {
+      if (account) {
+        setAdminAccountDrafts((current) => ({
+          ...current,
+          [account.id]: {
+            role: account.role,
+            isAdmin: account.isAdmin,
+            isPremium: account.isPremium,
+          },
+        }));
+      }
+      setAdminMessage("Account access updated.");
+      await queryClient.invalidateQueries({ queryKey: ["admin-accounts"] });
+    },
+    onError: (error) => {
+      setAdminMessage(error instanceof Error ? error.message : "Failed to update account access.");
+    },
+  });
+
   const stationOptions = useMemo(() => ALL_STATIONS.map((station) => station.name).sort(), []);
   const uniqueStations = useMemo(() => {
     const seen = new Map<string, Station>();
@@ -642,6 +803,35 @@ export default function Home() {
       if (!seen.has(station.name)) seen.set(station.name, station);
     }
     return [...seen.values()];
+  }, []);
+  const stationByName = useMemo(
+    () => new Map(uniqueStations.map((station) => [station.name, station])),
+    [uniqueStations],
+  );
+  const stationByNormalizedName = useMemo(
+    () => new Map(uniqueStations.map((station) => [station.name.trim().toLowerCase(), station])),
+    [uniqueStations],
+  );
+  const plannerNetwork = useMemo(() => {
+    const graph = new Map<string, Array<{ to: string; line: string }>>();
+
+    for (const line of PLANNER_LINES) {
+      for (let index = 0; index < line.stations.length - 1; index += 1) {
+        const current = line.stations[index];
+        const next = line.stations[index + 1];
+        if (!current || !next) continue;
+
+        const currentEdges = graph.get(current.name) ?? [];
+        currentEdges.push({ to: next.name, line: line.name });
+        graph.set(current.name, currentEdges);
+
+        const nextEdges = graph.get(next.name) ?? [];
+        nextEdges.push({ to: current.name, line: line.name });
+        graph.set(next.name, nextEdges);
+      }
+    }
+
+    return graph;
   }, []);
   const lineKeys = useMemo(() => Object.keys(LINES), []);
 
@@ -673,14 +863,18 @@ export default function Home() {
     () => (selectedFleetType ? liveFleetTrips.filter((trip) => trip.fleet === selectedFleetType) : []),
     [liveFleetTrips, selectedFleetType],
   );
+  const fleetTripsToDisplay = useMemo(
+    () => (selectedFleetType ? fleetTripsForSelection : liveFleetTrips),
+    [fleetTripsForSelection, liveFleetTrips, selectedFleetType],
+  );
   const fleetStats = useMemo(() => {
-    const trips = selectedFleetType ? fleetTripsForSelection : liveFleetTrips;
+    const trips = fleetTripsToDisplay;
     return {
       liveTrips: trips.length,
       runningNow: trips.filter((trip) => trip.status === "running").length,
       upcomingSoon: trips.filter((trip) => trip.status === "upcoming").length,
     };
-  }, [fleetTripsForSelection, liveFleetTrips, selectedFleetType]);
+  }, [fleetTripsToDisplay]);
   const serviceDayLabel = useMemo(
     () =>
       new Intl.DateTimeFormat("en-AU", {
@@ -730,8 +924,27 @@ export default function Home() {
     setIsPlannerOpen(true);
   }, []);
 
+  const attachJourneyToService = useCallback((trip: FleetTrip) => {
+    setAttachedJourneyServiceKey(trip.focusKey);
+    setAttachedJourneyServiceLabel(`${trip.line} · TDN ${trip.tripNumber} · ${trip.route}`);
+    setJourneyStartedAt((current) => current ?? new Date().toISOString());
+    setFocusedVehicleKey(trip.focusKey);
+    setActiveTab("map");
+    setIsPlannerOpen(true);
+  }, []);
+
+  const finishJourney = useCallback(() => {
+    setJourneyRoute([]);
+    setJourneySummary("Plan a journey using the fields below.");
+    setJourneyBoardingAdvice("");
+    setJourneyDisplay(null);
+    setAttachedJourneyServiceKey(null);
+    setAttachedJourneyServiceLabel(null);
+    setJourneyStartedAt(null);
+  }, []);
+
   const useCurrentLocationForOrigin = () => {
-    if (!navigator.geolocation) {
+    if (typeof window === "undefined" || typeof navigator === "undefined" || !navigator.geolocation) {
       setOriginPickerMessage("Current location is not available in this browser.");
       return;
     }
@@ -739,8 +952,19 @@ export default function Home() {
     setOriginPickerMessage("Finding your current location...");
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const label = `${CURRENT_LOCATION_LABEL} · ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`;
+        const nearestStation = uniqueStations
+          .map((station) => ({
+            station,
+            distance:
+              (station.position[0] - position.coords.latitude) ** 2 +
+              (station.position[1] - position.coords.longitude) ** 2,
+          }))
+          .sort((left, right) => left.distance - right.distance)[0]?.station;
+        const label = nearestStation
+          ? `${CURRENT_LOCATION_LABEL} · Near ${nearestStation.name}`
+          : `${CURRENT_LOCATION_LABEL} · ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`;
         setCurrentLocationOrigin(label);
+        setCurrentLocationCoords([position.coords.latitude, position.coords.longitude]);
         setJourneyOrigin(label);
         setOriginPickerMessage("Current location ready.");
         setIsOriginPickerOpen(false);
@@ -761,6 +985,64 @@ export default function Home() {
   useEffect(() => {
     setPreferences(readLocalPreferences());
   }, []);
+
+  useEffect(() => {
+    if (hasHydratedJourney || uniqueStations.length === 0) return;
+
+    const persisted = readPersistedJourneyState();
+    if (!persisted) {
+      setHasHydratedJourney(true);
+      return;
+    }
+
+    setJourneyOrigin(persisted.journeyOrigin || "Flinders Street");
+    setJourneyDestination(persisted.journeyDestination || "Sandringham");
+    setCurrentLocationOrigin(persisted.currentLocationOrigin ?? null);
+    setCurrentLocationCoords(persisted.currentLocationCoords ?? null);
+    setJourneySummary(persisted.summary || "Plan a journey using the fields below.");
+    setJourneyBoardingAdvice(persisted.boardingAdvice || "");
+    setJourneyDisplay(persisted.display ?? null);
+    setAttachedJourneyServiceKey(persisted.attachedServiceKey ?? null);
+    setAttachedJourneyServiceLabel(persisted.attachedServiceLabel ?? null);
+    setJourneyStartedAt(persisted.startedAt ?? null);
+    setJourneyRoute(
+      (persisted.routeStationNames ?? [])
+        .map((stationName) => stationByName.get(stationName))
+        .filter((station): station is Station => Boolean(station)),
+    );
+    setHasHydratedJourney(true);
+  }, [hasHydratedJourney, stationByName, uniqueStations.length]);
+
+  useEffect(() => {
+    if (!hasHydratedJourney) return;
+
+    writePersistedJourneyState({
+      journeyOrigin,
+      journeyDestination,
+      currentLocationOrigin,
+      currentLocationCoords,
+      routeStationNames: journeyRoute.map((station) => station.name),
+      summary: journeySummary,
+      boardingAdvice: journeyBoardingAdvice,
+      display: journeyDisplay,
+      attachedServiceKey: attachedJourneyServiceKey,
+      attachedServiceLabel: attachedJourneyServiceLabel,
+      startedAt: journeyStartedAt,
+    });
+  }, [
+    attachedJourneyServiceKey,
+    attachedJourneyServiceLabel,
+    currentLocationCoords,
+    currentLocationOrigin,
+    hasHydratedJourney,
+    journeyBoardingAdvice,
+    journeyDestination,
+    journeyDisplay,
+    journeyOrigin,
+    journeyRoute,
+    journeyStartedAt,
+    journeySummary,
+  ]);
 
   useEffect(() => {
     if (accountPreferences && !isGuest) {
@@ -802,10 +1084,62 @@ export default function Home() {
   }, [adminConfig]);
 
   useEffect(() => {
+    if (adminAccounts.length === 0) return;
+    setAdminAccountDrafts(
+      Object.fromEntries(
+        adminAccounts.map((account) => [
+          account.id,
+          {
+            role: account.role,
+            isAdmin: account.isAdmin,
+            isPremium: account.isPremium,
+          },
+        ]),
+      ),
+    );
+  }, [adminAccounts]);
+
+  useEffect(() => {
+    if (!authSession?.user) {
+      setIsUserMenuOpen(false);
+    }
+  }, [authSession?.user]);
+
+  useEffect(() => {
     if (isGuest && activeTab !== "map") {
       setActiveTab("map");
     }
   }, [activeTab, isGuest]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !isGuest) return;
+    if (hasGuestIntent()) return;
+    clearGuestIntent();
+    setLocation("/login");
+  }, [isAuthenticated, isGuest, setLocation]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const lastSeenVersion = window.localStorage.getItem(VERSION_SEEN_STORAGE_KEY);
+      if (lastSeenVersion !== TRANSITALERT_WEB_VERSION) {
+        setIsVersionFirstOpen(true);
+        setIsVersionOpen(true);
+      }
+    } catch {
+      // Ignore local storage failures.
+    }
+  }, []);
+
+  const handleCloseVersionModal = useCallback(() => {
+    setIsVersionOpen(false);
+    setIsVersionFirstOpen(false);
+    try {
+      window.localStorage.setItem(VERSION_SEEN_STORAGE_KEY, TRANSITALERT_WEB_VERSION);
+    } catch {
+      // Ignore local storage failures.
+    }
+  }, []);
 
   useEffect(() => {
     if (activeTab === "map") return;
@@ -818,14 +1152,61 @@ export default function Home() {
     }
   }, [authSession, isAuthenticated, setLocation]);
 
-  const getLineSegment = (stations: Station[], start: string, end: string) => {
-    const startIndex = stations.findIndex((station) => station.name === start);
-    const endIndex = stations.findIndex((station) => station.name === end);
-    if (startIndex === -1 || endIndex === -1) return [];
-    return startIndex <= endIndex
-      ? stations.slice(startIndex, endIndex + 1)
-      : stations.slice(endIndex, startIndex + 1).reverse();
-  };
+  const findNearestStation = useCallback(
+    (coords: [number, number]) => {
+      return uniqueStations
+        .map((station) => ({
+          station,
+          distance:
+            (station.position[0] - coords[0]) ** 2 +
+            (station.position[1] - coords[1]) ** 2,
+        }))
+        .sort((left, right) => left.distance - right.distance)[0]?.station ?? null;
+    },
+    [uniqueStations],
+  );
+
+  const buildJourneyPath = useCallback(
+    (originName: string, destinationName: string) => {
+      if (originName === destinationName) {
+        return { stationNames: [originName], edgeLines: [] as string[] };
+      }
+
+      const visited = new Set<string>([originName]);
+      const queue = [originName];
+      const previous = new Map<string, { station: string; line: string }>();
+
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current) continue;
+        if (current === destinationName) break;
+
+        for (const edge of plannerNetwork.get(current) ?? []) {
+          if (visited.has(edge.to)) continue;
+          visited.add(edge.to);
+          previous.set(edge.to, { station: current, line: edge.line });
+          queue.push(edge.to);
+        }
+      }
+
+      if (!visited.has(destinationName)) return null;
+
+      const stationNames: string[] = [destinationName];
+      const edgeLines: string[] = [];
+      let cursor = destinationName;
+
+      while (cursor !== originName) {
+        const step = previous.get(cursor);
+        if (!step) return null;
+        edgeLines.unshift(step.line);
+        stationNames.unshift(step.station);
+        cursor = step.station;
+      }
+
+      return { stationNames, edgeLines };
+    },
+    [plannerNetwork],
+  );
 
   const getJourneyBoardingAdvice = (route: Station[], summary: string) => {
     if (route.length < 2) return "";
@@ -869,200 +1250,169 @@ export default function Home() {
     setJourneySummary(summary);
     setJourneyBoardingAdvice(getJourneyBoardingAdvice(route, summary));
     setJourneyDisplay(display ?? null);
+    setJourneyStartedAt(route.length > 0 ? new Date().toISOString() : null);
+    setAttachedJourneyServiceKey(null);
+    setAttachedJourneyServiceLabel(null);
   };
 
   const computeJourneyRoute = () => {
-    const isHomeOrigin = journeyOrigin === HOME_ORIGIN_LABEL;
-    const isCurrentLocationOrigin = currentLocationOrigin !== null && journeyOrigin === currentLocationOrigin;
-    const origin = ALL_STATIONS.find((station) => station.name === journeyOrigin);
-    const destination = ALL_STATIONS.find((station) => station.name === journeyDestination);
+    try {
+      setJourneyPlannerMessage("");
+      const trimmedDestination = journeyDestination.trim();
+      const destination =
+        stationByName.get(trimmedDestination) ??
+        stationByNormalizedName.get(trimmedDestination.toLowerCase()) ??
+        null;
+      const isHomeOrigin = journeyOrigin === HOME_ORIGIN_LABEL;
+      const isCurrentLocationOrigin = currentLocationOrigin !== null && journeyOrigin === currentLocationOrigin;
 
-    if ((isHomeOrigin || isCurrentLocationOrigin) && journeyDestination === "Arden") {
-      const stateLibrary = ALL_STATIONS.find((station) => station.name === "State Library");
-      const arden = ALL_STATIONS.find((station) => station.name === "Arden");
+      let resolvedOrigin =
+        stationByName.get(journeyOrigin) ??
+        stationByNormalizedName.get(journeyOrigin.trim().toLowerCase()) ??
+        null;
+      let accessLeg: JourneyLeg | null = null;
 
-      if (stateLibrary && arden) {
-        const metroTunnelLeg = getLineSegment(LINES.metroTunnel, "State Library", "Arden");
-        const legs: JourneyLeg[] = [
+    if (isHomeOrigin) {
+      const nearestHomeStation = findNearestStation(HOME_ORIGIN_COORDS);
+      if (nearestHomeStation) {
+        resolvedOrigin = nearestHomeStation;
+        accessLeg = {
+          mode: "walk",
+          title: "Start from home",
+          from: "15 Louise St, Brighton East",
+          to: nearestHomeStation.name,
+          detail: "Use your nearest rail interchange as the handoff into the network.",
+          badge: "Walk",
+        };
+      }
+    } else if (isCurrentLocationOrigin && currentLocationCoords) {
+      const nearestGpsStation = findNearestStation(currentLocationCoords);
+      if (nearestGpsStation) {
+        resolvedOrigin = nearestGpsStation;
+        accessLeg = {
+          mode: "walk",
+          title: "Start from current location",
+          from: journeyOrigin,
+          to: nearestGpsStation.name,
+          detail: "GPS start attached to the nearest station before the rail leg begins.",
+          badge: "GPS",
+        };
+      }
+    }
+
+      if (!resolvedOrigin || !destination) {
+        applyJourneyPlan([], "Pick a valid destination and start point, then plan the trip again.");
+        setJourneyPlannerMessage("Choose a recognised start point and destination before planning.");
+        return;
+      }
+
+      if (resolvedOrigin.name === destination.name) {
+        const singleLegs: JourneyLeg[] = [
+          ...(accessLeg ? [accessLeg] : []),
           {
-            mode: "bus",
-            title: "Route 630 bus",
-            from: "15 Louise St, Brighton East",
-            to: "Elsternwick / Hawthorn Rd",
-            detail: "Orbital feeder toward the tram corridor",
-            badge: "Bus",
-          },
-          {
-            mode: "tram",
-            title: "Route 64 tram",
-            from: "Hawthorn Rd",
-            to: "State Library",
-            detail: "Cross-city tram run into the CBD",
-            badge: "Tram",
-          },
-          {
-            mode: "train",
-            title: "Metro Tunnel",
-            from: "State Library",
-            to: "Arden",
-            detail: "Metro Tunnel platforms 1 / 2 to Arden",
-            badge: "Train",
+            mode: "walk",
+            title: "You have arrived",
+            from: resolvedOrigin.name,
+            to: destination.name,
+            detail: "No further travel needed.",
+            badge: "Arrived",
           },
         ];
         applyJourneyPlan(
-          metroTunnelLeg,
-          `Change at State Library from Route 64 tram to Metro Tunnel services for Arden. ${isHomeOrigin ? "Home" : "Current location"} starts are now supported, and Route 630 bus has been added as a future orbital option in the planner.`,
+          [resolvedOrigin],
+          "You're already at your destination.",
+          buildJourneyDisplay([resolvedOrigin], "You're already at your destination.", singleLegs, "Already there", "Station access"),
+        );
+        return;
+      }
+
+      const path = buildJourneyPath(resolvedOrigin.name, destination.name);
+      if (!path) {
+        applyJourneyPlan(
+          [resolvedOrigin, destination],
+          "No clean through-route was found right now, so the planner kept your start and end pinned.",
           buildJourneyDisplay(
-            metroTunnelLeg,
-            `Change at State Library from Route 64 tram to Metro Tunnel services for Arden.`,
-            legs,
-            "Bus + tram + Metro Tunnel",
-            "Multi-modal journey",
+            [resolvedOrigin, destination],
+            "No clean through-route was found right now.",
+            [
+              ...(accessLeg ? [accessLeg] : []),
+              {
+                mode: "walk",
+                title: "Manual transfer",
+                from: resolvedOrigin.name,
+                to: destination.name,
+                detail: "Check live services manually or attach yourself to a specific trip below.",
+                badge: "Fallback",
+              },
+            ],
+            "Manual transfer",
+            "Fallback route",
           ),
         );
         return;
       }
-    }
 
-    if (!origin || !destination) {
-      applyJourneyPlan(
-        [],
-        "Select a valid station destination. Home and current location starts now work for the Arden example too.",
-      );
-      return;
-    }
+      const routeStations = path.stationNames
+        .map((stationName) => stationByName.get(stationName))
+        .filter((station): station is Station => Boolean(station));
+      const trainLegs: JourneyLeg[] = [];
 
-    if (origin.name === destination.name) {
-      applyJourneyPlan(
-        [origin],
-        "You're already at your destination.",
-        buildJourneyDisplay(
-          [origin],
-          "You're already at your destination.",
-          [
-            {
-              mode: "walk",
-              title: "You have arrived",
-              from: origin.name,
-              to: destination.name,
-              detail: "No travel needed",
-              badge: "Stay put",
-            },
-          ],
-          "Already there",
-          "Station access",
-        ),
-      );
-      return;
-    }
+      if (path.edgeLines.length > 0) {
+        let segmentStartIndex = 0;
+        let activeLine = path.edgeLines[0] ?? "";
 
-    const lines = [
-      { name: "Frankston", stations: LINES.frankston },
-      { name: "Cranbourne", stations: LINES.cranbourne },
-      { name: "Pakenham", stations: LINES.pakenham },
-      { name: "Sunbury", stations: LINES.sunbury },
-      { name: "Metro Tunnel", stations: LINES.metroTunnel },
-      { name: "Sandringham", stations: LINES.sandringham },
-    ];
+        for (let index = 1; index <= path.edgeLines.length; index += 1) {
+          const lineAtIndex = path.edgeLines[index];
+          if (lineAtIndex === activeLine) continue;
 
-    const originLines = lines.filter((line) => line.stations.some((station) => station.name === origin.name));
-    const destinationLines = lines.filter((line) => line.stations.some((station) => station.name === destination.name));
-    const commonLine = originLines.find((originLine) =>
-      destinationLines.some((destinationLine) => destinationLine.name === originLine.name),
-    );
+          const from = path.stationNames[segmentStartIndex] ?? resolvedOrigin.name;
+          const to = path.stationNames[index] ?? destination.name;
+          const stopCount = Math.max(index - segmentStartIndex, 0);
+          trainLegs.push({
+            mode: "train",
+            title: `${activeLine} line`,
+            from,
+            to,
+            detail: `${stopCount} stop${stopCount === 1 ? "" : "s"}${index < path.stationNames.length - 1 ? " before changing" : ""}`,
+            badge: "Train",
+          });
 
-    if (commonLine) {
-      const segment = getLineSegment(commonLine.stations, origin.name, destination.name);
-      applyJourneyPlan(
-        segment,
-        `Direct journey via the ${commonLine.name} line (${segment.length} stops).`,
-        buildJourneyDisplay(
-          segment,
-          `Direct journey via the ${commonLine.name} line.`,
-          [
-            {
-              mode: "train",
-              title: `${commonLine.name} line`,
-              from: origin.name,
-              to: destination.name,
-              detail: `${Math.max(segment.length - 1, 0)} stops direct`,
-              badge: "Train",
-            },
-          ],
-          "Stops all stations",
-        ),
-      );
-      return;
-    }
-
-    const transferStations = ["South Yarra", "Flinders Street", "Southern Cross"];
-    let bestRoute: Station[] = [];
-    let bestSummary = "No direct connection available.";
-    let bestDisplay: JourneyDisplay | null = null;
-
-    for (const transfer of transferStations) {
-      const originLine = originLines.find((line) => line.stations.some((station) => station.name === transfer));
-      const destinationLine = destinationLines.find((line) => line.stations.some((station) => station.name === transfer));
-      if (!originLine || !destinationLine) continue;
-
-      const firstLeg = getLineSegment(originLine.stations, origin.name, transfer);
-      const secondLeg = getLineSegment(destinationLine.stations, transfer, destination.name).slice(1);
-      const route = [...firstLeg, ...secondLeg];
-      const legs: JourneyLeg[] = [
-        {
-          mode: "train",
-          title: `${originLine.name} line`,
-          from: origin.name,
-          to: transfer,
-          detail: `${Math.max(firstLeg.length - 1, 0)} stops to interchange`,
-          badge: "Train",
-        },
-        {
-          mode: "train",
-          title: `${destinationLine.name} line`,
-          from: transfer,
-          to: destination.name,
-          detail: `${Math.max(secondLeg.length, 0)} stops after changing`,
-          badge: "Train",
-        },
-      ];
-      if (!bestRoute.length || route.length < bestRoute.length) {
-        bestRoute = route;
-        bestSummary = `Change at ${transfer} from ${originLine.name} line to ${destinationLine.name} line (${route.length} stops).`;
-        bestDisplay = buildJourneyDisplay(
-          route,
-          `Change at ${transfer} from ${originLine.name} line to ${destinationLine.name} line.`,
-          legs,
-          `Change at ${transfer}`,
-        );
+          segmentStartIndex = index;
+          activeLine = lineAtIndex ?? "";
+        }
       }
-    }
+      
 
-    if (bestRoute.length) {
-      applyJourneyPlan(bestRoute, bestSummary, bestDisplay ?? undefined);
-      return;
-    }
+      const journeyLegs = [...(accessLeg ? [accessLeg] : []), ...trainLegs];
+      const changeStations = trainLegs
+        .slice(0, -1)
+        .map((leg) => leg.to)
+        .filter(Boolean);
+      const summary =
+        trainLegs.length <= 1
+          ? `Direct journey via the ${trainLegs[0]?.title ?? "rail network"} (${Math.max(routeStations.length - 1, 0)} stops).`
+          : `Stay on board, then change at ${changeStations.join(", ")} to finish the trip to ${destination.name}.`;
+      const pattern =
+        trainLegs.length <= 1
+          ? trainLegs[0]?.title ?? "Direct service"
+          : `Change at ${changeStations.join(" + ")}`;
 
-    applyJourneyPlan(
-      [origin, destination],
-      "Fallback route: start and end markers shown, with no route connection found.",
-      buildJourneyDisplay(
-        [origin, destination],
-        "Fallback route: start and end markers shown, with no route connection found.",
-        [
-          {
-            mode: "walk",
-            title: "Manual transfer",
-            from: origin.name,
-            to: destination.name,
-            detail: "No clean line match found yet",
-            badge: "Fallback",
-          },
-        ],
-        "Check services manually",
-        "Fallback route",
-      ),
-    );
+      applyJourneyPlan(
+        routeStations,
+        summary,
+        buildJourneyDisplay(
+          routeStations,
+          summary,
+          journeyLegs,
+          pattern,
+          accessLeg ? "Multi-stage journey" : "Rail journey",
+        ),
+      );
+    } catch (error) {
+      console.error("Journey planning failed", error);
+      setJourneyPlannerMessage("Journey planning hit a problem. Your inputs were kept, so please try again.");
+      applyJourneyPlan([], "Journey planning hit a problem before the route could be drawn.");
+    }
   };
 
   const loadStationDraft = (stationName: string) => {
@@ -1079,6 +1429,27 @@ export default function Home() {
       `Draft saved for ${adminSelectedStation}: ${adminLat}, ${adminLng} on ${adminSelectedLine}. Persist this next.`,
     );
   };
+
+  const updateAdminAccountDraft = useCallback(
+    (
+      accountId: string,
+      field: "role" | "isAdmin" | "isPremium",
+      value: string | boolean,
+    ) => {
+      setAdminAccountDrafts((current) => ({
+        ...current,
+        [accountId]: {
+          role: current[accountId]?.role ?? "Traveller",
+          isAdmin: current[accountId]?.isAdmin ?? false,
+          isPremium: current[accountId]?.isPremium ?? false,
+          ...(field === "role" ? { role: String(value) } : {}),
+          ...(field === "isAdmin" ? { isAdmin: Boolean(value) } : {}),
+          ...(field === "isPremium" ? { isPremium: Boolean(value) } : {}),
+        },
+      }));
+    },
+    [],
+  );
 
 
   const updatePreferences = useCallback(
@@ -1158,8 +1529,16 @@ export default function Home() {
 
   const isPlannerFilterActive = (filter: ServiceFilterKey) => {
     switch (filter) {
-      case "vline":
-        return (preferences.transportModes as TransportMode[]).includes("vline");
+      case "geelongRegionalGroup":
+        return (preferences.transportModes as TransportMode[]).includes("vline") && Boolean(layerState.geelongRegional);
+      case "ballaratRegionalGroup":
+        return (preferences.transportModes as TransportMode[]).includes("vline") && Boolean(layerState.ballaratRegional);
+      case "bendigoRegionalGroup":
+        return (preferences.transportModes as TransportMode[]).includes("vline") && Boolean(layerState.bendigoRegional);
+      case "seymourRegionalGroup":
+        return (preferences.transportModes as TransportMode[]).includes("vline") && Boolean(layerState.seymourRegional);
+      case "traralgonRegionalGroup":
+        return (preferences.transportModes as TransportMode[]).includes("vline") && Boolean(layerState.traralgonRegional);
       case "metroTunnelServices":
         return Boolean(layerState.metroTunnel || layerState.sunburyLine || layerState.cranbourneLine || layerState.pakenhamLine);
       case "crossCityPink":
@@ -1193,14 +1572,33 @@ export default function Home() {
   }, [preferences.transportModes, updatePreferences]);
 
   const togglePlannerServiceFilter = useCallback((filter: ServiceFilterKey) => {
-    if (filter === "vline") {
-      togglePlannerTransportMode("vline");
-      return;
-    }
     const prev = layerState;
     let next: Partial<LayerState> = { ...prev };
+    const currentModes = (preferences.transportModes as TransportMode[]) || [...DEFAULT_TRANSPORT_MODES];
+    const shouldForceShowRegional = !currentModes.includes("vline") && (
+      filter === "geelongRegionalGroup" ||
+      filter === "ballaratRegionalGroup" ||
+      filter === "bendigoRegionalGroup" ||
+      filter === "seymourRegionalGroup" ||
+      filter === "traralgonRegionalGroup"
+    );
 
     switch (filter) {
+      case "geelongRegionalGroup":
+        next = { ...prev, geelongRegional: shouldForceShowRegional ? true : !Boolean(prev.geelongRegional) };
+        break;
+      case "ballaratRegionalGroup":
+        next = { ...prev, ballaratRegional: shouldForceShowRegional ? true : !Boolean(prev.ballaratRegional) };
+        break;
+      case "bendigoRegionalGroup":
+        next = { ...prev, bendigoRegional: shouldForceShowRegional ? true : !Boolean(prev.bendigoRegional) };
+        break;
+      case "seymourRegionalGroup":
+        next = { ...prev, seymourRegional: shouldForceShowRegional ? true : !Boolean(prev.seymourRegional) };
+        break;
+      case "traralgonRegionalGroup":
+        next = { ...prev, traralgonRegional: shouldForceShowRegional ? true : !Boolean(prev.traralgonRegional) };
+        break;
       case "metroTunnelServices": {
         const nextValue = !Boolean(prev.metroTunnel);
         next = {
@@ -1279,8 +1677,13 @@ export default function Home() {
         break;
     }
 
-    updatePreferences({ selectedMapFilters: next as Record<string, boolean> });
-  }, [layerState, togglePlannerTransportMode, updatePreferences]);
+    updatePreferences({
+      selectedMapFilters: next as Record<string, boolean>,
+      ...(shouldForceShowRegional
+        ? { transportModes: [...currentModes, "vline"] }
+        : {}),
+    });
+  }, [layerState, preferences.transportModes, updatePreferences]);
 
   const toggleFavouriteStop = (stationName: string) => {
     const exists = preferences.favouriteStops.includes(stationName);
@@ -1290,6 +1693,25 @@ export default function Home() {
         : [...preferences.favouriteStops, stationName],
     });
   };
+
+  const toggleFavouriteConsist = useCallback(
+    (consist: string) => {
+      const normalized = consist.trim();
+      if (!normalized) return;
+
+      const nextFavouriteConsists = favouriteConsists.includes(normalized)
+        ? favouriteConsists.filter((item) => item !== normalized)
+        : [...favouriteConsists, normalized];
+
+      updatePreferences({
+        appPreferences: {
+          ...preferences.appPreferences,
+          favouriteConsists: nextFavouriteConsists,
+        },
+      });
+    },
+    [favouriteConsists, preferences.appPreferences, updatePreferences],
+  );
 
   const utilitySheetCopy = useMemo(() => {
     if (activeTab === "fleets") {
@@ -1357,15 +1779,15 @@ export default function Home() {
   return (
     <main className="relative h-[100dvh] w-full overflow-hidden bg-background">
         <TopBar
-          onOpenVersion={() => setIsVersionOpen(true)}
+          onOpenVersion={() => {
+            setIsVersionFirstOpen(false);
+            setIsVersionOpen(true);
+          }}
           onOpenAlerts={() => setLocation("/alerts/today")}
           onOpenUserMenu={() => {
-          if (isGuest) {
-            setLocation("/login");
-            return;
-          }
-          setIsUserMenuOpen((value) => !value);
-        }}
+            setUserMenuMessage("");
+            setIsUserMenuOpen((value) => !value);
+          }}
         user={authSession?.user ?? null}
       />
 
@@ -1388,10 +1810,40 @@ export default function Home() {
           />
           <div className="absolute left-3 right-3 top-[6.2rem] z-[59] w-auto max-w-[19rem] rounded-[1.6rem] border border-white/10 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-2xl sm:left-6 sm:right-auto sm:top-24 sm:w-[280px] sm:max-w-none">
             <div className="rounded-[1.25rem] border border-white/10 bg-white/5 p-3">
-              <p className="text-sm font-semibold text-white">{authSession.user?.username}</p>
-              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">{authSession.user?.role}</p>
+              <p className="text-sm font-semibold text-white">{authSession?.user?.username ?? "Account"}</p>
+              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">{authSession?.user?.role ?? "Session"}</p>
             </div>
             <div className="mt-3 flex flex-col gap-2">
+              {isGuest ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      setUserMenuMessage("");
+                      setLocation("/login");
+                    }}
+                    className="rounded-2xl border border-blue-400/20 bg-blue-500/10 px-4 py-3 text-left text-sm font-semibold text-blue-100 transition hover:bg-blue-500/15"
+                  >
+                    Log in
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      setUserMenuMessage("");
+                      setLocation("/register");
+                    }}
+                    className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-left text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/15"
+                  >
+                    Create account
+                  </button>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs leading-relaxed text-white/65">
+                    Guest mode hides live vehicles and premium account tools. Log in or register to unlock the full app.
+                  </div>
+                </>
+              ) : (
+                <>
               <button
                 type="button"
                 onClick={() => {
@@ -1424,6 +1876,8 @@ export default function Home() {
               >
                 {signOutMutation.isPending ? "Signing out..." : "Log out"}
               </button>
+                </>
+              )}
             </div>
             {userMenuMessage && (
               <p className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs text-white/65">
@@ -1457,7 +1911,7 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="grid gap-5 p-5 lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="grid max-h-[75vh] gap-5 overflow-y-auto p-5 lg:grid-cols-[1.05fr_0.95fr]">
               <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-4">
                 <p className="text-lg font-semibold text-white">Stops Near</p>
                 <p className="mt-1 text-sm text-white/60">Quick-start stations for testing departures and route planning.</p>
@@ -1593,9 +2047,15 @@ export default function Home() {
         persistedLayerState={preferences.selectedMapFilters}
         onLayerStateChange={(selectedMapFilters) => updatePreferences({ selectedMapFilters: selectedMapFilters as Record<string, boolean> })}
         isAdmin={isAdmin}
+        isGuest={isGuest}
+        isPremium={isPremium}
+        premiumPaypalLink={premiumPaypalLink}
+        favouriteConsists={favouriteConsists}
+        onToggleFavouriteConsist={toggleFavouriteConsist}
         showFilterRail={false}
         focusedVehicleKey={focusedVehicleKey}
         onFocusedVehicleHandled={() => setFocusedVehicleKey(null)}
+        debugLineKey={adminDebugLineKey}
       />
 
       {activeTab === "map" && <RiskyRoutes />}
@@ -1604,10 +2064,10 @@ export default function Home() {
         <div className="absolute inset-x-0 bottom-0 z-40 pointer-events-none">
           <div className="mx-auto w-full max-w-3xl px-3 pb-3 pointer-events-none sm:px-4 sm:pb-4">
             <PlannerSheet isOpen={isPlannerOpen} onToggle={() => setIsPlannerOpen((value) => !value)}>
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 <div className="px-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/80">Journey Planner</p>
-                  <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl">
+                  <h2 className="mt-1.5 text-lg font-semibold text-white sm:text-[1.6rem]">
                     Route across the network without losing the map.
                   </h2>
                   <p className="mt-1 text-sm text-white/60">
@@ -1646,7 +2106,7 @@ export default function Home() {
                   </label>
                 </div>
 
-                <div className="rounded-[1.9rem] border border-white/10 bg-[#0f1730]/92 p-4 shadow-2xl">
+                <div className="rounded-[1.7rem] border border-white/10 bg-[#0f1730]/92 p-3.5 shadow-2xl">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">Service filters</p>
 
                   <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1662,7 +2122,7 @@ export default function Home() {
                       ))}
                   </div>
 
-                  <div className="mt-4 flex flex-wrap gap-3">
+                  <div className="mt-3.5 flex flex-wrap gap-2.5">
                     {([
                       { key: "train", icon: "Train", activeClass: "border-blue-400/40 bg-blue-500 text-white shadow-lg shadow-blue-950/40" },
                       { key: "tram", icon: tramButtonIcon, activeClass: "border-[#78BE20]/50 bg-[#78BE20] text-white shadow-lg shadow-[#78BE20]/25", isImage: true },
@@ -1675,7 +2135,7 @@ export default function Home() {
                           key={mode.key}
                           type="button"
                           onClick={() => togglePlannerTransportMode(mode.key)}
-                          className={`flex h-14 w-14 items-center justify-center rounded-full border text-[11px] font-bold transition ${
+                          className={`flex h-12 w-12 items-center justify-center rounded-full border text-[10px] font-bold transition sm:h-[3.25rem] sm:w-[3.25rem] ${
                             active
                               ? mode.activeClass
                               : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
@@ -1683,7 +2143,13 @@ export default function Home() {
                           aria-label={mode.key}
                         >
                           {mode.isImage ? (
-                            <img src={mode.icon} alt="" className="h-10 w-10 rounded-full object-contain" />
+                            <img
+                              src={mode.icon}
+                              alt=""
+                              className={`h-8 w-8 rounded-full object-contain transition sm:h-9 sm:w-9 ${
+                                active ? "" : "grayscale brightness-75 opacity-60"
+                              }`}
+                            />
                           ) : (
                             mode.icon
                           )}
@@ -1705,63 +2171,11 @@ export default function Home() {
                   )}
                 </div>
 
-                <div className="rounded-[1.9rem] border border-emerald-400/20 bg-emerald-500/8 p-4 shadow-2xl">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-200/85">Live trains now</p>
-                      <h3 className="mt-2 text-lg font-semibold text-white">
-                        {liveFleetTrips.length > 0
-                          ? `${liveFleetTrips.length} live train${liveFleetTrips.length === 1 ? "" : "s"} on the map`
-                          : "No live trains returned right now"}
-                      </h3>
-                      <p className="mt-1 text-sm text-white/65">
-                        Press any service below to jump to its live marker and trip details.
-                      </p>
-                    </div>
-                    <span className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">
-                      Live tracker
-                    </span>
+                {journeyPlannerMessage && (
+                  <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    {journeyPlannerMessage}
                   </div>
-
-                  {liveFleetTrips.length > 0 ? (
-                    <div className="mt-4 grid gap-2">
-                      {liveFleetTrips.slice(0, 6).map((trip) => (
-                        <button
-                          key={`map-live-${trip.id}`}
-                          type="button"
-                          onClick={() => openLiveTrainOnMap(trip)}
-                          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-left transition hover:border-emerald-300/30 hover:bg-white/10"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
-                                TDN / Trip {trip.tripNumber}
-                              </span>
-                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${trip.lineColor}`}>
-                                {trip.line}
-                              </span>
-                            </div>
-                            <p className="mt-2 truncate text-sm font-semibold text-white">{trip.route}</p>
-                            <p className="mt-1 text-xs text-white/55">{trip.statusLabel}</p>
-                          </div>
-                          <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/80">
-                            Track
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-slate-950/55 px-4 py-5 text-sm text-white/60">
-                      The live train overlay is still enabled, but the feed did not return active services on this refresh.
-                    </div>
-                  )}
-                </div>
-
-                <datalist id="station-options">
-                  {stationOptions.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
+                )}
 
                 <button
                   onClick={computeJourneyRoute}
@@ -1770,6 +2184,12 @@ export default function Home() {
                   Plan route
                 </button>
 
+                <datalist id="station-options">
+                  {stationOptions.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+
                 <div className="rounded-[1.75rem] border border-white/10 bg-slate-900/85 p-4 text-sm text-white/75">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -1777,8 +2197,11 @@ export default function Home() {
                         {journeyRoute.length > 0 ? "Journey board" : "Ready when you are"}
                       </p>
                       <p className="mt-1 text-sm">{journeySummary}</p>
+                      {journeyStartedAt && (
+                        <p className="mt-1 text-xs text-white/45">Started {formatJourneyStarted(journeyStartedAt)}</p>
+                      )}
                     </div>
-                    {journeyDisplay && journeyRoute.length > 0 && (
+                    {journeyDisplay && journeyDisplay.legs.length > 0 && journeyRoute.length > 0 && (
                       <div className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200">
                         {journeyDisplay.stopCountLabel}
                       </div>
@@ -1794,7 +2217,37 @@ export default function Home() {
                     </div>
                   )}
 
-                  {journeyDisplay && journeyRoute.length > 0 && (
+                  {attachedJourneyServiceLabel && (
+                    <div className="mt-3 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-3 py-2.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200/85">
+                        Attached service
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm text-cyan-50/95">{attachedJourneyServiceLabel}</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => attachedJourneyServiceKey && setFocusedVehicleKey(attachedJourneyServiceKey)}
+                            className="rounded-full border border-cyan-300/25 bg-cyan-500/15 px-3 py-1 text-xs font-semibold text-cyan-100"
+                          >
+                            Track service
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAttachedJourneyServiceKey(null);
+                              setAttachedJourneyServiceLabel(null);
+                            }}
+                            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white/75"
+                          >
+                            Detach
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {journeyDisplay && journeyDisplay.legs.length > 0 && journeyRoute.length > 0 && (
                     <div className="mt-4 space-y-4">
                       <div className="rounded-[1.7rem] border border-white/10 bg-white/5 p-5">
                         <div className="grid gap-4 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
@@ -1854,6 +2307,18 @@ export default function Home() {
                       </div>
                     </div>
                   )}
+
+                  {journeyRoute.length > 0 && (
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={finishJourney}
+                        className="rounded-full border border-red-400/20 bg-red-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-red-100 transition hover:bg-red-500/15"
+                      >
+                        Finish journey
+                      </button>
+                    </div>
+                  )}
                 </div>
 
               </div>
@@ -1862,7 +2327,7 @@ export default function Home() {
         </div>
       )}
 
-      <VersionModal isOpen={isVersionOpen} onClose={() => setIsVersionOpen(false)} />
+      <VersionModal isOpen={isVersionOpen} onClose={handleCloseVersionModal} showWelcome={isVersionFirstOpen} />
 
       {activeTab !== "map" && (
         <div className="absolute inset-x-0 bottom-0 z-40 pointer-events-none">
@@ -1885,7 +2350,7 @@ export default function Home() {
                       <p className="mt-2 text-sm text-white/60">
                         {selectedFleetConfig
                           ? `Showing live tracked ${selectedFleetConfig.label} services from the current train feed.`
-                          : "Choose a fleet type to load live services from the current feed."}
+                          : "Showing all live tracked train services from the current feed. Tap a fleet type to narrow the list."}
                       </p>
                     </div>
 
@@ -1908,7 +2373,7 @@ export default function Home() {
                       { label: "Live Trips", value: fleetStats.liveTrips },
                       { label: "Running Now", value: fleetStats.runningNow },
                       { label: "Upcoming Soon", value: fleetStats.upcomingSoon },
-                      { label: "Selected Type", value: selectedFleetConfig?.label ?? "None" },
+                      { label: "Selected Type", value: selectedFleetConfig?.label ?? "All fleets" },
                     ].map((item) => (
                       <div key={item.label} className="rounded-[1.35rem] border border-white/10 bg-black/20 px-5 py-4">
                         <div className="flex items-center justify-between gap-3">
@@ -1940,10 +2405,9 @@ export default function Home() {
                     })}
                   </div>
 
-                  {selectedFleetConfig ? (
-                    fleetTripsForSelection.length > 0 ? (
+                  {fleetTripsToDisplay.length > 0 ? (
                     <div className="space-y-3">
-                      {fleetTripsForSelection.map((trip, index) => (
+                      {fleetTripsToDisplay.map((trip, index) => (
                         <article
                           key={`${trip.fleet}-${trip.tdn}-${trip.id}`}
                           className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-black/25 shadow-lg"
@@ -1963,7 +2427,7 @@ export default function Home() {
                                   </span>
                                   <span className="inline-flex items-center gap-2 rounded-full bg-blue-950/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-300">
                                     <TrainFront className="h-3.5 w-3.5" />
-                                    {selectedFleetConfig.label}
+                                    {selectedFleetConfig?.label ?? FLEET_TYPES.find((fleet) => fleet.key === trip.fleet)?.label ?? trip.fleet}
                                   </span>
                                 </div>
                                 <p className="mt-3 text-xl font-semibold tracking-tight text-white">{trip.route}</p>
@@ -1991,17 +2455,16 @@ export default function Home() {
                       ))}
 
                       <p className="pt-1 text-sm text-white/60">
-                        Showing {fleetTripsForSelection.length} live trips for {selectedFleetConfig.label}.
+                        {selectedFleetConfig
+                          ? `Showing ${fleetTripsToDisplay.length} live trips for ${selectedFleetConfig.label}.`
+                          : `Showing all ${fleetTripsToDisplay.length} live trips from the current feed.`}
                       </p>
                     </div>
-                    ) : (
-                      <div className="rounded-[1.6rem] border border-dashed border-white/15 bg-black/15 px-6 py-12 text-center text-white/60">
-                        No live {selectedFleetConfig.label} services are in the current feed right now.
-                      </div>
-                    )
                   ) : (
                     <div className="rounded-[1.8rem] border border-dashed border-white/15 bg-black/15 px-6 py-16 text-center text-lg text-white/55">
-                      Choose a fleet type above to load live services from the current feed.
+                      {selectedFleetConfig
+                        ? `No live ${selectedFleetConfig.label} services are in the current feed right now.`
+                        : "No live train services are in the current feed right now."}
                     </div>
                   )}
                 </div>
@@ -2032,7 +2495,135 @@ export default function Home() {
                     </button>
                   </div>
                 ) : (
-                  <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                  <div className="space-y-4">
+                    <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                      <div className="rounded-[1.8rem] border border-white/10 bg-white/5 p-5">
+                        <p className="text-sm font-semibold text-white">Account Management</p>
+                        <p className="mt-1 text-xs text-white/60">
+                          Review registered accounts, adjust role/access, and manually control premium while registration stays tester-only.
+                        </p>
+                        <div className="mt-4 space-y-3">
+                          {adminAccounts.length > 0 ? (
+                            adminAccounts.map((account) => {
+                              const draft = adminAccountDrafts[account.id] ?? {
+                                role: account.role,
+                                isAdmin: account.isAdmin,
+                                isPremium: account.isPremium,
+                              };
+                              return (
+                                <div key={account.id} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-sm font-semibold text-white">{account.username}</p>
+                                      <p className="mt-1 text-xs text-white/55">{account.email || "No email saved"}</p>
+                                      <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-white/40">
+                                        Created {account.createdAt ? new Date(account.createdAt).toLocaleString() : "from fallback config"}
+                                      </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/75">
+                                        {account.role}
+                                      </span>
+                                      {account.isAdmin ? (
+                                        <span className="rounded-full border border-blue-400/30 bg-blue-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-200">
+                                          Admin
+                                        </span>
+                                      ) : null}
+                                      {account.isPremium ? (
+                                        <span className="rounded-full border border-amber-400/30 bg-amber-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                                          Premium
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                                    <label className="block sm:col-span-2">
+                                      <span className="mb-1 block text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">Role</span>
+                                      <select
+                                        value={draft.role}
+                                        onChange={(event) => updateAdminAccountDraft(account.id, "role", event.target.value)}
+                                        className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none"
+                                      >
+                                        {ACCOUNT_ROLE_OPTIONS.map((role) => (
+                                          <option key={role} value={role}>
+                                            {role}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white">
+                                      <input
+                                        type="checkbox"
+                                        checked={draft.isAdmin}
+                                        onChange={(event) => updateAdminAccountDraft(account.id, "isAdmin", event.target.checked)}
+                                        className="h-4 w-4 rounded border-white/20 bg-slate-950"
+                                      />
+                                      Admin access
+                                    </label>
+                                    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white">
+                                      <input
+                                        type="checkbox"
+                                        checked={draft.isPremium}
+                                        onChange={(event) => updateAdminAccountDraft(account.id, "isPremium", event.target.checked)}
+                                        className="h-4 w-4 rounded border-white/20 bg-slate-950"
+                                      />
+                                      Premium tools
+                                    </label>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      adminAccountMutation.mutate({
+                                        accountId: account.id,
+                                        patch: draft,
+                                      })
+                                    }
+                                    className="mt-4 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                                    disabled={adminAccountMutation.isPending}
+                                  >
+                                    {adminAccountMutation.isPending ? "Saving account..." : "Save account access"}
+                                  </button>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/50 px-4 py-8 text-center text-sm text-white/55">
+                              No accounts were returned from the current auth source yet.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[1.8rem] border border-white/10 bg-white/5 p-5">
+                        <p className="text-sm font-semibold text-white">How registration works right now</p>
+                        <div className="mt-4 space-y-3 text-sm text-white/70">
+                          <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-white/45">Sign-up gate</p>
+                            <p className="mt-2 text-white">
+                              Registration is currently limited to approved debug testers from the Netlify env var <span className="font-semibold text-blue-200">APPROVED_DEBUG_TESTERS</span>.
+                              Version 1.0 is where normal public traveller sign-up is meant to open.
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-white/45">Stored data</p>
+                            <p className="mt-2 text-white">
+                              We store username, email, password hash, role, admin flag, timestamps, plus preferences like favourites, transport filters, premium access, and saved map behaviour.
+                            </p>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-white/45">Login + live APIs</p>
+                            <p className="mt-2 text-white">
+                              Login creates a signed session cookie. Guests can browse the base map and planner, but live train, tram, bus, and consist feeds stay hidden until a real account signs in.
+                              Premium access is controlled from this admin screen and unlocks things like consist favourites and consist-based search.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                     <div className="rounded-[1.8rem] border border-white/10 bg-white/5 p-5">
                       <p className="text-sm font-semibold text-white">Station Position Editor</p>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -2114,6 +2705,30 @@ export default function Home() {
                         >
                           {splitCrossCityGroup ? "Change back to combined Bayside filter" : "Split Sandringham and Werribee / Williamstown"}
                         </button>
+                      </div>
+
+                      <div className="mt-4 rounded-[1.4rem] border border-white/10 bg-slate-950/60 p-4">
+                        <p className="text-sm font-semibold text-white">Map Debug Overlay</p>
+                        <p className="mt-1 text-xs text-white/60">
+                          Pick one line or loop to show admin debug markers on the live map.
+                        </p>
+                        <label className="mt-3 block">
+                          <span className="mb-1 block text-xs font-medium text-white/60">Debug line</span>
+                          <select
+                            value={adminDebugLineKey}
+                            onChange={(event) => setAdminDebugLineKey(event.target.value as AdminDebugLineKey)}
+                            className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none"
+                          >
+                            {ADMIN_DEBUG_LINE_OPTIONS.map((option) => (
+                              <option key={option.key} value={option.key}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <p className="mt-3 text-xs text-white/55">
+                          For Glen Waverley and Mount Waverley edits in VS Code, use <span className="font-semibold text-white">GLEN_WAVERLEY_STATIONS</span> for stop locations and <span className="font-semibold text-white">GLEN_WAVERLEY_TRACK_POINTS</span> in <span className="font-semibold text-white">src/components/Map.tsx</span> for the drawn route shape between them.
+                        </p>
                       </div>
 
                       <div className="mt-4 rounded-[1.4rem] border border-white/10 bg-slate-950/60 p-4">
@@ -2206,6 +2821,7 @@ export default function Home() {
                         {adminMessage && <p className="text-sm text-blue-200">{adminMessage}</p>}
                       </div>
                     </div>
+                  </div>
                   </div>
                 )}
               </div>

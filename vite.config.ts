@@ -23,7 +23,20 @@ const PTV_FEEDS = [
     trainType: "V/Line Train",
   },
 ] as const;
+const PTV_TRAM_BASE_URL =
+  "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/tram";
+const PTV_BUS_BASE_URL =
+  "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/bus";
+const NSW_TRAINS_VEHICLE_POSITIONS_URL = "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/nswtrains";
+const NSW_SOUTHEASTERN_BOUNDS = {
+  minLat: -39.8,
+  maxLat: -32.0,
+  minLng: 140.0,
+  maxLng: 152.5,
+} as const;
 const TRANSPORTVIC_BASE_URL = "https://transportvic.me";
+const METRO_HEALTHBOARD_URL = "https://www.metrotrains.com.au/api?op=get_healthboard_alerts";
+const METRO_SERVICE_URL = "https://www.metrotrains.com.au/service/";
 
 const ROLE_OPTIONS = [
   "Admin",
@@ -652,6 +665,296 @@ function buildTransportVicMetroAlerts() {
   );
 }
 
+const metroAlertTypeLabels: Record<string, string> = {
+  service: "Service Change",
+  minor: "Minor Delay",
+  major: "Major Delay",
+  suspended: "Suspended",
+  works: "Works Alert",
+  travel: "Travel Alert",
+  cancellation: "Cancellation",
+  "good-service": "Good Service",
+};
+
+const metroWorkStatusMap: Record<string, string> = {
+  "bus-replacement": "planned works",
+  "night-works": "planned works",
+  "service-changes": "service change",
+  "station-car-park-works": "station access",
+  "station-closure": "station access",
+};
+
+function decodeMetroHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function stripMetroHtml(value: unknown) {
+  return decodeMetroHtmlEntities(String(value ?? ""))
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function metroUnixToIso(value: unknown) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return undefined;
+  }
+  return new Date(seconds * 1000).toISOString();
+}
+
+function formatMetroLineName(lineName: unknown) {
+  const cleaned = String(lineName ?? "").trim();
+  if (!cleaned) return "Metro";
+  if (/all lines|station|loop|corridor|line$/i.test(cleaned)) {
+    return cleaned;
+  }
+  return `${cleaned} Line`;
+}
+
+function sentenceCase(value: unknown) {
+  const cleaned = String(value ?? "").trim();
+  if (!cleaned) return "";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+function formatMetroClock(date: Date) {
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Melbourne",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  })
+    .format(date)
+    .replace(/\s/g, "")
+    .toLowerCase();
+}
+
+function formatMetroDay(date: Date) {
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Melbourne",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(date);
+}
+
+function buildMetroRouteLabel(stations: unknown) {
+  const cleanedStations = Array.isArray(stations)
+    ? stations.filter((station): station is string => typeof station === "string" && station.trim().length > 0)
+    : [];
+
+  if (cleanedStations.length >= 2) {
+    return `${cleanedStations[0]} -> ${cleanedStations[cleanedStations.length - 1]}`;
+  }
+
+  if (cleanedStations.length === 1) {
+    return `${cleanedStations[0]} area`;
+  }
+
+  return null;
+}
+
+function formatMetroPlannedWorksSummary(work: Record<string, unknown>) {
+  const start = Number(work.start_date);
+  const end = Number(work.end_date);
+  const startDate = Number.isFinite(start) && start > 0 ? new Date(start * 1000) : null;
+  const endDate = Number.isFinite(end) && end > 0 ? new Date(end * 1000) : null;
+  const routeLabel = buildMetroRouteLabel(work.affected_stations);
+
+  if (!startDate || !endDate) {
+    return routeLabel ? `Affecting ${routeLabel}.` : "Check Metro planned works details for timing information.";
+  }
+
+  const sameDay =
+    startDate.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne" }) ===
+    endDate.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne" });
+
+  const startClock = formatMetroClock(startDate);
+  const endClock = formatMetroClock(endDate);
+  const startDay = formatMetroDay(startDate);
+  const endDay = formatMetroDay(endDate);
+
+  let dateText = "";
+  if (sameDay) {
+    dateText = `${startClock} to ${endClock} ${startDay}`;
+  } else if (endClock === "11:59pm") {
+    dateText = `${startClock} ${startDay} to last service ${endDay}`;
+  } else {
+    dateText = `${startClock} ${startDay} to ${endClock} ${endDay}`;
+  }
+
+  return routeLabel ? `${dateText}. Affecting ${routeLabel}.` : `${dateText}.`;
+}
+
+function mergeMetroAlert(map: Map<string, Record<string, unknown>>, alert: Record<string, unknown>) {
+  const key = String(alert.id);
+  const existing = map.get(key);
+  if (!existing) {
+    map.set(key, alert);
+    return;
+  }
+
+  const existingLines = Array.isArray(existing.lines) ? existing.lines : [];
+  const nextLines = Array.isArray(alert.lines) ? alert.lines : [];
+
+  const existingUpdatedAt =
+    typeof existing.updatedAt === "string" && existing.updatedAt
+      ? new Date(existing.updatedAt).getTime()
+      : 0;
+  const nextUpdatedAt =
+    typeof alert.updatedAt === "string" && alert.updatedAt
+      ? new Date(alert.updatedAt).getTime()
+      : 0;
+
+  map.set(key, {
+    ...existing,
+    ...alert,
+    lines: [...new Set([...existingLines, ...nextLines])],
+    updatedAt: existingUpdatedAt >= nextUpdatedAt ? existing.updatedAt : alert.updatedAt,
+    summary:
+      String(existing.summary ?? "").length >= String(alert.summary ?? "").length
+        ? existing.summary
+        : alert.summary,
+    url: alert.url ?? existing.url,
+  });
+}
+
+function normaliseMetroHealthboardAlert(lineId: string, lineName: unknown, rawAlert: Record<string, unknown>) {
+  const summary = stripMetroHtml(rawAlert.alert_text);
+  if (!summary || /good service - trains are running on time/i.test(summary)) {
+    return null;
+  }
+
+  const type = String(rawAlert.alert_type ?? "").trim().toLowerCase();
+  const typeLabel = metroAlertTypeLabels[type] ?? "Service Alert";
+  const cause = sentenceCase(rawAlert.disruption_due_to);
+
+  return {
+    id: `metro-live-${String(rawAlert.alert_id ?? `${lineId}-${type}-${summary}`)}`,
+    title: type === "works" ? summary.split(/[.!?]/)[0]?.trim() || typeLabel : typeLabel,
+    summary,
+    lines: [formatMetroLineName(lineName)],
+    status: cause || typeLabel.toLowerCase(),
+    updatedAt: metroUnixToIso(rawAlert.modified ?? rawAlert.from_date),
+    url: METRO_SERVICE_URL,
+    source: "metro",
+  };
+}
+
+function normaliseMetroPlannedWork(lineName: unknown, work: Record<string, unknown>) {
+  const title = stripMetroHtml(work.title);
+  if (!title) {
+    return null;
+  }
+
+  return {
+    id: `metro-work-${String(work.id ?? title.toLowerCase().replace(/[^a-z0-9]+/g, "-"))}`,
+    title,
+    summary: formatMetroPlannedWorksSummary(work),
+    lines: [formatMetroLineName(lineName)],
+    status: metroWorkStatusMap[String(work.type ?? "").trim().toLowerCase()] ?? "planned works",
+    updatedAt: metroUnixToIso(work.modified ?? work.start_date),
+    url: typeof work.link === "string" && work.link.trim().length > 0 ? work.link.trim() : METRO_SERVICE_URL,
+    source: "metro",
+  };
+}
+
+function normaliseMetroOutage(stationOutage: Record<string, unknown>, outage: Record<string, unknown>, index: number) {
+  const stationName = stripMetroHtml(stationOutage.station);
+  const title = stripMetroHtml(outage.name || outage.title || `${stationName} access notice`);
+  const summary = stripMetroHtml(outage.description);
+  if (!title && !summary) {
+    return null;
+  }
+
+  return {
+    id: `metro-outage-${stationName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${index}`,
+    title: title || `${stationName} access notice`,
+    summary: summary || `${stationName} access changes are currently in place.`,
+    lines: ["All lines", stationName ? `${stationName} Station` : "Station access"],
+    status: "station access",
+    updatedAt: undefined,
+    url: METRO_SERVICE_URL,
+    source: "metro",
+  };
+}
+
+async function fetchMetroHealthboardAlerts() {
+  const response = await fetch(METRO_HEALTHBOARD_URL, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "TransitAlert Melbourne",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Metro healthboard request failed (${response.status})`);
+  }
+
+  const payload = (await response.json()) as Record<string, any>;
+  const alertsMap = new Map<string, Record<string, unknown>>();
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (!value || typeof value !== "object") {
+      continue;
+    }
+
+    if (["metadata", "disruptions", "lift_escalator_outages"].includes(key)) {
+      continue;
+    }
+
+    const lineName = value.line_name ?? key;
+
+    if (Array.isArray(value.alerts)) {
+      for (const rawAlert of value.alerts) {
+        const alert = normaliseMetroHealthboardAlert(key, lineName, rawAlert);
+        if (alert) {
+          mergeMetroAlert(alertsMap, alert);
+        }
+      }
+    }
+
+    if (Array.isArray(value.planned_works_list)) {
+      for (const work of value.planned_works_list) {
+        const alert = normaliseMetroPlannedWork(lineName, work);
+        if (alert) {
+          mergeMetroAlert(alertsMap, alert);
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(payload.lift_escalator_outages)) {
+    payload.lift_escalator_outages.forEach((stationOutage: Record<string, unknown>) => {
+      const outages = Array.isArray(stationOutage.outages) ? stationOutage.outages : [];
+      outages.forEach((outage: Record<string, unknown>, index: number) => {
+        const alert = normaliseMetroOutage(stationOutage, outage, index);
+        if (alert) {
+          mergeMetroAlert(alertsMap, alert);
+        }
+      });
+    });
+  }
+
+  return [...alertsMap.values()].sort((left, right) => {
+    const leftTime =
+      typeof left.updatedAt === "string" && left.updatedAt ? new Date(left.updatedAt).getTime() : 0;
+    const rightTime =
+      typeof right.updatedAt === "string" && right.updatedAt ? new Date(right.updatedAt).getTime() : 0;
+    return rightTime - leftTime;
+  });
+}
+
 function normalisePtvRouteId(routeId: string) {
   const code = routeId.match(/vic-0[12]-([A-Z0-9]+):/i)?.[1]?.toUpperCase() ?? routeId.toUpperCase();
   const routeMap: Record<string, string> = {
@@ -719,6 +1022,192 @@ function buildPtvLiveTrains(feed: Awaited<ReturnType<typeof fetchFeed>>, source:
         trainType: source.trainType,
         consist: vehicle.vehicle?.id || label,
         serviceDescription: destination,
+      };
+    })
+      .filter(Boolean);
+}
+
+function isWithinNswSoutheasternBounds(latitude: number, longitude: number) {
+  return (
+    latitude >= NSW_SOUTHEASTERN_BOUNDS.minLat &&
+    latitude <= NSW_SOUTHEASTERN_BOUNDS.maxLat &&
+    longitude >= NSW_SOUTHEASTERN_BOUNDS.minLng &&
+    longitude <= NSW_SOUTHEASTERN_BOUNDS.maxLng
+  );
+}
+
+function getFirstMeaningfulText(...values: Array<string | undefined>) {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    return trimmed;
+  }
+
+  return "";
+}
+
+function inferNswTrainLinkServiceLabel(...values: Array<string | undefined>) {
+  const joined = values.filter((value): value is string => Boolean(value?.trim())).join(" ").toLowerCase();
+  if (joined.includes("xpt")) return "NSW TrainLink XPT";
+  if (joined.includes("xplorer")) return "NSW TrainLink Xplorer";
+  return "NSW TrainLink";
+}
+
+function inferNswTrainLinkDestination(...values: Array<string | undefined>) {
+  const joined = values.filter((value): value is string => Boolean(value?.trim())).join(" ").toLowerCase();
+  const destinationMap = [
+    ["southern cross", "Southern Cross"],
+    ["sydney central", "Sydney Central"],
+    ["albury", "Albury"],
+    ["melbourne", "Melbourne"],
+    ["brisbane", "Brisbane"],
+    ["casino", "Casino"],
+    ["dubbo", "Dubbo"],
+    ["armidale", "Armidale"],
+    ["moree", "Moree"],
+    ["griffith", "Griffith"],
+    ["canberra", "Canberra"],
+    ["goulburn", "Goulburn"],
+  ] as const;
+
+  for (const [needle, label] of destinationMap) {
+    if (joined.includes(needle)) return label;
+  }
+
+  return inferNswTrainLinkServiceLabel(...values);
+}
+
+function buildNswLiveTrains(feed: Awaited<ReturnType<typeof fetchFeed>>) {
+  return (feed.entity ?? [])
+    .map((entity) => {
+      const vehicle = entity.vehicle;
+      const position = vehicle?.position;
+      if (!vehicle || !position) return null;
+
+      const latitude = position.latitude;
+      const longitude = position.longitude;
+      if (typeof latitude !== "number" || typeof longitude !== "number") return null;
+      if (!isWithinNswSoutheasternBounds(latitude, longitude)) return null;
+
+      const routeId = vehicle.trip?.routeId;
+      const tripId = vehicle.trip?.tripId;
+      const vehicleLabel = vehicle.vehicle?.label;
+      const vehicleId = vehicle.vehicle?.id;
+      const entityId = entity.id;
+      const serviceLabel = inferNswTrainLinkServiceLabel(routeId, tripId, vehicleLabel, vehicleId, entityId);
+      const destination = inferNswTrainLinkDestination(routeId, tripId, vehicleLabel, vehicleId, entityId);
+      const directionId = toNumber(vehicle.trip?.directionId);
+      const timestamp = toNumber(vehicle.timestamp);
+      const tdn = getFirstMeaningfulText(vehicleLabel, tripId, vehicleId, entityId, routeId, "XPT");
+
+      return {
+        tdn,
+        lat: latitude,
+        lng: longitude,
+        line: serviceLabel,
+        destination,
+        status: "on_time",
+        timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
+        direction: directionId === 0 ? "up" : directionId === 1 ? "down" : destination === "Southern Cross" ? "city-bound" : "outbound",
+        heading: typeof position.bearing === "number" ? position.bearing : undefined,
+        trainType: serviceLabel.includes("Xplorer") ? "NSW TrainLink Xplorer" : "NSW TrainLink XPT",
+        consist: vehicle.vehicle?.id || vehicle.vehicle?.label || tdn,
+        serviceDescription: [serviceLabel, destination].filter(Boolean).join(" · "),
+      };
+    })
+    .filter(Boolean);
+}
+
+function normaliseSurfaceRoute(routeId: string | undefined, fallback: string) {
+  if (typeof routeId !== "string") {
+    return fallback;
+  }
+
+  const trimmed = routeId.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  const ptvRouteIdMatch = trimmed.match(/^\d{2}-([A-Z]?\d{1,4}[A-Z]?)(?:-|$)/i);
+  if (ptvRouteIdMatch?.[1]) {
+    return ptvRouteIdMatch[1].toUpperCase();
+  }
+
+  const routeMatch = trimmed.match(/\b([A-Z]?\d{1,4}[A-Z]?)\b/i);
+  if (routeMatch) {
+    return routeMatch[1].toUpperCase();
+  }
+
+  return fallback;
+}
+
+function normaliseSurfaceLabel(values: Array<string | undefined>, fallback: string) {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    return trimmed;
+  }
+
+  return fallback;
+}
+
+function normaliseSurfaceDestination(...values: Array<string | undefined>) {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    if (/^aus:vic:vic-02-[A-Z0-9-]+:?$/i.test(trimmed) || /^vic-02-[A-Z0-9-]+:?$/i.test(trimmed)) {
+      continue;
+    }
+    return trimmed;
+  }
+
+  return undefined;
+}
+
+function buildPtvLiveSurfaceVehicles(
+  feed: Awaited<ReturnType<typeof fetchFeed>>,
+  options: { fallbackRoute: string; operator: string },
+) {
+  return (feed.entity ?? [])
+    .map((entity) => {
+      const vehicle = entity.vehicle;
+      const position = vehicle?.position;
+      if (!vehicle || !position) return null;
+
+      const latitude = position.latitude;
+      const longitude = position.longitude;
+      if (typeof latitude !== "number" || typeof longitude !== "number") return null;
+
+      const routeSource =
+        options.operator === "Yarra Trams"
+          ? vehicle.trip?.tripId || entity.id || vehicle.trip?.routeId
+          : vehicle.trip?.routeId || vehicle.trip?.tripId || entity.id;
+      const route = normaliseSurfaceRoute(routeSource, options.fallbackRoute);
+      const timestamp = toNumber(vehicle.timestamp);
+      const label = normaliseSurfaceLabel(
+        [vehicle.vehicle?.label, vehicle.vehicle?.licensePlate, route],
+        options.fallbackRoute,
+      );
+      const destination = normaliseSurfaceDestination(
+        vehicle.trip?.tripHeadsign,
+        vehicle.trip?.headsign,
+        vehicle.trip?.tripShortName,
+      );
+
+      return {
+        id: entity.id || vehicle.vehicle?.id || `${route}-${latitude}-${longitude}`,
+        label,
+        lat: latitude,
+        lng: longitude,
+        route,
+        destination,
+        status: "live",
+        timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
+        heading: typeof position.bearing === "number" ? position.bearing : undefined,
+        operator: options.operator,
       };
     })
     .filter(Boolean);
@@ -1023,6 +1512,12 @@ function ptvRealtimePlugin(runtimeConfig: RuntimeConfig): Plugin {
         if (req.url === "/api/ptv/live-trains") {
           const trackedTrains = await buildTransportVicLiveTrains(trackedConsists);
           let ptvTrains: Array<Record<string, unknown>> = [];
+          let nswTrains: Array<Record<string, unknown>> = [];
+          const nswTransportApiKey =
+            process.env.NSW_TRANSPORT_API_KEY ||
+            process.env.TRANSPORT_NSW_API_KEY ||
+            process.env.TFNSW_API_KEY ||
+            process.env.NSW_OPENDATA_API_KEY;
           if (ptvSubscriptionKey) {
             const responses = await Promise.allSettled(
               PTV_FEEDS.map(async (source) => {
@@ -1031,11 +1526,54 @@ function ptvRealtimePlugin(runtimeConfig: RuntimeConfig): Plugin {
               }),
             );
             ptvTrains = responses
-              .filter((result): result is PromiseFulfilledResult<Array<Record<string, unknown>>> => result.status === "fulfilled")
-              .flatMap((result) => result.value);
+                .filter((result): result is PromiseFulfilledResult<Array<Record<string, unknown>>> => result.status === "fulfilled")
+                .flatMap((result) => result.value);
           }
-          const trains = mergeLiveTrainLists(ptvTrains, trackedTrains);
+          if (nswTransportApiKey) {
+            const response = await fetch(NSW_TRAINS_VEHICLE_POSITIONS_URL, {
+              headers: {
+                Authorization: `apikey ${nswTransportApiKey}`,
+                Accept: "application/x-google-protobuf",
+              },
+            });
+            if (response.ok) {
+              const buffer = await response.arrayBuffer();
+              const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+              nswTrains = buildNswLiveTrains(feed);
+            }
+          }
+          const trains = mergeLiveTrainLists([...ptvTrains, ...nswTrains], trackedTrains);
           sendJson(res, 200, { trains });
+          return;
+        }
+
+        if (req.url === "/api/ptv/live-buses") {
+          if (!ptvSubscriptionKey) {
+            sendJson(res, 200, { buses: [] });
+            return;
+          }
+
+          const feed = await fetchFeed(PTV_BUS_BASE_URL, "/vehicle-positions", ptvSubscriptionKey);
+          const buses = buildPtvLiveSurfaceVehicles(feed, {
+            fallbackRoute: "Bus",
+            operator: "PTV Bus",
+          });
+          sendJson(res, 200, { buses });
+          return;
+        }
+
+        if (req.url === "/api/ptv/live-trams") {
+          if (!ptvSubscriptionKey) {
+            sendJson(res, 200, { trams: [] });
+            return;
+          }
+
+          const feed = await fetchFeed(PTV_TRAM_BASE_URL, "/vehicle-positions", ptvSubscriptionKey);
+          const trams = buildPtvLiveSurfaceVehicles(feed, {
+            fallbackRoute: "Tram",
+            operator: "Yarra Trams",
+          });
+          sendJson(res, 200, { trams });
           return;
         }
 
@@ -1098,14 +1636,8 @@ function ptvRealtimePlugin(runtimeConfig: RuntimeConfig): Plugin {
         }
 
         if (req.url === "/api/metro-notify/alerts") {
-          if (!ptvSubscriptionKey) {
-            const alerts = await buildTransportVicMetroAlerts();
-            sendJson(res, 200, { alerts });
-            return;
-          }
-
-          const feed = await fetchFeed(PTV_FEEDS[0].baseUrl, "/service-alerts", ptvSubscriptionKey);
-          sendJson(res, 200, { alerts: buildMetroAlerts(feed) });
+          const alerts = await fetchMetroHealthboardAlerts();
+          sendJson(res, 200, { alerts });
           return;
         }
 

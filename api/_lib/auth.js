@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { eq } from "drizzle-orm";
 
 export const ROLE_OPTIONS = [
   "Admin",
@@ -12,10 +13,40 @@ export const ROLE_OPTIONS = [
 
 const SESSION_COOKIE = "transitalert_session";
 const SESSION_SECRET = process.env.AUTH_SESSION_SECRET || process.env.SESSION_SECRET || "transitalert-dev-secret";
-const adminUsername = process.env.ADMIN_USERNAME || "tyler";
+const adminUsername = process.env.ADMIN_USERNAME || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD || "AppleJuice";
 const adminEmail = `${adminUsername}@transitalert.local`;
+const DEFAULT_PREMIUM_PRICE_AUD = 5;
+const REGISTRATION_PHASE = (process.env.REGISTRATION_PHASE || "debug-testers").trim().toLowerCase();
+const APPROVED_DEBUG_TESTERS = new Set(
+  (process.env.APPROVED_DEBUG_TESTERS || process.env.DEBUG_TESTER_APPROVALS || "")
+    .split(/[,\n;]/)
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+);
+const FALLBACK_APPROVED_DEBUG_TESTERS = new Set(["jackzilla110"]);
+const FALLBACK_USERS = [
+  {
+    id: "ashton",
+    username: "ashton",
+    email: "ashton@transitalert.local",
+    role: "Friend",
+    isAdmin: false,
+    isPremium: true,
+    passwordHash:
+      "b8f28eb7a870c27ec655787dab58ec9a:5b8ae8a17939caf3af87b0ebcbc8f974c223e78b4502e887c5eb5ebcc197b70442e0f9e6f6514bb4c2977267c22da384e076dca4756b0527ce8b3396e73b6f79",
+  },
+];
+
+function createFallbackUserId(username) {
+  return `tester-${String(username || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "user"}`;
+}
 let cachedDbContext = undefined;
+const loggedDbFallbackScopes = new Set();
 
 async function loadDbContext() {
   if (cachedDbContext !== undefined) {
@@ -48,7 +79,12 @@ const defaultPreferences = {
   favouriteRoutes: [],
   selectedMapFilters: {},
   transportModes: ["train", "tram", "bus", "vline"],
-  appPreferences: {},
+  appPreferences: {
+    premiumAccess: false,
+    premiumPriceAud: DEFAULT_PREMIUM_PRICE_AUD,
+    premiumPaypalLink: "",
+    favouriteConsists: [],
+  },
   updatedAt: new Date(),
 };
 
@@ -60,6 +96,86 @@ function getFallbackAdminUser() {
     role: "Admin",
     isAdmin: true,
   };
+}
+
+function sanitizeFallbackUser(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    isAdmin: Boolean(user.isAdmin),
+  };
+}
+
+export function isApprovedDebugTester(username, email) {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+
+  if (!normalizedUsername && !normalizedEmail) {
+    return false;
+  }
+
+  return (
+    APPROVED_DEBUG_TESTERS.has(normalizedUsername) ||
+    APPROVED_DEBUG_TESTERS.has(normalizedEmail) ||
+    FALLBACK_APPROVED_DEBUG_TESTERS.has(normalizedUsername) ||
+    FALLBACK_USERS.some(
+      (user) =>
+        user.username.toLowerCase() === normalizedUsername || user.email.toLowerCase() === normalizedEmail,
+    )
+  );
+}
+
+export function getRegistrationPhase() {
+  return REGISTRATION_PHASE;
+}
+
+function findFallbackUserByUsernameOrEmail(username, email = "") {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  return (
+    FALLBACK_USERS.find(
+      (user) =>
+        user.username.toLowerCase() === normalizedUsername ||
+        (normalizedEmail && user.email.toLowerCase() === normalizedEmail),
+    ) ?? null
+  );
+}
+
+function findFallbackUserBySessionIdentity(id, username = "", email = "") {
+  const normalizedId = String(id || "").trim().toLowerCase();
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  return (
+    FALLBACK_USERS.find(
+      (user) =>
+        user.id.toLowerCase() === normalizedId ||
+        (normalizedUsername && user.username.toLowerCase() === normalizedUsername) ||
+        (normalizedEmail && user.email.toLowerCase() === normalizedEmail),
+    ) ?? null
+  );
+}
+
+function getFallbackPreferencesForUser(userId) {
+  const fallbackUser = findFallbackUserBySessionIdentity(userId);
+  return {
+    ...defaultPreferences,
+    userId,
+    appPreferences: {
+      ...defaultPreferences.appPreferences,
+      premiumAccess: Boolean(fallbackUser?.isPremium),
+    },
+  };
+}
+
+function logDbFallback(scope, error) {
+  if (loggedDbFallbackScopes.has(scope)) {
+    return;
+  }
+  loggedDbFallbackScopes.add(scope);
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(`[transitalert-auth] ${scope} falling back: ${message}`);
 }
 
 function base64url(value) {
@@ -171,22 +287,26 @@ export function sanitizeUser(user) {
 }
 
 export async function ensureAdminAccount() {
-  const context = await loadDbContext();
-  if (!context) return;
-  const { db, appUsersTable } = context;
-  if (!db) return;
-  const existing = await db.query.appUsersTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.username, adminUsername),
-  });
-
-  if (!existing) {
-    await db.insert(appUsersTable).values({
-      username: adminUsername,
-      email: adminEmail,
-      passwordHash: createPasswordHash(adminPassword),
-      role: "Admin",
-      isAdmin: true,
+  try {
+    const context = await loadDbContext();
+    if (!context) return;
+    const { db, appUsersTable } = context;
+    if (!db) return;
+    const existing = await db.query.appUsersTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.username, adminUsername),
     });
+
+    if (!existing) {
+      await db.insert(appUsersTable).values({
+        username: adminUsername,
+        email: adminEmail,
+        passwordHash: createPasswordHash(adminPassword),
+        role: "Admin",
+        isAdmin: true,
+      });
+    }
+  } catch (error) {
+    logDbFallback("ensureAdminAccount", error);
   }
 }
 
@@ -196,9 +316,21 @@ export async function getSessionUser(req) {
   const parsed = readSignedSession(cookies[SESSION_COOKIE] || "");
   if (!parsed?.id) return null;
 
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+
+    const user = await db.query.appUsersTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.id, parsed.id),
+    });
+    if (!user) return null;
+
+    return sanitizeUser(user);
+  } catch (error) {
+    logDbFallback("getSessionUser", error);
     if (parsed.id === "guest-session" || parsed.role === "Guest") {
       return {
         id: "guest-session",
@@ -214,32 +346,38 @@ export async function getSessionUser(req) {
     ) {
       return getFallbackAdminUser();
     }
+    const fallbackUser = findFallbackUserBySessionIdentity(parsed.id, parsed.username, parsed.email);
+    if (fallbackUser) {
+      return sanitizeFallbackUser(fallbackUser);
+    }
     return null;
   }
-
-  const user = await db.query.appUsersTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.id, parsed.id),
-  });
-  if (!user) return null;
-
-  return sanitizeUser(user);
 }
 
 export async function authenticateUser(username, password) {
   await ensureAdminAccount();
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const user = await db.query.appUsersTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.username, username),
+    });
+    if (!user) return null;
+    return verifyPassword(password, user.passwordHash) ? sanitizeUser(user) : null;
+  } catch (error) {
+    logDbFallback("authenticateUser", error);
     if (username.trim().toLowerCase() === adminUsername.toLowerCase() && password === adminPassword) {
       return getFallbackAdminUser();
     }
+    const fallbackUser = findFallbackUserByUsernameOrEmail(username);
+    if (fallbackUser && verifyPassword(password, fallbackUser.passwordHash)) {
+      return sanitizeFallbackUser(fallbackUser);
+    }
     return null;
   }
-  const user = await db.query.appUsersTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.username, username),
-  });
-  if (!user) return null;
-  return verifyPassword(password, user.passwordHash) ? sanitizeUser(user) : null;
 }
 
 export async function registerUser(input) {
@@ -248,7 +386,27 @@ export async function registerUser(input) {
   const userPreferencesTable = context?.userPreferencesTable;
   const appUsersTable = context?.appUsersTable;
   if (!db) {
-    throw new Error("Registration is unavailable until DATABASE_URL is configured.");
+    const existingFallbackUser = findFallbackUserByUsernameOrEmail(input.username, input.email);
+    if (existingFallbackUser) {
+      throw new Error(
+        existingFallbackUser.username.toLowerCase() === input.username.trim().toLowerCase()
+          ? "That username is already taken"
+          : "That email address is already registered",
+      );
+    }
+
+    const fallbackUser = {
+      id: createFallbackUserId(input.username),
+      username: input.username,
+      email: input.email,
+      role: input.role,
+      isAdmin: false,
+      isPremium: false,
+      passwordHash: createPasswordHash(input.password),
+    };
+
+    FALLBACK_USERS.push(fallbackUser);
+    return sanitizeFallbackUser(fallbackUser);
   }
   const [user] = await db
     .insert(appUsersTable)
@@ -269,123 +427,263 @@ export async function registerUser(input) {
 }
 
 export async function getUserByUsernameOrEmail(username, email) {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const existingByUsername = await db.query.appUsersTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.username, username),
+    });
+    if (existingByUsername) return existingByUsername;
+
+    return db.query.appUsersTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.email, email),
+    });
+  } catch (error) {
+    logDbFallback("getUserByUsernameOrEmail", error);
     const matchesAdmin =
       username.trim().toLowerCase() === adminUsername.toLowerCase() ||
       email.trim().toLowerCase() === adminEmail.toLowerCase();
-    return matchesAdmin ? getFallbackAdminUser() : null;
+    if (matchesAdmin) {
+      return getFallbackAdminUser();
+    }
+    return findFallbackUserByUsernameOrEmail(username, email);
   }
-  const existingByUsername = await db.query.appUsersTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.username, username),
-  });
-  if (existingByUsername) return existingByUsername;
+}
 
-  return db.query.appUsersTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.email, email),
+export async function listAccounts() {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+
+    const accounts = await db.query.appUsersTable.findMany();
+    const decorated = await Promise.all(
+      accounts.map(async (account) => {
+        const preferences = await getUserPreferences(account.id);
+        return {
+          ...sanitizeUser(account),
+          isPremium: Boolean(preferences?.appPreferences?.premiumAccess),
+          createdAt: account.createdAt?.toISOString?.() ?? undefined,
+          updatedAt: account.updatedAt?.toISOString?.() ?? undefined,
+        };
+      }),
+    );
+
+    return decorated.sort((left, right) => left.username.localeCompare(right.username));
+  } catch (error) {
+    logDbFallback("listAccounts", error);
+    return [getFallbackAdminUser(), ...FALLBACK_USERS.map((user) => sanitizeFallbackUser(user))].map((user) => ({
+      ...user,
+      isPremium: FALLBACK_USERS.some((fallback) => fallback.id === user.id && fallback.isPremium),
+    }));
+  }
+}
+
+export async function updateAccountAccess(accountId, patch) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
+  const appUsersTable = context?.appUsersTable;
+  if (!db || !appUsersTable) {
+    throw new Error("Account updates require DATABASE_URL to be configured.");
+  }
+
+  const [updatedUser] = await db
+    .update(appUsersTable)
+    .set({
+      role: patch.role,
+      isAdmin: Boolean(patch.isAdmin),
+      updatedAt: new Date(),
+    })
+    .where(eq(appUsersTable.id, accountId))
+    .returning();
+
+  if (!updatedUser) {
+    throw new Error("Account not found.");
+  }
+
+  const existingPreferences = await getUserPreferences(accountId);
+  const nextPreferences = await upsertUserPreferences(accountId, {
+    appPreferences: {
+      ...(existingPreferences?.appPreferences ?? {}),
+      premiumAccess: Boolean(patch.isPremium),
+    },
   });
+
+  return {
+    ...sanitizeUser(updatedUser),
+    isPremium: Boolean(nextPreferences?.appPreferences?.premiumAccess),
+    createdAt: updatedUser.createdAt?.toISOString?.() ?? undefined,
+    updatedAt: updatedUser.updatedAt?.toISOString?.() ?? undefined,
+  };
 }
 
 export async function getUserPreferences(userId) {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
-    return { ...defaultPreferences, userId };
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const { userPreferencesTable } = context;
+    const existing = await db.query.userPreferencesTable.findFirst({
+      where: (fields, operators) => operators.eq(fields.userId, userId),
+    });
+
+    if (existing) return existing;
+
+    const [created] = await db.insert(userPreferencesTable).values({ userId }).returning();
+    return created;
+  } catch (error) {
+    logDbFallback("getUserPreferences", error);
+    return getFallbackPreferencesForUser(userId);
   }
-  const { userPreferencesTable } = context;
-  const existing = await db.query.userPreferencesTable.findFirst({
-    where: (fields, operators) => operators.eq(fields.userId, userId),
-  });
-
-  if (existing) return existing;
-
-  const [created] = await db.insert(userPreferencesTable).values({ userId }).returning();
-  return created;
 }
 
 export async function upsertUserPreferences(userId, patch) {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
-    return {
-      userId,
-      favouriteStops: patch.favouriteStops ?? defaultPreferences.favouriteStops,
-      favouriteRoutes: patch.favouriteRoutes ?? defaultPreferences.favouriteRoutes,
-      selectedMapFilters: patch.selectedMapFilters ?? defaultPreferences.selectedMapFilters,
-      transportModes: patch.transportModes ?? defaultPreferences.transportModes,
-      appPreferences: patch.appPreferences ?? defaultPreferences.appPreferences,
-      updatedAt: new Date(),
-    };
-  }
-  const { userPreferencesTable } = context;
-  const existing = await getUserPreferences(userId);
-  const [updated] = await db
-    .insert(userPreferencesTable)
-    .values({
-      userId,
-      favouriteStops: patch.favouriteStops ?? existing.favouriteStops,
-      favouriteRoutes: patch.favouriteRoutes ?? existing.favouriteRoutes,
-      selectedMapFilters: patch.selectedMapFilters ?? existing.selectedMapFilters,
-      transportModes: patch.transportModes ?? existing.transportModes,
-      appPreferences: patch.appPreferences ?? existing.appPreferences,
-      updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: userPreferencesTable.userId,
-      set: {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const { userPreferencesTable } = context;
+    const existing = await getUserPreferences(userId);
+    const [updated] = await db
+      .insert(userPreferencesTable)
+      .values({
+        userId,
         favouriteStops: patch.favouriteStops ?? existing.favouriteStops,
         favouriteRoutes: patch.favouriteRoutes ?? existing.favouriteRoutes,
         selectedMapFilters: patch.selectedMapFilters ?? existing.selectedMapFilters,
         transportModes: patch.transportModes ?? existing.transportModes,
         appPreferences: patch.appPreferences ?? existing.appPreferences,
         updatedAt: new Date(),
-      },
-    })
-    .returning();
+      })
+      .onConflictDoUpdate({
+        target: userPreferencesTable.userId,
+        set: {
+          favouriteStops: patch.favouriteStops ?? existing.favouriteStops,
+          favouriteRoutes: patch.favouriteRoutes ?? existing.favouriteRoutes,
+          selectedMapFilters: patch.selectedMapFilters ?? existing.selectedMapFilters,
+          transportModes: patch.transportModes ?? existing.transportModes,
+          appPreferences: patch.appPreferences ?? existing.appPreferences,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
 
-  return updated;
+    return updated;
+  } catch (error) {
+    logDbFallback("upsertUserPreferences", error);
+    const fallbackPreferences = getFallbackPreferencesForUser(userId);
+    return {
+      userId,
+      favouriteStops: patch.favouriteStops ?? fallbackPreferences.favouriteStops,
+      favouriteRoutes: patch.favouriteRoutes ?? fallbackPreferences.favouriteRoutes,
+      selectedMapFilters: patch.selectedMapFilters ?? fallbackPreferences.selectedMapFilters,
+      transportModes: patch.transportModes ?? fallbackPreferences.transportModes,
+      appPreferences: {
+        ...fallbackPreferences.appPreferences,
+        ...(patch.appPreferences ?? {}),
+      },
+      updatedAt: new Date(),
+    };
+  }
 }
 
 export async function getAppConfig() {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) return {};
-  const { appConfigTable } = context;
-  const rows = await db.select().from(appConfigTable);
-  return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) return {};
+    const { appConfigTable } = context;
+    const rows = await db.select().from(appConfigTable);
+    return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  } catch (error) {
+    logDbFallback("getAppConfig", error);
+    return {};
+  }
 }
 
 export async function setAppConfigValue(key, value, updatedBy) {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const { appConfigTable } = context;
+    const [row] = await db
+      .insert(appConfigTable)
+      .values({ key, value, updatedBy, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: appConfigTable.key,
+        set: { value, updatedBy, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  } catch (error) {
+    logDbFallback("setAppConfigValue", error);
     return { key, value, updatedBy, updatedAt: new Date() };
   }
-  const { appConfigTable } = context;
-  const [row] = await db
-    .insert(appConfigTable)
-    .values({ key, value, updatedBy, updatedAt: new Date() })
-    .onConflictDoUpdate({
-      target: appConfigTable.key,
-      set: { value, updatedBy, updatedAt: new Date() },
-    })
-    .returning();
-  return row;
 }
 
 export async function listMarkerOverrides() {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) return [];
-  const { markerOverridesTable } = context;
-  return db.select().from(markerOverridesTable);
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) return [];
+    const { markerOverridesTable } = context;
+    return db.select().from(markerOverridesTable);
+  } catch (error) {
+    logDbFallback("listMarkerOverrides", error);
+    return [];
+  }
 }
 
 export async function saveMarkerOverrides(overrides, updatedBy) {
-  const context = await loadDbContext();
-  const db = context?.db ?? null;
-  if (!db) {
+  try {
+    const context = await loadDbContext();
+    const db = context?.db ?? null;
+    if (!db) {
+      throw new Error("Database unavailable");
+    }
+    const { markerOverridesTable } = context;
+    const saved = [];
+    for (const override of overrides) {
+      const [row] = await db
+        .insert(markerOverridesTable)
+        .values({
+          markerName: override.markerName,
+          markerType: override.markerType ?? "station",
+          lat: override.lat,
+          lng: override.lng,
+          metadata: override.metadata ?? {},
+          updatedBy,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: markerOverridesTable.markerName,
+          set: {
+            lat: override.lat,
+            lng: override.lng,
+            markerType: override.markerType ?? "station",
+            metadata: override.metadata ?? {},
+            updatedBy,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+      saved.push(row);
+    }
+    return saved;
+  } catch (error) {
+    logDbFallback("saveMarkerOverrides", error);
     return overrides.map((override, index) => ({
       id: index + 1,
       markerName: override.markerName,
@@ -397,33 +695,4 @@ export async function saveMarkerOverrides(overrides, updatedBy) {
       updatedAt: new Date(),
     }));
   }
-  const { markerOverridesTable } = context;
-  const saved = [];
-  for (const override of overrides) {
-    const [row] = await db
-      .insert(markerOverridesTable)
-      .values({
-        markerName: override.markerName,
-        markerType: override.markerType ?? "station",
-        lat: override.lat,
-        lng: override.lng,
-        metadata: override.metadata ?? {},
-        updatedBy,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: markerOverridesTable.markerName,
-        set: {
-          lat: override.lat,
-          lng: override.lng,
-          markerType: override.markerType ?? "station",
-          metadata: override.metadata ?? {},
-          updatedBy,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    saved.push(row);
-  }
-  return saved;
 }

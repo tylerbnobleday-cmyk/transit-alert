@@ -7,15 +7,44 @@ export type UserPreferences = {
 };
 
 const LOCAL_STORAGE_KEY = "transitalert-local-preferences";
-export const DEFAULT_TRANSPORT_MODES = ["train", "tram", "bus", "vline"] as const;
+export const DEFAULT_TRANSPORT_MODES = ["train", "vline"] as const;
+export const DEFAULT_PREMIUM_PRICE_AUD = 5;
 
 export const defaultPreferences: UserPreferences = {
   favouriteStops: [],
   favouriteRoutes: [],
   selectedMapFilters: {},
   transportModes: [...DEFAULT_TRANSPORT_MODES],
-  appPreferences: {},
+  appPreferences: {
+    premiumAccess: false,
+    premiumPriceAud: DEFAULT_PREMIUM_PRICE_AUD,
+    premiumPaypalLink: "",
+    favouriteConsists: [],
+  },
 };
+
+export function hasPremiumAccess(preferences: UserPreferences | null | undefined) {
+  return preferences?.appPreferences?.premiumAccess === true;
+}
+
+export function getPremiumPriceAud(preferences: UserPreferences | null | undefined) {
+  const raw = preferences?.appPreferences?.premiumPriceAud;
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_PREMIUM_PRICE_AUD;
+}
+
+export function getPremiumPaypalLink(preferences: UserPreferences | null | undefined) {
+  const raw = preferences?.appPreferences?.premiumPaypalLink;
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+export function getFavouriteConsists(preferences: UserPreferences | null | undefined) {
+  const raw = preferences?.appPreferences?.favouriteConsists;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
 
 function isNetworkError(error: unknown) {
   return error instanceof TypeError;
@@ -34,7 +63,13 @@ export function readLocalPreferences(): UserPreferences {
         Array.isArray(parsed.transportModes) && parsed.transportModes.length > 0
           ? parsed.transportModes
           : [...DEFAULT_TRANSPORT_MODES],
-      appPreferences: parsed.appPreferences && typeof parsed.appPreferences === "object" ? parsed.appPreferences : {},
+      appPreferences:
+        parsed.appPreferences && typeof parsed.appPreferences === "object"
+          ? {
+              favouriteConsists: [],
+              ...parsed.appPreferences,
+            }
+          : { ...defaultPreferences.appPreferences },
     };
   } catch {
     return defaultPreferences;
@@ -67,6 +102,12 @@ export async function fetchAccountPreferences() {
     return {
       ...defaultPreferences,
       ...payload.preferences,
+      appPreferences: {
+        ...defaultPreferences.appPreferences,
+        ...(payload.preferences?.appPreferences && typeof payload.preferences.appPreferences === "object"
+          ? payload.preferences.appPreferences
+          : {}),
+      },
     };
   } catch (error) {
     if (isNetworkError(error)) {

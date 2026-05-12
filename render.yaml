@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: transit-alert
+    runtime: node
+    plan: free
+    buildCommand: corepack pnpm install --frozen-lockfile && corepack pnpm build
+    startCommand: node server/render-server.js
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22

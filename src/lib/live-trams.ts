@@ -1,4 +1,4 @@
-export type LiveBus = {
+export type LiveTram = {
   id: string;
   label: string;
   lat: number;
@@ -11,10 +11,10 @@ export type LiveBus = {
   operator?: string;
 };
 
-type LiveBusResponse =
-  | LiveBus[]
+type LiveTramResponse =
+  | LiveTram[]
   | {
-      buses?: LiveBus[];
+      trams?: LiveTram[];
     };
 
 function isRawFeedIdentifier(value: string) {
@@ -30,12 +30,17 @@ function stripFeedPrefix(value: string) {
 
 function normaliseRouteLabel(value: unknown) {
   if (typeof value !== "string") {
-    return "Bus";
+    return "Tram";
   }
 
   const trimmed = value.trim();
   if (!trimmed) {
-    return "Bus";
+    return "Tram";
+  }
+
+  const ptvRouteIdMatch = trimmed.match(/^\d{2}-([A-Z]?\d{1,4}[A-Z]?)(?:-|$)/i);
+  if (ptvRouteIdMatch?.[1]) {
+    return ptvRouteIdMatch[1].toUpperCase();
   }
 
   const plainRouteMatch = trimmed.match(/\b([A-Z]?\d{1,4}[A-Z]?)\b/i);
@@ -44,7 +49,7 @@ function normaliseRouteLabel(value: unknown) {
   }
 
   if (isRawFeedIdentifier(trimmed)) {
-    return "Bus";
+    return "Tram";
   }
 
   const compact = stripFeedPrefix(trimmed);
@@ -52,7 +57,7 @@ function normaliseRouteLabel(value: unknown) {
     return compact.toUpperCase();
   }
 
-  return "Bus";
+  return "Tram";
 }
 
 function normaliseDestination(value: unknown) {
@@ -87,22 +92,28 @@ function normaliseLabel(value: unknown) {
   return cleaned || undefined;
 }
 
-function normaliseLiveBus(raw: Partial<LiveBus> & Record<string, unknown>, index: number): LiveBus | null {
+function normaliseLiveTram(raw: Partial<LiveTram> & Record<string, unknown>, index: number): LiveTram | null {
   if (typeof raw.lat !== "number" || typeof raw.lng !== "number") {
     return null;
   }
 
-  const route = normaliseRouteLabel(raw.route);
+  const route = normaliseRouteLabel(
+    typeof raw.route === "string" && raw.route.trim() && raw.route.trim() !== "03"
+      ? raw.route
+      : typeof raw.id === "string"
+        ? raw.id
+        : raw.route,
+  );
   const cleanLabel = normaliseLabel(raw.label);
   const label =
     cleanLabel
       ? cleanLabel
-      : route === "Bus"
-        ? `bus-${index + 1}`
+      : route === "Tram"
+        ? `tram-${index + 1}`
         : `Route ${route}`;
 
   return {
-    id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `bus-${index}`,
+    id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `tram-${index}`,
     label,
     lat: raw.lat,
     lng: raw.lng,
@@ -111,7 +122,7 @@ function normaliseLiveBus(raw: Partial<LiveBus> & Record<string, unknown>, index
     status: "live",
     timestamp: typeof raw.timestamp === "string" ? raw.timestamp : undefined,
     heading: typeof raw.heading === "number" ? raw.heading : undefined,
-    operator: typeof raw.operator === "string" && raw.operator.trim() ? raw.operator : "PTV Bus",
+    operator: typeof raw.operator === "string" && raw.operator.trim() ? raw.operator : "Yarra Trams",
   };
 }
 
@@ -122,7 +133,7 @@ export type LiveViewportBounds = {
   maxLng: number;
 };
 
-export async function fetchLiveBuses(bounds?: LiveViewportBounds): Promise<LiveBus[]> {
+export async function fetchLiveTrams(bounds?: LiveViewportBounds): Promise<LiveTram[]> {
   let response: Response;
   try {
     const search = bounds
@@ -133,7 +144,7 @@ export async function fetchLiveBuses(bounds?: LiveViewportBounds): Promise<LiveB
           maxLng: String(bounds.maxLng),
         }).toString()}`
       : "";
-    response = await fetch(`/api/ptv/live-buses${search}`);
+    response = await fetch(`/api/ptv/live-trams${search}`);
   } catch (error) {
     if (error instanceof TypeError) {
       return [];
@@ -146,7 +157,7 @@ export async function fetchLiveBuses(bounds?: LiveViewportBounds): Promise<LiveB
   }
 
   if (!response.ok) {
-    let message = `Failed to load live buses (${response.status})`;
+    let message = `Failed to load live trams (${response.status})`;
     try {
       const payload = (await response.json()) as { error?: string };
       if (payload?.error) {
@@ -158,10 +169,10 @@ export async function fetchLiveBuses(bounds?: LiveViewportBounds): Promise<LiveB
     throw new Error(message);
   }
 
-  const payload = (await response.json()) as LiveBusResponse;
-  const buses = Array.isArray(payload) ? payload : payload.buses ?? [];
+  const payload = (await response.json()) as LiveTramResponse;
+  const trams = Array.isArray(payload) ? payload : payload.trams ?? [];
 
-  return buses
-    .map((bus, index) => normaliseLiveBus(bus, index))
-    .filter((bus): bus is LiveBus => bus !== null);
+  return trams
+    .map((tram, index) => normaliseLiveTram(tram, index))
+    .filter((tram): tram is LiveTram => tram !== null);
 }
