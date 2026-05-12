@@ -34,6 +34,14 @@ const ADMIN_SOURCE_KEYS = [
 
 const TRANSITALERT_UPDATE_ENTRIES = [
   {
+    date: "12/05/2026",
+    items: [
+      "Original app and fleet artwork replaced older source-derived visuals so the project reads clearly as independent.",
+      "Authentication responses, rate limiting, and no-store handling were tightened to better protect account and session data.",
+      "A new internal note now documents original-assets-only policy, API protection, privacy expectations, and responsible transport-data handling.",
+    ],
+  },
+  {
     date: "08/05/2026",
     items: [
       "First-open update boards and station boarding guides were added for key interchanges.",

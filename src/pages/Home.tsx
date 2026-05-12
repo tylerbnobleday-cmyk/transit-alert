@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+﻿import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ChevronDown, ChevronUp, MapPin, Plus, Search, TrainFront } from "lucide-react";
@@ -96,7 +96,7 @@ const SIMPLE_SURFACE_ROUTES = [
   },
 ];
 
-const HOME_ORIGIN_LABEL = "Home · 15 Louise St, Brighton East";
+const HOME_ORIGIN_LABEL = "Home Â· 15 Louise St, Brighton East";
 const CURRENT_LOCATION_LABEL = "Current location";
 const JOURNEY_STORAGE_KEY = "transitalert-active-journey-v1";
 const ADMIN_DEBUG_STORAGE_KEY = "transitalert-admin-debug-line-v1";
@@ -222,11 +222,11 @@ const FLEET_TYPES: FleetTypeConfig[] = [
 const VERSION_LOG: ChangelogEntry[] = [
   {
     version: TRANSITALERT_WEB_VERSION,
-    date: "08/05/2026",
+    date: "12/05/2026",
     notes: [
-      "First-open update boards and station boarding guides were added so major changes are easier to understand.",
-      "Journey planning, alerts, freight overlays, and premium tools were refined for a steadier daily experience.",
-      "Optional NSW TrainLink / XPT live rail support was wired into the broader live train layer.",
+      "Original app and fleet artwork replaced older source-derived visuals so TransitAlert reads clearly as an independent project.",
+      "Privacy and account security were tightened with safer auth responses, request throttling, and stronger backend-only secret handling.",
+      "Responsible transport-data handling guidance was added so release decisions stay aligned with safer operational-data presentation before public launch.",
     ],
   },
   {
@@ -273,16 +273,16 @@ const TRANSITALERT_SYSTEM_NOTES = [
 
 const VERSION_HIGHLIGHT_CARDS = [
   {
-    title: "What’s new in 0.87",
-    body: "Cleaner onboarding, better station guidance, and steadier live-map behaviour across metro, regional, tram, bus, and freight layers.",
+    title: "What’s new in 0.88",
+    body: "Original branding, safer auth handling, and responsible transport-data guidance are now part of the release baseline.",
   },
   {
     title: "Journey planning",
     body: "Trips persist more reliably, GPS starts are friendlier, and attached live services stay visible while your journey is active.",
   },
   {
-    title: "Boarding guides",
-    body: "Key interchange stations now show best-carriage advice for 6-car sets, legacy Metro fleets, and HCMT services.",
+    title: "Privacy and assets",
+    body: "The app icon, fleet icons, and release notes were refreshed to stay original, independent, and clearer about data and security expectations.",
   },
 ] as const;
 
@@ -961,7 +961,7 @@ export default function Home() {
 
   const attachJourneyToService = useCallback((trip: FleetTrip) => {
     setAttachedJourneyServiceKey(trip.focusKey);
-    setAttachedJourneyServiceLabel(`${trip.line} · TDN ${trip.tripNumber} · ${trip.route}`);
+    setAttachedJourneyServiceLabel(`${trip.line} Â· TDN ${trip.tripNumber} Â· ${trip.route}`);
     setJourneyStartedAt((current) => current ?? new Date().toISOString());
     setFocusedVehicleKey(trip.focusKey);
     setActiveTab("map");
@@ -996,8 +996,8 @@ export default function Home() {
           }))
           .sort((left, right) => left.distance - right.distance)[0]?.station;
         const label = nearestStation
-          ? `${CURRENT_LOCATION_LABEL} · Near ${nearestStation.name}`
-          : `${CURRENT_LOCATION_LABEL} · ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`;
+          ? `${CURRENT_LOCATION_LABEL} Â· Near ${nearestStation.name}`
+          : `${CURRENT_LOCATION_LABEL} Â· ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`;
         setCurrentLocationOrigin(label);
         setCurrentLocationCoords([position.coords.latitude, position.coords.longitude]);
         setJourneyOrigin(label);
@@ -1963,7 +1963,7 @@ export default function Home() {
                     <div className="flex items-center gap-3">
                       <MapPin className="h-5 w-5 text-blue-300" />
                       <div>
-                        <p className="text-base font-semibold text-white">Home · 15 Louise St, Brighton East</p>
+                        <p className="text-base font-semibold text-white">Home Â· 15 Louise St, Brighton East</p>
                         <p className="text-xs text-white/55">Saved Tyler origin</p>
                       </div>
                     </div>
@@ -2057,7 +2057,7 @@ export default function Home() {
                       <div>
                         <p className="font-semibold text-white">{station.name}</p>
                         <p className="mt-1 text-xs text-white/50">
-                          {(STATION_SERVICE_LOOKUP[station.name] ?? ["Metro services"]).join(" • ")}
+                          {(STATION_SERVICE_LOOKUP[station.name] ?? ["Metro services"]).join(" â€¢ ")}
                         </p>
                       </div>
                       {station.name === "Town Hall" && (
@@ -2325,7 +2325,7 @@ export default function Home() {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-current/70">
-                                  Leg {index + 1} · {leg.badge}
+                                  Leg {index + 1} Â· {leg.badge}
                                 </p>
                                 <p className="mt-2 text-lg font-semibold text-white">{leg.title}</p>
                                 <p className="mt-1 text-sm text-current/90">
@@ -2466,7 +2466,7 @@ export default function Home() {
                                   </span>
                                 </div>
                                 <p className="mt-3 text-xl font-semibold tracking-tight text-white">{trip.route}</p>
-                                <p className="mt-1 text-sm text-white/55">Trip {trip.tdn} · Consist {trip.consist}</p>
+                                <p className="mt-1 text-sm text-white/55">Trip {trip.tdn} Â· Consist {trip.consist}</p>
                               </div>
                             </div>
 
@@ -2895,4 +2895,5 @@ export default function Home() {
       </main>
     );
   }
+
 

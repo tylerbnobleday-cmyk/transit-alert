@@ -12,9 +12,15 @@ export const ROLE_OPTIONS = [
 ];
 
 const SESSION_COOKIE = "transitalert_session";
-const SESSION_SECRET = process.env.AUTH_SESSION_SECRET || process.env.SESSION_SECRET || "transitalert-dev-secret";
 const adminUsername = process.env.ADMIN_USERNAME || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD || "AppleJuice";
+const SESSION_SECRET =
+  process.env.AUTH_SESSION_SECRET ||
+  process.env.SESSION_SECRET ||
+  crypto
+    .createHash("sha256")
+    .update(`transitalert-fallback:${adminUsername}:${adminPassword}`)
+    .digest("hex");
 const adminEmail = `${adminUsername}@transitalert.local`;
 const DEFAULT_PREMIUM_PRICE_AUD = 5;
 const REGISTRATION_PHASE = (process.env.REGISTRATION_PHASE || "debug-testers").trim().toLowerCase();
@@ -87,6 +93,15 @@ const defaultPreferences = {
   },
   updatedAt: new Date(),
 };
+const authRateLimitBuckets = new Map();
+
+function pruneExpiredRateLimitBuckets(now = Date.now()) {
+  for (const [key, bucket] of authRateLimitBuckets.entries()) {
+    if (bucket.resetAt <= now) {
+      authRateLimitBuckets.delete(key);
+    }
+  }
+}
 
 function getFallbackAdminUser() {
   return {
@@ -178,6 +193,50 @@ function logDbFallback(scope, error) {
   console.warn(`[transitalert-auth] ${scope} falling back: ${message}`);
 }
 
+function readClientIpAddress(req) {
+  const forwarded = req.headers?.["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  if (Array.isArray(forwarded) && forwarded[0]) {
+    return String(forwarded[0]).trim();
+  }
+  return (
+    req.headers?.["x-real-ip"] ||
+    req.socket?.remoteAddress ||
+    req.connection?.remoteAddress ||
+    "unknown"
+  );
+}
+
+export function consumeAuthRateLimit(req, scope, options = {}) {
+  const limit = options.limit ?? 10;
+  const windowMs = options.windowMs ?? 10 * 60 * 1000;
+  const now = Date.now();
+  pruneExpiredRateLimitBuckets(now);
+  const ip = readClientIpAddress(req);
+  const key = `${scope}:${ip}`;
+  const existing = authRateLimitBuckets.get(key);
+
+  if (!existing || existing.resetAt <= now) {
+    authRateLimitBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, retryAfterSeconds: Math.ceil(windowMs / 1000) };
+  }
+
+  existing.count += 1;
+  if (existing.count > limit) {
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)),
+    };
+  }
+
+  return {
+    allowed: true,
+    retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)),
+  };
+}
+
 function base64url(value) {
   return Buffer.from(value).toString("base64url");
 }
@@ -254,6 +313,9 @@ export async function readJsonBody(req) {
 
 export function sendJson(res, status, payload) {
   res.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("X-Content-Type-Options", "nosniff");
   if (typeof res.json === "function") {
     res.json(payload);
     return;

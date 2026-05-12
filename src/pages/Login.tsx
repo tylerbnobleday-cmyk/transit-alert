@@ -145,7 +145,7 @@ export default function Login() {
               <div className="inline-flex items-center gap-3 rounded-full border border-blue-400/20 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-200">
                 <img
                   src={`${import.meta.env.BASE_URL}app-logo.svg`}
-                  alt="X'Trapolis 2.0"
+                  alt="TransitAlert independent app mark"
                   className="h-5 w-5 rounded-md object-cover"
                 />
                 TransitAlert Melbourne
@@ -234,7 +234,7 @@ export default function Login() {
               <div className="inline-flex items-center gap-3 rounded-full border border-blue-400/20 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-200">
                 <img
                   src={`${import.meta.env.BASE_URL}app-logo.svg`}
-                  alt="X'Trapolis 2.0"
+                  alt="TransitAlert independent app mark"
                   className="h-5 w-5 rounded-md object-cover"
                 />
                 TransitAlert Melbourne

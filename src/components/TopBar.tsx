@@ -174,7 +174,7 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
         >
           <img
             src={`${import.meta.env.BASE_URL}app-logo.svg`}
-            alt="Transit Alert"
+            alt="TransitAlert independent app mark"
             className="h-8 w-8 shrink-0 rounded-xl sm:h-10 sm:w-10"
           />
           <div className="min-w-0">

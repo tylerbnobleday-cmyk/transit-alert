@@ -1,4 +1,5 @@
 import {
+  consumeAuthRateLimit,
   getRegistrationPhase,
   ROLE_OPTIONS,
   authenticateUser,
@@ -14,6 +15,17 @@ import {
 
 export default async function handler(req, res) {
   const action = Array.isArray(req.query?.action) ? req.query.action[0] : req.query?.action;
+  const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]{3,32}$/;
+
+  const rejectIfRateLimited = (scope, options) => {
+    const result = consumeAuthRateLimit(req, scope, options);
+    if (!result.allowed) {
+      res.setHeader("Retry-After", String(result.retryAfterSeconds));
+      sendJson(res, 429, { error: "Too many attempts. Please wait a moment and try again." });
+      return true;
+    }
+    return false;
+  };
 
   if (action === "session") {
     const user = await getSessionUser(req);
@@ -33,6 +45,9 @@ export default async function handler(req, res) {
   if (action === "guest") {
     if (req.method !== "POST") {
       sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    if (rejectIfRateLimited("guest-session", { limit: 15, windowMs: 10 * 60 * 1000 })) {
       return;
     }
 
@@ -69,12 +84,19 @@ export default async function handler(req, res) {
       sendJson(res, 405, { error: "Method not allowed" });
       return;
     }
+    if (rejectIfRateLimited("login", { limit: 12, windowMs: 10 * 60 * 1000 })) {
+      return;
+    }
 
     const body = await readJsonBody(req);
     const username = String(body.username || "").trim();
     const password = String(body.password || "");
     if (!username) {
       sendJson(res, 400, { error: "Username is required" });
+      return;
+    }
+    if (!USERNAME_PATTERN.test(username)) {
+      sendJson(res, 400, { error: "Username format is invalid" });
       return;
     }
 
@@ -98,6 +120,9 @@ export default async function handler(req, res) {
       sendJson(res, 405, { error: "Method not allowed" });
       return;
     }
+    if (rejectIfRateLimited("register", { limit: 6, windowMs: 30 * 60 * 1000 })) {
+      return;
+    }
 
     const body = await readJsonBody(req);
     const username = String(body.username || "").trim();
@@ -109,6 +134,10 @@ export default async function handler(req, res) {
 
     if (!username || username.length < 3) {
       sendJson(res, 400, { error: "Username must be at least 3 characters" });
+      return;
+    }
+    if (!USERNAME_PATTERN.test(username)) {
+      sendJson(res, 400, { error: "Username must use only letters, numbers, dots, dashes, or underscores" });
       return;
     }
 

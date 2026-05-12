@@ -12,8 +12,38 @@ const STATION_COORDINATES: Record<string, [number, number]> = {
   Werribee: [-37.8999, 144.6602],
 };
 
+const STATION_NAME_ALIASES: Record<string, string> = {
+  fss: "Flinders Street",
+  "flinders street station": "Flinders Street",
+  scs: "Southern Cross",
+  "southern cross station": "Southern Cross",
+  thl: "Town Hall",
+  "town hall station": "Town Hall",
+  mce: "Melbourne Central",
+  "melbourne central station": "Melbourne Central",
+  sll: "State Library",
+  "state library station": "State Library",
+  fla: "Flagstaff",
+  "flagstaff station": "Flagstaff",
+  par: "Parliament",
+  "parliament station": "Parliament",
+  nme: "North Melbourne",
+  "north melbourne station": "North Melbourne",
+  rmd: "Richmond",
+  "richmond station": "Richmond",
+};
+
 function normaliseStationName(name: string) {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function resolveStationAliasName(name?: string | null): string | null {
+  if (!name) {
+    return null;
+  }
+
+  const normalised = normaliseStationName(name);
+  return STATION_NAME_ALIASES[normalised] ?? name.trim();
 }
 
 export function findStationCoordinate(name?: string | null): [number, number] | null {
@@ -21,7 +51,8 @@ export function findStationCoordinate(name?: string | null): [number, number] | 
     return null;
   }
 
-  const normalised = normaliseStationName(name);
+  const canonicalName = resolveStationAliasName(name) ?? name;
+  const normalised = normaliseStationName(canonicalName);
   const match = Object.entries(STATION_COORDINATES).find(
     ([stationName]) => normaliseStationName(stationName) === normalised,
   );
