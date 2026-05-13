@@ -113,6 +113,7 @@ function createCityLoopPillIcon(strokeColor: string, stationName: string) {
   if (isCombinedCentralLibrary) {
     return L.divIcon({
 html: `
+  <div style="position:relative;width:54px;height:78px;display:flex;align-items:center;justify-content:center;">
   <div style="position:relative;width:30px;height:58px; transform: rotate(-12deg); transform-origin: center;">
     
     <div style="position:absolute;left:11px;top:14px;width:8px;height:38px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 8px rgba(0,0,0,0.36);overflow:hidden;">
@@ -124,25 +125,31 @@ html: `
     <div style="position:absolute;left:16px;top:0;width:14px;height:8px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 8px rgba(0,0,0,0.36);"></div>
 
   </div>
+</div>
 `,
       className: "bg-transparent border-none",
-      iconSize: [30, 58],
-      iconAnchor: [15, 29],
+      iconSize: [54, 78],
+      iconAnchor: [27, 39],
       popupAnchor: [0, -18],
     });
   }
 
+  const hitWidth = isHorizontalPill ? (isCompactHorizontalPill ? 52 : 62) : 38;
+  const hitHeight = isHorizontalPill ? 38 : 58;
+
   return L.divIcon({
     html: `
-      <div style="display:flex;align-items:center;justify-content:center;width:${isHorizontalPill ? (isCompactHorizontalPill ? "28px" : "34px") : "14px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "14px" : "16px") : "34px"};transform:rotate(${pillRotation});transform-origin:center;">
+      <div style="display:flex;align-items:center;justify-content:center;width:${hitWidth}px;height:${hitHeight}px;">
+        <div style="display:flex;align-items:center;justify-content:center;width:${isHorizontalPill ? (isCompactHorizontalPill ? "28px" : "34px") : "14px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "14px" : "16px") : "34px"};transform:rotate(${pillRotation});transform-origin:center;">
         <div style="width:${isHorizontalPill ? (isCompactHorizontalPill ? "22px" : "28px") : "8px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "7px" : "8px") : "28px"};border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 8px rgba(0,0,0,0.36);position:relative;overflow:hidden;">
           <div style="position:absolute;${isHorizontalPill ? `left:${isCompactHorizontalPill ? "2px" : "3px"};right:${isCompactHorizontalPill ? "2px" : "3px"};top:1px;height:2px;` : "top:3px;bottom:3px;left:1px;width:2px;"}border-radius:9999px;background:${strokeColor};opacity:0.95;"></div>
+        </div>
         </div>
       </div>
     `,
     className: "bg-transparent border-none",
-    iconSize: isHorizontalPill ? (isCompactHorizontalPill ? [28, 14] : [34, 16]) : [14, 34],
-    iconAnchor: isHorizontalPill ? (isCompactHorizontalPill ? [14, 7] : [17, 8]) : [7, 17],
+    iconSize: [hitWidth, hitHeight],
+    iconAnchor: [Math.round(hitWidth / 2), Math.round(hitHeight / 2)],
     popupAnchor: isHorizontalPill ? [0, -10] : [0, -18],
   });
 }
