@@ -31,6 +31,7 @@ import { findStationCoordinate } from "@/lib/station-coordinates";
 import { fetchConsistSnapshot, type ConsistSnapshot } from "@/lib/transportvic-bot";
 import { fetchMarkerOverrides, saveMarkerOverrides, type MarkerOverride } from "@/lib/marker-overrides";
 import { DEFAULT_TRANSPORT_MODES } from "@/lib/preferences";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Train,
   MapPin,
@@ -7121,6 +7122,18 @@ function inferComengVariant(vehicle: LiveTrain) {
   return "South-side Comeng";
 }
 
+function sortVehiclesByViewportDistance<T extends { lat: number; lng: number }>(
+  vehicles: T[],
+  bounds: L.LatLngBounds,
+) {
+  const center = bounds.getCenter();
+  return [...vehicles].sort((left, right) => {
+    const leftDistance = center.distanceTo(L.latLng(left.lat, left.lng));
+    const rightDistance = center.distanceTo(L.latLng(right.lat, right.lng));
+    return leftDistance - rightDistance;
+  });
+}
+
 function normaliseMetroLineGroup(vehicle: LiveTrain) {
   const searchable = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
   if (/(metro tunnel|town hall|state library)/i.test(searchable)) return "metro-tunnel";
@@ -7575,6 +7588,7 @@ export function Map({
   onFocusedVehicleHandled,
   debugLineKey = "none",
 }: MapProps = {}) {
+  const isMobile = useIsMobile();
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
   const consistData = { active: false } as any;
@@ -7586,14 +7600,16 @@ export function Map({
   const [mapZoom, setMapZoom] = useState(13);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
   const viewportBoundsQuery = useMemo(() => {
-    const sourceBounds = mapBounds?.pad(0.35) ?? L.latLngBounds([-38.25, 144.35], [-37.45, 145.55]);
+    const sourceBounds = mapBounds?.pad(isMobile ? 0.2 : 0.35) ?? L.latLngBounds([-38.25, 144.35], [-37.45, 145.55]);
     return {
       minLat: Number(sourceBounds.getSouth().toFixed(5)),
       maxLat: Number(sourceBounds.getNorth().toFixed(5)),
       minLng: Number(sourceBounds.getWest().toFixed(5)),
       maxLng: Number(sourceBounds.getEast().toFixed(5)),
     };
-  }, [mapBounds]);
+  }, [isMobile, mapBounds]);
+  const allowMobileHeavySurfaceTracking = !isMobile || mapZoom >= 13.25;
+  const allowMobileHeavyTrainTracking = !isMobile || mapZoom >= 11.75;
   const visibleViewportBounds = useMemo(
     () =>
       L.latLngBounds(
@@ -7630,8 +7646,9 @@ export function Map({
   } = useQuery({
     queryKey: ["/api/ptv/live-trains", viewportBoundsQuery],
     queryFn: () => fetchLiveTrains(viewportBoundsQuery),
-    enabled: !isGuest,
-    refetchInterval: 15000,
+    enabled: !isGuest && allowMobileHeavyTrainTracking && (transportModes.includes("train") || transportModes.includes("vline")),
+    refetchInterval: isMobile ? 25_000 : 15_000,
+    staleTime: isMobile ? 15_000 : 5_000,
     retry: false,
   });
   const {
@@ -7640,8 +7657,9 @@ export function Map({
   } = useQuery({
     queryKey: ["/api/ptv/live-buses", viewportBoundsQuery],
     queryFn: () => fetchLiveBuses(viewportBoundsQuery),
-    enabled: !isGuest,
-    refetchInterval: 15000,
+    enabled: !isGuest && transportModes.includes("bus") && allowMobileHeavySurfaceTracking,
+    refetchInterval: isMobile ? 30_000 : 15_000,
+    staleTime: isMobile ? 20_000 : 5_000,
     retry: false,
   });
   const {
@@ -7650,8 +7668,9 @@ export function Map({
   } = useQuery({
     queryKey: ["/api/ptv/live-trams", viewportBoundsQuery],
     queryFn: () => fetchLiveTrams(viewportBoundsQuery),
-    enabled: !isGuest,
-    refetchInterval: 15000,
+    enabled: !isGuest && transportModes.includes("tram") && allowMobileHeavySurfaceTracking,
+    refetchInterval: isMobile ? 30_000 : 15_000,
+    staleTime: isMobile ? 20_000 : 5_000,
     retry: false,
   });
   const { data: featuredConsistSnapshot } = useQuery({
@@ -7824,8 +7843,17 @@ export function Map({
     heatCircles: true,
   });
   const regularLiveVehicles = useMemo(
-    () => liveVehicles.filter((vehicle) => vehicle.consist !== FEATURED_CONSIST),
-    [liveVehicles],
+    () => {
+      const filtered = liveVehicles.filter((vehicle) => vehicle.consist !== FEATURED_CONSIST);
+      if (!isMobile) {
+        return filtered;
+      }
+
+      const limited = sortVehiclesByViewportDistance(filtered, visibleViewportBounds);
+      const cap = mapZoom >= 13 ? 160 : mapZoom >= 12 ? 110 : 80;
+      return limited.slice(0, cap);
+    },
+    [isMobile, liveVehicles, mapZoom, visibleViewportBounds],
   );
   const metroLiveVehicles = useMemo(
     () =>
@@ -8320,22 +8348,38 @@ export function Map({
   );
 
   const visibleLiveBuses = useMemo(
-    () =>
-      liveBuses.filter(
+    () => {
+      const filtered = liveBuses.filter(
         (bus) =>
           isSurfaceRouteVisible("bus", bus.route) &&
           visibleViewportBounds.contains(L.latLng(bus.lat, bus.lng)),
-      ),
-    [isSurfaceRouteVisible, liveBuses, visibleViewportBounds],
+      );
+
+      if (!isMobile) {
+        return filtered;
+      }
+
+      const cap = mapZoom >= 14 ? 90 : mapZoom >= 13.25 ? 50 : 0;
+      return sortVehiclesByViewportDistance(filtered, visibleViewportBounds).slice(0, cap);
+    },
+    [isMobile, isSurfaceRouteVisible, liveBuses, mapZoom, visibleViewportBounds],
   );
   const visibleLiveTrams = useMemo(
-    () =>
-      liveTrams.filter(
+    () => {
+      const filtered = liveTrams.filter(
         (tram) =>
           isSurfaceRouteVisible("tram", tram.route) &&
           visibleViewportBounds.contains(L.latLng(tram.lat, tram.lng)),
-      ),
-    [isSurfaceRouteVisible, liveTrams, visibleViewportBounds],
+      );
+
+      if (!isMobile) {
+        return filtered;
+      }
+
+      const cap = mapZoom >= 14 ? 110 : mapZoom >= 13.25 ? 60 : 0;
+      return sortVehiclesByViewportDistance(filtered, visibleViewportBounds).slice(0, cap);
+    },
+    [isMobile, isSurfaceRouteVisible, liveTrams, mapZoom, visibleViewportBounds],
   );
   const selectedSurfaceStopLiveBuses = useMemo(() => {
     if (!selectedSurfaceStop || !selectedSurfaceStop.modes.includes("bus")) {
@@ -8485,6 +8529,8 @@ export function Map({
       : "text-white/75 border-white/10 bg-slate-950/70";
   const liveTrainStatusLabel = hasLiveTrainFeedError
     ? "Live tracker needs attention"
+    : isMobile && !allowMobileHeavyTrainTracking
+      ? "Zoom in to load live trains"
     : isLiveTrainsLoading
       ? "Loading live trains"
       : liveVehicles.length > 0
@@ -8492,6 +8538,8 @@ export function Map({
         : "No active trains returned right now";
   const liveTrainStatusDetail = hasLiveTrainFeedError
     ? liveTrainsErrorMessage
+    : isMobile && !allowMobileHeavyTrainTracking
+      ? "Mobile mode delays train tracking until you zoom in a little further, which helps keep iPhone stable."
     : "Tap a train marker or use the planner live list to jump straight into trip tracking.";
   const visibleServiceFilters = SERVICE_FILTERS.filter((filter) => {
     if (filter.key === "crossCityPink") {
@@ -8620,6 +8668,10 @@ export function Map({
         center={MELBOURNE_CENTER}
         zoom={13}
         zoomControl={false}
+        preferCanvas={isMobile}
+        zoomAnimation={!isMobile}
+        fadeAnimation={!isMobile}
+        markerZoomAnimation={!isMobile}
         dragging={!isMarkerEditMode}
         doubleClickZoom={!isMarkerEditMode}
         touchZoom={!isMarkerEditMode}

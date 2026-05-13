@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { ChevronDown, ChevronUp, MapPin, Plus, Search, TrainFront } from "lucide-react";
 import {
   Map as TransitMap,
@@ -700,6 +701,7 @@ function DockedPanelSheet({ isOpen, onToggle, eyebrow, title, summary, children 
 
 export default function Home() {
   const [, setLocation] = useLocation();
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { data: authSession } = useQuery({
     queryKey: ["auth-session"],
@@ -712,8 +714,8 @@ export default function Home() {
     queryFn: fetchLiveTrains,
     enabled: (authSession?.user?.role ?? "") !== "Guest",
     retry: false,
-    refetchInterval: 15_000,
-    staleTime: 10_000,
+    refetchInterval: isMobile ? 30_000 : 15_000,
+    staleTime: isMobile ? 20_000 : 10_000,
   });
     const isAuthenticated = authSession?.authenticated ?? false;
     const [activeTab, setActiveTab] = useState<"map" | "fleets" | "admin">("map");
@@ -769,6 +771,13 @@ export default function Home() {
   const isPremium = hasPremiumAccess(preferences);
   const premiumPaypalLink = getPremiumPaypalLink(preferences);
   const favouriteConsists = getFavouriteConsists(preferences);
+  const isDatabaseConfigured = authSession?.databaseConfigured === true;
+
+  useEffect(() => {
+    if (isMobile) {
+      setIsUtilityPanelOpen(false);
+    }
+  }, [isMobile]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2093,7 +2102,7 @@ export default function Home() {
         debugLineKey={adminDebugLineKey}
       />
 
-      {activeTab === "map" && <RiskyRoutes />}
+      {activeTab === "map" && !isMobile && <RiskyRoutes />}
 
       {activeTab === "map" && (
         <div className="absolute inset-x-0 bottom-0 z-40 pointer-events-none">
@@ -2633,6 +2642,14 @@ export default function Home() {
 
                       <div className="rounded-[1.8rem] border border-white/10 bg-white/5 p-5">
                         <p className="text-sm font-semibold text-white">How registration works right now</p>
+                        {!isDatabaseConfigured && (
+                          <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+                            The account database is not configured right now. Guest browsing still works, but proper account
+                            registration, persistence after refresh/relaunch, and admin account management need
+                            <span className="font-semibold text-white"> DATABASE_URL </span>
+                            connected on the server.
+                          </div>
+                        )}
                         <div className="mt-4 space-y-3 text-sm text-white/70">
                           <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
                             <p className="text-xs uppercase tracking-[0.18em] text-white/45">Sign-up gate</p>

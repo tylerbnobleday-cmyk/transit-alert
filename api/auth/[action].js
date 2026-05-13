@@ -1,6 +1,8 @@
 import {
   consumeAuthRateLimit,
+  getAccountStorageStatus,
   getRegistrationPhase,
+  isDatabaseConfigured,
   ROLE_OPTIONS,
   authenticateUser,
   clearSessionCookie,
@@ -29,16 +31,24 @@ export default async function handler(req, res) {
 
   if (action === "session") {
     const user = await getSessionUser(req);
+    const storageStatus = await getAccountStorageStatus();
     sendJson(res, 200, {
       authenticated: Boolean(user),
       user: user ?? null,
       roles: ROLE_OPTIONS,
+      databaseConfigured: storageStatus.databaseConfigured,
+      accountStorage: storageStatus.accountStorage,
     });
     return;
   }
 
   if (action === "roles") {
-    sendJson(res, 200, { roles: ROLE_OPTIONS, publicRoles: ["Traveller"], registrationPhase: getRegistrationPhase() });
+    sendJson(res, 200, {
+      roles: ROLE_OPTIONS,
+      publicRoles: ["Traveller"],
+      registrationPhase: getRegistrationPhase(),
+      databaseConfigured: isDatabaseConfigured(),
+    });
     return;
   }
 
@@ -99,6 +109,12 @@ export default async function handler(req, res) {
       sendJson(res, 400, { error: "Username format is invalid" });
       return;
     }
+    if (!isDatabaseConfigured() && username.trim().toLowerCase() !== String(process.env.ADMIN_USERNAME || "admin").trim().toLowerCase()) {
+      sendJson(res, 503, {
+        error: "Account database is not configured yet. Ask an admin to finish database setup before signing in.",
+      });
+      return;
+    }
 
     const user = await authenticateUser(username, password);
     if (!user) {
@@ -131,6 +147,12 @@ export default async function handler(req, res) {
     const password = String(body.password || "");
     const requestedRole = String(body.role || "Traveller").trim();
     const registrationPhase = getRegistrationPhase();
+    if (!isDatabaseConfigured()) {
+      sendJson(res, 503, {
+        error: "Registration is disabled until the account database is configured.",
+      });
+      return;
+    }
 
     if (!username || username.length < 3) {
       sendJson(res, 400, { error: "Username must be at least 3 characters" });

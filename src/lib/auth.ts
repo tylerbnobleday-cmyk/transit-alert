@@ -10,6 +10,15 @@ export type AuthSession = {
   authenticated: boolean;
   user: AuthUser | null;
   roles?: string[];
+  databaseConfigured?: boolean;
+  accountStorage?: "database" | "fallback";
+};
+
+export type RolesPayload = {
+  roles: string[];
+  publicRoles?: string[];
+  registrationPhase?: string;
+  databaseConfigured?: boolean;
 };
 
 export const GUEST_SESSION_INTENT_KEY = "transitalert-guest-intent";
@@ -109,14 +118,19 @@ export function hasGuestIntent() {
   }
 }
 
-export async function fetchRoles(): Promise<string[]> {
+export async function fetchRoles(): Promise<RolesPayload> {
   const response = await fetch("/api/auth/roles");
   if (!response.ok) {
     throw new Error(`Failed to load roles (${response.status})`);
   }
 
-  const payload = (await response.json()) as { roles?: string[] };
-  return Array.isArray(payload.roles) ? payload.roles : [];
+  const payload = (await response.json()) as Partial<RolesPayload>;
+  return {
+    roles: Array.isArray(payload.roles) ? payload.roles : [],
+    publicRoles: Array.isArray(payload.publicRoles) ? payload.publicRoles : ["Traveller"],
+    registrationPhase: typeof payload.registrationPhase === "string" ? payload.registrationPhase : "debug-testers",
+    databaseConfigured: payload.databaseConfigured === true,
+  };
 }
 
 export async function logoutSession(): Promise<void> {

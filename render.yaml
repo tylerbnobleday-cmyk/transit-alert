@@ -9,3 +9,12 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22
+      - key: DATABASE_URL
+        fromDatabase:
+          name: transit-alert-db
+          property: connectionString
+databases:
+  - name: transit-alert-db
+    plan: free
+    databaseName: transitalert
+    user: transitalert

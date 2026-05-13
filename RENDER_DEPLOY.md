@@ -20,19 +20,20 @@ Render can also read these from [render.yaml](./render.yaml).
 - `AUTH_SESSION_SECRET`
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`
+- `DATABASE_URL`
 
 ## Optional environment variables
 
 - `APPROVED_DEBUG_TESTERS`
 - `DEBUG_TESTER_APPROVALS`
-- `DATABASE_URL`
 - `NSW_TRANSPORT_API_KEY`
 - `TRACKED_CONSISTS`
 - `REGISTRATION_PHASE`
 
 ## Notes
 
-- `DATABASE_URL` is still recommended if you want persistent accounts, preferences, and admin-managed state.
-- Without `DATABASE_URL`, fallback auth/config behaviour still works, but it is not the long-term account store.
+- Account registration, saved preferences, and admin-managed access should now be treated as database-backed features.
+- `render.yaml` now includes a Render Postgres blueprint entry named `transit-alert-db` and wires its connection string into `DATABASE_URL`.
+- On first startup, the server bootstraps the required auth/config/preferences tables automatically when `DATABASE_URL` is present.
 - The Render server serves SPA routes like `/app` by falling back to `dist/index.html`.
 - Render was failing on `corepack enable` because its filesystem is read-only there, so use `corepack pnpm ...` directly instead.

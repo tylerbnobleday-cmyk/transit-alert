@@ -47,12 +47,14 @@ export default function Login() {
     staleTime: 60_000,
   });
 
-  const { data: roles = [] } = useQuery({
+  const { data: rolesPayload } = useQuery({
     queryKey: ["auth-roles"],
     queryFn: fetchRoles,
     retry: false,
     staleTime: Infinity,
   });
+  const roles = rolesPayload?.roles ?? [];
+  const databaseConfigured = session?.databaseConfigured ?? rolesPayload?.databaseConfigured ?? false;
 
   const clearGuestSessionMutation = useMutation({
     mutationFn: logoutSession,
@@ -268,6 +270,13 @@ export default function Login() {
                 Register
               </button>
             </div>
+
+            {!databaseConfigured && (
+              <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                The account database is not configured yet. Guest browsing still works, but sign-in and new account persistence
+                need the live database connected first.
+              </div>
+            )}
 
             {mode === "sign-in" ? (
               <div>

@@ -14,6 +14,7 @@ import liveTrainsHandler from "../api/ptv/live-trains.js";
 import liveTramsHandler from "../api/ptv/live-trams.js";
 import reportsHandler from "../api/reports/[[...slug]].js";
 import telegramStatusHandler from "../api/telegram/status.js";
+import { ensureDatabaseReady, isDatabaseConfigured } from "../src/lib/db/src/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -152,9 +153,8 @@ const server = createServer(async (req, res) => {
     try {
       await resolvedApi.handler(req, createResponseShim(res));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unexpected server error";
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify({ error: message }));
+      res.end(JSON.stringify({ error: "Unexpected server error" }));
     }
     return;
   }
@@ -162,12 +162,26 @@ const server = createServer(async (req, res) => {
   try {
     await serveSpa(urlObject, res);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to serve application";
     res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end(message);
+    res.end("Failed to serve application");
   }
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`TransitAlert Render server listening on ${PORT}`);
-});
+async function start() {
+  if (isDatabaseConfigured) {
+    try {
+      await ensureDatabaseReady();
+      console.log("[transitalert-db] Database ready");
+    } catch (error) {
+      console.error("[transitalert-db] Database bootstrap failed", error);
+    }
+  } else {
+    console.warn("[transitalert-db] DATABASE_URL is not configured");
+  }
+
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`TransitAlert Render server listening on ${PORT}`);
+  });
+}
+
+void start();

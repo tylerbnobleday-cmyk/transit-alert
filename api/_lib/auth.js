@@ -60,10 +60,14 @@ async function loadDbContext() {
   }
 
   try {
-    const [{ db }, schema] = await Promise.all([
+    const [{ db, ensureDatabaseReady, isDatabaseConfigured }, schema] = await Promise.all([
       import("../../src/lib/db/src/index.js"),
       import("../../src/lib/db/src/schema/auth.js"),
     ]);
+
+    if (isDatabaseConfigured) {
+      await ensureDatabaseReady();
+    }
 
     cachedDbContext = db
       ? {
@@ -144,6 +148,19 @@ export function isApprovedDebugTester(username, email) {
 
 export function getRegistrationPhase() {
   return REGISTRATION_PHASE;
+}
+
+export function isDatabaseConfigured() {
+  return Boolean(process.env.DATABASE_URL);
+}
+
+export async function getAccountStorageStatus() {
+  const configured = isDatabaseConfigured();
+  const context = await loadDbContext();
+  return {
+    databaseConfigured: configured,
+    accountStorage: configured && context?.db ? "database" : "fallback",
+  };
 }
 
 function findFallbackUserByUsernameOrEmail(username, email = "") {
@@ -434,10 +451,6 @@ export async function authenticateUser(username, password) {
     if (username.trim().toLowerCase() === adminUsername.toLowerCase() && password === adminPassword) {
       return getFallbackAdminUser();
     }
-    const fallbackUser = findFallbackUserByUsernameOrEmail(username);
-    if (fallbackUser && verifyPassword(password, fallbackUser.passwordHash)) {
-      return sanitizeFallbackUser(fallbackUser);
-    }
     return null;
   }
 }
@@ -448,27 +461,7 @@ export async function registerUser(input) {
   const userPreferencesTable = context?.userPreferencesTable;
   const appUsersTable = context?.appUsersTable;
   if (!db) {
-    const existingFallbackUser = findFallbackUserByUsernameOrEmail(input.username, input.email);
-    if (existingFallbackUser) {
-      throw new Error(
-        existingFallbackUser.username.toLowerCase() === input.username.trim().toLowerCase()
-          ? "That username is already taken"
-          : "That email address is already registered",
-      );
-    }
-
-    const fallbackUser = {
-      id: createFallbackUserId(input.username),
-      username: input.username,
-      email: input.email,
-      role: input.role,
-      isAdmin: false,
-      isPremium: false,
-      passwordHash: createPasswordHash(input.password),
-    };
-
-    FALLBACK_USERS.push(fallbackUser);
-    return sanitizeFallbackUser(fallbackUser);
+    throw new Error("Account database is not configured yet. Ask an admin to finish database setup.");
   }
   const [user] = await db
     .insert(appUsersTable)
@@ -511,7 +504,7 @@ export async function getUserByUsernameOrEmail(username, email) {
     if (matchesAdmin) {
       return getFallbackAdminUser();
     }
-    return findFallbackUserByUsernameOrEmail(username, email);
+    return null;
   }
 }
 
