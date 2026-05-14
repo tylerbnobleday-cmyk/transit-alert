@@ -30,6 +30,7 @@ import { GENERATED_TRAM_ROUTE_BUNDLES } from "@/lib/generated-tram-routes";
 import { findStationCoordinate } from "@/lib/station-coordinates";
 import { fetchConsistSnapshot, type ConsistSnapshot } from "@/lib/transportvic-bot";
 import { fetchMarkerOverrides, saveMarkerOverrides, type MarkerOverride } from "@/lib/marker-overrides";
+import type { MobilePerformanceMode } from "@/lib/preferences";
 import { DEFAULT_TRANSPORT_MODES } from "@/lib/preferences";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
@@ -287,6 +288,7 @@ interface MapProps {
   focusedVehicleKey?: string | null;
   onFocusedVehicleHandled?: () => void;
   debugLineKey?: AdminDebugLineKey;
+  mobilePerformanceMode?: MobilePerformanceMode;
 }
 
 export interface LayerState {
@@ -1445,6 +1447,16 @@ const GIPPSLAND_STATIONS: Station[] = [
   { name: "Traralgon", position: [-38.19489747401578, 146.5415475189243], vline: true },
 ];
 
+const BALLARAT_REGIONAL_STATIONS: Station[] = [
+  { name: "Southern Cross", position: [-37.8176, 144.9522], vline: true, zone: "1" },
+  { name: "Sunshine", position: [-37.791897110759385, 144.83351243198313], vline: true, zone: "1" },
+  { name: "Melton", position: [-37.68490447367019, 144.58866263023615], vline: true, zone: "2" },
+  { name: "Ballarat", position: [-37.55861757585211, 143.85946145441608], vline: true },
+  { name: "Wendouree", position: [-37.5309, 143.8487], vline: true },
+  { name: "Ararat", position: [-37.2867, 142.9479], vline: true },
+  { name: "Maryborough", position: [-37.0462, 143.7397], vline: true },
+];
+
 // =========================
 // Polyline Data
 // =========================
@@ -1979,16 +1991,16 @@ const BALLARAT_LINE: [number, number][] = [
   [-37.7017, 144.4419], // Bacchus Marsh
   [-37.7085, 144.2291], // Ballan
   [-37.7376, 144.1065], // Gordon corridor
-  [-37.5622, 143.8521], // Ballarat
+  [-37.55861757585211, 143.85946145441608], // Ballarat
   [-37.5309, 143.8487], // Wendouree
 ];
 const ARARAT_BRANCH_LINE: [number, number][] = [
-  [-37.5622, 143.8521], // Ballarat
+  [-37.55861757585211, 143.85946145441608], // Ballarat
   [-37.7268, 143.6925], // Beaufort
   [-37.2867, 142.9479], // Ararat
 ];
 const MARYBOROUGH_BRANCH_LINE: [number, number][] = [
-  [-37.5622, 143.8521], // Ballarat
+  [-37.55861757585211, 143.85946145441608], // Ballarat
   [-37.4084, 143.7954], // Creswick
   [-37.0462, 143.7397], // Maryborough
 ];
@@ -2004,7 +2016,7 @@ const FREIGHT_LOCATIONS: FreightLocation[] = [
   { name: "Seymour", kind: "Freight corridor", position: [-37.0264, 145.1337] },
   { name: "Benalla", kind: "Freight corridor", position: [-36.5515, 145.9843] },
   { name: "Wodonga", kind: "Freight corridor", position: [-36.1212, 146.8879] },
-  { name: "Ballarat", kind: "Freight corridor", position: [-37.5622, 143.8521] },
+  { name: "Ballarat", kind: "Freight corridor", position: [-37.55861757585211, 143.85946145441608] },
   { name: "Maryborough", kind: "Freight corridor", position: [-37.0462, 143.7397] },
 ];
 const FREIGHT_PORT_TERMINAL_LINE: [number, number][] = [
@@ -2025,7 +2037,7 @@ const FREIGHT_WESTERN_CORRIDOR_LINE: [number, number][] = [
   [-38.0972, 144.3447], // North Geelong Yard
   [-38.2213, 144.2054], // Gheringhap Loop
   [-37.4364, 142.8823], // Maroona Loop
-  [-37.5622, 143.8521], // Ballarat
+  [-37.55861757585211, 143.85946145441608], // Ballarat
   [-37.0462, 143.7397], // Maryborough
 ];
 const FREIGHT_NORTH_CORRIDOR_LINE: [number, number][] = [
@@ -2098,6 +2110,7 @@ export const ALL_STATIONS: Station[] = [
   ...WILLIAMSTOWN_STATIONS,
   ...ALTONA_LOOP_STATIONS,
   ...GIPPSLAND_STATIONS,
+  ...BALLARAT_REGIONAL_STATIONS,
 ].filter(
   (station, index, array) =>
     array.findIndex((item) => item.name === station.name) === index
@@ -2531,53 +2544,53 @@ function createLiveTramIcon(tram: LiveTram) {
 function getSurfaceRouteColors(routeLabel: string, fallbackFillColor: string, fallbackStrokeColor: string) {
   switch (normaliseSurfaceRouteLabel(routeLabel)) {
     case "1":
-      return { fillColor: "#84cc16", strokeColor: "#4d7c0f" };
+      return { fillColor: "#b5bd00", strokeColor: "#7e8500" };
     case "3":
-      return { fillColor: "#7dd3fc", strokeColor: "#0369a1" };
+      return { fillColor: "#8dc8e8", strokeColor: "#4f88a8" };
     case "5":
-      return { fillColor: "#dc2626", strokeColor: "#7f1d1d" };
+      return { fillColor: "#d50032", strokeColor: "#8f0022" };
     case "6":
-      return { fillColor: "#166534", strokeColor: "#14532d" };
+      return { fillColor: "#01426a", strokeColor: "#012c47" };
     case "11":
-      return { fillColor: "#0f766e", strokeColor: "#134e4a" };
+      return { fillColor: "#6eceb2", strokeColor: "#3f8f7d" };
     case "12":
-      return { fillColor: "#06b6d4", strokeColor: "#0e7490" };
+      return { fillColor: "#007e92", strokeColor: "#005866" };
     case "16":
-      return { fillColor: "#d4a017", strokeColor: "#8b6b00" };
+      return { fillColor: "#fbd872", strokeColor: "#b8952f" };
     case "19":
-      return { fillColor: "#1e3a8a", strokeColor: "#172554" };
+      return { fillColor: "#8a1b61", strokeColor: "#5d1242" };
     case "30":
-      return { fillColor: "#7c3aed", strokeColor: "#581c87" };
+      return { fillColor: "#534f96", strokeColor: "#3b386c" };
     case "35":
-      return { fillColor: "#4b5563", strokeColor: "#1f2937" };
+      return { fillColor: "#6b3529", strokeColor: "#4a251d" };
     case "48":
-      return { fillColor: "#14b8a6", strokeColor: "#0f766e" };
+      return { fillColor: "#333434", strokeColor: "#1e1f20" };
     case "57":
-      return { fillColor: "#5eead4", strokeColor: "#115e59" };
+      return { fillColor: "#00c1d5", strokeColor: "#008a99" };
     case "58":
-      return { fillColor: "#6b8e23", strokeColor: "#4d6b12" };
+      return { fillColor: "#969696", strokeColor: "#666666" };
     case "59":
-      return { fillColor: "#6b0f1a", strokeColor: "#450a0a" };
+      return { fillColor: "#00653a", strokeColor: "#004427" };
     case "64":
-      return { fillColor: "#38bdf8", strokeColor: "#0369a1" };
+      return { fillColor: "#00ab8e", strokeColor: "#007866" };
     case "67":
-      return { fillColor: "#8b5e3c", strokeColor: "#5b3a29" };
+      return { fillColor: "#956c58", strokeColor: "#6b4c3d" };
     case "70":
-      return { fillColor: "#ec4899", strokeColor: "#9d174d" };
+      return { fillColor: "#f59bbb", strokeColor: "#c56d8c" };
     case "72":
-      return { fillColor: "#bfdbfe", strokeColor: "#60a5fa" };
+      return { fillColor: "#9abeaa", strokeColor: "#6d8d7c" };
     case "75":
-      return { fillColor: "#2563eb", strokeColor: "#1d4ed8" };
+      return { fillColor: "#00a9e0", strokeColor: "#00779e" };
     case "78":
-      return { fillColor: "#c084fc", strokeColor: "#7e22ce" };
+      return { fillColor: "#a0a0d6", strokeColor: "#6f6fa0" };
     case "82":
-      return { fillColor: "#a3e635", strokeColor: "#4d7c0f" };
+      return { fillColor: "#d2d755", strokeColor: "#9a9f2e" };
     case "86":
-      return { fillColor: "#f97316", strokeColor: "#c2410c" };
+      return { fillColor: "#ffb500", strokeColor: "#c58800" };
     case "96":
-      return { fillColor: "#d946ef", strokeColor: "#a21caf" };
+      return { fillColor: "#c6007e", strokeColor: "#8b0058" };
     case "109":
-      return { fillColor: "#ea580c", strokeColor: "#9a3412" };
+      return { fillColor: "#e87722", strokeColor: "#aa5312" };
     default:
       return { fillColor: fallbackFillColor, strokeColor: fallbackStrokeColor };
   }
@@ -5631,6 +5644,7 @@ function renderPlatformBoardCard(
   stationName: string,
   platform: PlatformBoardEntry,
   indexOffset = 0,
+  isPremium = false,
   onServiceClick?: (
     stationName: string,
     platform: PlatformBoardEntry,
@@ -7606,8 +7620,11 @@ export function Map({
   focusedVehicleKey = null,
   onFocusedVehicleHandled,
   debugLineKey = "none",
+  mobilePerformanceMode = "auto",
 }: MapProps = {}) {
   const isMobile = useIsMobile();
+  const mobilePerformanceEnabled =
+    mobilePerformanceMode === "on" || (mobilePerformanceMode === "auto" && isMobile);
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
   const consistData = { active: false } as any;
@@ -7619,16 +7636,16 @@ export function Map({
   const [mapZoom, setMapZoom] = useState(13);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
   const viewportBoundsQuery = useMemo(() => {
-    const sourceBounds = mapBounds?.pad(isMobile ? 0.2 : 0.35) ?? L.latLngBounds([-38.25, 144.35], [-37.45, 145.55]);
+    const sourceBounds = mapBounds?.pad(mobilePerformanceEnabled ? 0.2 : 0.35) ?? L.latLngBounds([-38.25, 144.35], [-37.45, 145.55]);
     return {
       minLat: Number(sourceBounds.getSouth().toFixed(5)),
       maxLat: Number(sourceBounds.getNorth().toFixed(5)),
       minLng: Number(sourceBounds.getWest().toFixed(5)),
       maxLng: Number(sourceBounds.getEast().toFixed(5)),
     };
-  }, [isMobile, mapBounds]);
-  const allowMobileHeavySurfaceTracking = !isMobile || mapZoom >= 13.25;
-  const allowMobileHeavyTrainTracking = !isMobile || mapZoom >= 11.75;
+  }, [mapBounds, mobilePerformanceEnabled]);
+  const allowMobileHeavySurfaceTracking = !mobilePerformanceEnabled || mapZoom >= 13.25;
+  const allowMobileHeavyTrainTracking = !mobilePerformanceEnabled || mapZoom >= 11.75;
   const visibleViewportBounds = useMemo(
     () =>
       L.latLngBounds(
@@ -7666,8 +7683,8 @@ export function Map({
     queryKey: ["/api/ptv/live-trains", viewportBoundsQuery],
     queryFn: () => fetchLiveTrains(viewportBoundsQuery),
     enabled: !isGuest && allowMobileHeavyTrainTracking && (transportModes.includes("train") || transportModes.includes("vline")),
-    refetchInterval: isMobile ? 25_000 : 15_000,
-    staleTime: isMobile ? 15_000 : 5_000,
+    refetchInterval: mobilePerformanceEnabled ? 25_000 : 15_000,
+    staleTime: mobilePerformanceEnabled ? 15_000 : 5_000,
     retry: false,
   });
   const {
@@ -7677,8 +7694,8 @@ export function Map({
     queryKey: ["/api/ptv/live-buses", viewportBoundsQuery],
     queryFn: () => fetchLiveBuses(viewportBoundsQuery),
     enabled: !isGuest && transportModes.includes("bus") && allowMobileHeavySurfaceTracking,
-    refetchInterval: isMobile ? 30_000 : 15_000,
-    staleTime: isMobile ? 20_000 : 5_000,
+    refetchInterval: mobilePerformanceEnabled ? 30_000 : 15_000,
+    staleTime: mobilePerformanceEnabled ? 20_000 : 5_000,
     retry: false,
   });
   const {
@@ -7688,8 +7705,8 @@ export function Map({
     queryKey: ["/api/ptv/live-trams", viewportBoundsQuery],
     queryFn: () => fetchLiveTrams(viewportBoundsQuery),
     enabled: !isGuest && transportModes.includes("tram") && allowMobileHeavySurfaceTracking,
-    refetchInterval: isMobile ? 30_000 : 15_000,
-    staleTime: isMobile ? 20_000 : 5_000,
+    refetchInterval: mobilePerformanceEnabled ? 30_000 : 15_000,
+    staleTime: mobilePerformanceEnabled ? 20_000 : 5_000,
     retry: false,
   });
   const { data: featuredConsistSnapshot } = useQuery({
@@ -7868,7 +7885,7 @@ export function Map({
   const regularLiveVehicles = useMemo(
     () => {
       const filtered = liveVehicles.filter((vehicle) => vehicle.consist !== FEATURED_CONSIST);
-      if (!isMobile) {
+      if (!mobilePerformanceEnabled) {
         return filtered;
       }
 
@@ -7876,7 +7893,7 @@ export function Map({
       const cap = mapZoom >= 13 ? 160 : mapZoom >= 12 ? 110 : 80;
       return limited.slice(0, cap);
     },
-    [isMobile, liveVehicles, mapZoom, visibleViewportBounds],
+    [liveVehicles, mapZoom, mobilePerformanceEnabled, visibleViewportBounds],
   );
   const metroLiveVehicles = useMemo(
     () =>
@@ -8552,7 +8569,7 @@ export function Map({
       : "text-white/75 border-white/10 bg-slate-950/70";
   const liveTrainStatusLabel = hasLiveTrainFeedError
     ? "Live tracker needs attention"
-    : isMobile && !allowMobileHeavyTrainTracking
+    : mobilePerformanceEnabled && !allowMobileHeavyTrainTracking
       ? "Zoom in to load live trains"
     : isLiveTrainsLoading
       ? "Loading live trains"
@@ -8561,7 +8578,7 @@ export function Map({
         : "No active trains returned right now";
   const liveTrainStatusDetail = hasLiveTrainFeedError
     ? liveTrainsErrorMessage
-    : isMobile && !allowMobileHeavyTrainTracking
+    : mobilePerformanceEnabled && !allowMobileHeavyTrainTracking
       ? "Mobile mode delays train tracking until you zoom in a little further, which helps keep iPhone stable."
     : "Tap a train marker or use the planner live list to jump straight into trip tracking.";
   const visibleServiceFilters = SERVICE_FILTERS.filter((filter) => {
@@ -8691,10 +8708,10 @@ export function Map({
         center={MELBOURNE_CENTER}
         zoom={13}
         zoomControl={false}
-        preferCanvas={isMobile}
-        zoomAnimation={!isMobile}
-        fadeAnimation={!isMobile}
-        markerZoomAnimation={!isMobile}
+        preferCanvas={mobilePerformanceEnabled}
+        zoomAnimation={!mobilePerformanceEnabled}
+        fadeAnimation={!mobilePerformanceEnabled}
+        markerZoomAnimation={!mobilePerformanceEnabled}
         dragging={!isMarkerEditMode}
         doubleClickZoom={!isMarkerEditMode}
         touchZoom={!isMarkerEditMode}
@@ -10399,6 +10416,7 @@ export function Map({
                               selectedDetail.station.name,
                               METRO_TUNNEL_CONNECTION_BOARD,
                               100,
+                              isPremium,
                               handlePlatformBoardServiceClick,
                             )}
                           </div>
@@ -10417,7 +10435,7 @@ export function Map({
 
                         <div className={`mt-2.5 grid gap-2 ${isMetroTunnelConnectorStation ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
                           {platformBoard.map((platform, index) =>
-                            renderPlatformBoardCard(selectedDetail.station.name, platform, index, handlePlatformBoardServiceClick),
+                            renderPlatformBoardCard(selectedDetail.station.name, platform, index, isPremium, handlePlatformBoardServiceClick),
                           )}
                         </div>
 

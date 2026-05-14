@@ -9,11 +9,13 @@ import {
   DEFAULT_TRANSPORT_MODES,
   defaultPreferences,
   fetchAccountPreferences,
+  getMobilePerformanceMode,
   getPremiumPaypalLink,
   getPremiumPriceAud,
   hasPremiumAccess,
   readLocalPreferences,
   saveAccountPreferences,
+  type MobilePerformanceMode,
   type UserPreferences,
   writeLocalPreferences,
 } from "@/lib/preferences";
@@ -227,6 +229,7 @@ export default function Settings() {
     () => (Array.isArray(preferences.transportModes) && preferences.transportModes.length > 0 ? preferences.transportModes : [...DEFAULT_TRANSPORT_MODES]),
     [preferences.transportModes],
   );
+  const mobilePerformanceMode = getMobilePerformanceMode(preferences);
   const premiumEnabled = hasPremiumAccess(preferences);
   const premiumPaypalLink = getPremiumPaypalLink(preferences);
   const premiumPriceAud = getPremiumPriceAud(preferences);
@@ -496,6 +499,32 @@ export default function Settings() {
                     </button>
                   );
                 })}
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">iPhone / mobile map mode</p>
+                <p className="mt-2 text-sm text-white/65">
+                  Use a lighter live-overlay mode on phones to reduce crashes, lag, and heavy redraws.
+                </p>
+                <select
+                  value={mobilePerformanceMode}
+                  onChange={(event) => {
+                    setSavedMessage("");
+                    const nextValue = event.target.value as MobilePerformanceMode;
+                    setPreferences((current) => ({
+                      ...current,
+                      appPreferences: {
+                        ...current.appPreferences,
+                        mobilePerformanceMode: nextValue,
+                      },
+                    }));
+                  }}
+                  className="mt-4 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-blue-400/40"
+                >
+                  <option value="auto">Auto on mobile</option>
+                  <option value="on">Force lighter performance mode</option>
+                  <option value="off">Prefer full desktop-style overlays</option>
+                </select>
               </div>
             </div>
 

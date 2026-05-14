@@ -9,6 +9,7 @@ export type UserPreferences = {
 const LOCAL_STORAGE_KEY = "transitalert-local-preferences";
 export const DEFAULT_TRANSPORT_MODES = ["train", "vline"] as const;
 export const DEFAULT_PREMIUM_PRICE_AUD = 5;
+export type MobilePerformanceMode = "auto" | "on" | "off";
 
 export const defaultPreferences: UserPreferences = {
   favouriteStops: [],
@@ -20,6 +21,7 @@ export const defaultPreferences: UserPreferences = {
     premiumPriceAud: DEFAULT_PREMIUM_PRICE_AUD,
     premiumPaypalLink: "",
     favouriteConsists: [],
+    mobilePerformanceMode: "auto" as MobilePerformanceMode,
   },
 };
 
@@ -44,6 +46,11 @@ export function getFavouriteConsists(preferences: UserPreferences | null | undef
     .filter((value): value is string => typeof value === "string")
     .map((value) => value.trim())
     .filter(Boolean);
+}
+
+export function getMobilePerformanceMode(preferences: UserPreferences | null | undefined): MobilePerformanceMode {
+  const raw = preferences?.appPreferences?.mobilePerformanceMode;
+  return raw === "on" || raw === "off" || raw === "auto" ? raw : "auto";
 }
 
 function isNetworkError(error: unknown) {

@@ -39,6 +39,7 @@ import {
   defaultPreferences,
   fetchAccountPreferences,
   getFavouriteConsists,
+  getMobilePerformanceMode,
   getPremiumPaypalLink,
   hasPremiumAccess,
   mergeLocalPreferences,
@@ -905,6 +906,7 @@ export default function Home() {
   const isAdmin = authSession?.user?.isAdmin ?? false;
   const isGuest = authSession?.user?.role === "Guest";
   const isPremium = hasPremiumAccess(preferences);
+  const mobilePerformanceMode = getMobilePerformanceMode(preferences);
   const premiumPaypalLink = getPremiumPaypalLink(preferences);
   const favouriteConsists = getFavouriteConsists(preferences);
   const isDatabaseConfigured = authSession?.databaseConfigured === true;
@@ -2235,6 +2237,7 @@ export default function Home() {
         isAdmin={isAdmin}
         isGuest={isGuest}
         isPremium={isPremium}
+        mobilePerformanceMode={mobilePerformanceMode}
         premiumPaypalLink={premiumPaypalLink}
         favouriteConsists={favouriteConsists}
         onToggleFavouriteConsist={toggleFavouriteConsist}
