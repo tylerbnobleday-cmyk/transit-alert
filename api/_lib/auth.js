@@ -30,7 +30,7 @@ const APPROVED_DEBUG_TESTERS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean),
 );
-const FALLBACK_APPROVED_DEBUG_TESTERS = new Set(["jackzilla110"]);
+const FALLBACK_APPROVED_DEBUG_TESTERS = new Set(["jackzilla110", "testdebuger123"]);
 const FALLBACK_USERS = [
   {
     id: "ashton",
