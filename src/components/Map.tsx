@@ -77,6 +77,7 @@ const SPECIAL_PILL_STATIONS = new Set([
   "Pakenham",
   "Frankston",
   "Malvern",
+  "Sunshine",
   "Watergardens",
   "Sunbury",
 ]);
@@ -1983,6 +1984,22 @@ const BALLARAT_SHARED_VLINE_TRUNK: [number, number][] = [
   [-37.79971717185788, 144.92584789732544], // South Kensington
   [-37.801696124765726, 144.90150029345793], // Footscray
   [-37.78812106172095, 144.83237218696007], // Sunshine
+];
+const SUNSHINE_VLINE_EXPRESS_OVERLAY: [number, number][] = [
+  [-37.7929, 144.8468],
+  [-37.7914, 144.8418],
+  [-37.7901, 144.8373],
+  [-37.7889, 144.8346],
+  [-37.7867, 144.8278],
+  [-37.7835, 144.8185],
+  [-37.7794, 144.8008], // Ardeer
+];
+const SUNSHINE_VLINE_STOPPING_OVERLAY: [number, number][] = [
+  [-37.78812106172095, 144.83237218696007], // Sunshine
+  [-37.7869, 144.8283],
+  [-37.7846, 144.8213],
+  [-37.7817, 144.8115],
+  [-37.7794, 144.8008], // Ardeer
 ];
 const BALLARAT_LINE: [number, number][] = [
   ...BALLARAT_SHARED_VLINE_TRUNK,
@@ -9115,10 +9132,20 @@ export function Map({
         {modeIsVlineVisible && (
           <>
             {(layers.geelongRegional || layers.ballaratRegional || layers.bendigoRegional) && (
-              <Polyline
-                positions={BALLARAT_SHARED_VLINE_TRUNK}
-                pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
-              />
+              <>
+                <Polyline
+                  positions={BALLARAT_SHARED_VLINE_TRUNK}
+                  pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
+                />
+                <Polyline
+                  positions={SUNSHINE_VLINE_EXPRESS_OVERLAY}
+                  pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.96 }}
+                />
+                <Polyline
+                  positions={SUNSHINE_VLINE_STOPPING_OVERLAY}
+                  pathOptions={{ color: "#7c3aed", weight: 4, opacity: 0.9 }}
+                />
+              </>
             )}
             {layers.ballaratRegional && (
               <>
