@@ -77,6 +77,8 @@ const SPECIAL_PILL_STATIONS = new Set([
   "Pakenham",
   "Frankston",
   "Malvern",
+  "Watergardens",
+  "Sunbury",
 ]);
 const SINGLE_RENDER_STATIONS = new Set([
   "Flinders Street",
