@@ -511,6 +511,10 @@ function getMarkerServiceTime(timestamp?: string) {
   });
 }
 
+function getPublicServiceReference(destination: string, etaLabel?: string) {
+  return `${etaLabel || "--:--"} ${getMarkerServiceCode(destination)} Service`;
+}
+
 function getTrainLabelPriority(vehicle: LiveTrain) {
     if (isVlineLiveTrain(vehicle)) {
       return "high";
@@ -5676,9 +5680,13 @@ function renderPlatformBoardCard(
                       {primaryService.originLabel}
                     </span>
                   )}
-                  {primaryService.tdnLabel && (
+                  {isPremium && primaryService.tdnLabel ? (
                     <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700">
                       {primaryService.tdnLabel}
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700">
+                      {getPublicServiceReference(primaryService.destination, primaryService.etaLabel)}
                     </span>
                   )}
                   <span>{primaryService.statusLabel ?? "Scheduled"}</span>
@@ -5717,9 +5725,13 @@ function renderPlatformBoardCard(
                           {service.originLabel}
                         </span>
                       )}
-                      {service.tdnLabel && (
+                      {isPremium && service.tdnLabel ? (
                         <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700">
                           {service.tdnLabel}
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700">
+                          {getPublicServiceReference(service.destination, service.etaLabel)}
                         </span>
                       )}
                       <span>{service.statusLabel ?? "Scheduled"}</span>
@@ -5783,7 +5795,7 @@ function renderPlatformBoardCard(
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <p className="text-[10px] text-white/50">{service.statusLabel ?? "Next service"}</p>
                     <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/80">
-                      {service.tdnLabel}
+                      {isPremium ? service.tdnLabel : getPublicServiceReference(display.destination, service.etaLabel)}
                     </span>
                   </div>
                 </div>
@@ -7771,7 +7783,11 @@ export function Map({
       selectedVehicleSnapshot?.next_trip?.id ??
       (isRegionalSetIdentifier(selectedVehicle.tdn) ? "" : selectedVehicle.tdn)
     : "";
-  const selectedVehicleJourneyLabel = selectedVehicleJourneyId ? `TDN ${selectedVehicleJourneyId}` : "";
+  const selectedVehicleJourneyLabel = selectedVehicle
+    ? isPremium
+      ? (selectedVehicleJourneyId ? `TDN ${selectedVehicleJourneyId}` : "")
+      : getPublicServiceReference(selectedVehicle.destination, getMarkerServiceTime(selectedVehicle.timestamp))
+    : "";
   const selectedVehicleRegionalSetLabel = selectedVehicleIsRegional && selectedVehicle
     ? getRegionalAllocatedSetLabel(selectedVehicle)
     : "";
@@ -7892,9 +7908,14 @@ export function Map({
     });
   }, []);
   const handleTrainLookup = useCallback(() => {
+    if (!isPremium) {
+      setTrainLookupMessage("Premium unlocks live TDN and consist lookup.");
+      return;
+    }
+
     const rawQuery = trainLookupQuery.trim();
     if (!rawQuery) {
-      setTrainLookupMessage("Enter a TDN to find a live service.");
+      setTrainLookupMessage("Enter a TDN or consist to find a live service.");
       return;
     }
 
@@ -7917,11 +7938,6 @@ export function Map({
     if (matchedByTdn) {
       focusVehicleOnMap(matchedByTdn);
       setTrainLookupMessage(`Jumped to TDN ${stripTdnPrefix(matchedByTdn.tdn)}.`);
-      return;
-    }
-
-    if (!isPremium) {
-      setTrainLookupMessage("Premium unlocks consist search. Regular accounts can only track by TDN.");
       return;
     }
 
@@ -9560,17 +9576,15 @@ export function Map({
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
-                {isPremium ? "Premium train lookup" : "TDN lookup"}
+                {isPremium ? "Premium train lookup" : "Premium train lookup"}
               </p>
               <p className="mt-1 text-sm font-semibold text-white">
-                {isPremium ? "Search by consist or TDN" : "Search by TDN only"}
+                {isPremium ? "Search by consist or TDN" : "Upgrade to search by TDN or consist"}
               </p>
             </div>
-            {isPremium ? (
-              <span className="rounded-full bg-amber-500/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">
-                Premium
-              </span>
-            ) : null}
+            <span className="rounded-full bg-amber-500/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+              Premium
+            </span>
           </div>
 
           <div className="mt-3 flex gap-2">
@@ -9590,14 +9604,16 @@ export function Map({
                     handleTrainLookup();
                   }
                 }}
-                placeholder={isPremium ? "430M or UFD11" : "UFD11"}
-                className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-white outline-none transition focus:border-blue-400/40"
+                placeholder={isPremium ? "430M or UFD11" : "Premium required"}
+                className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-white outline-none transition focus:border-blue-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!isPremium}
               />
             </label>
             <button
               type="button"
               onClick={handleTrainLookup}
               className="rounded-xl border border-blue-400/30 bg-blue-500/15 px-3 py-2 text-xs font-semibold text-blue-100 transition hover:bg-blue-500/25"
+              disabled={!isPremium}
             >
               Find
             </button>
@@ -9609,7 +9625,7 @@ export function Map({
             <p className="mt-2 text-xs leading-4 text-white/50">
               {isPremium
                 ? "Premium members can jump straight to live consists and save favourites."
-                : "Regular accounts can still jump to live trains by TDN."}
+                : "Public and standard accounts only see generic service labels like 22:57 FSS Service until premium is enabled."}
             </p>
           )}
 
@@ -10105,7 +10121,7 @@ export function Map({
                       </button>
                     ) : (
                       <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45">
-                        TDN only
+                        Premium only
                       </span>
                     )
                   ) : null}

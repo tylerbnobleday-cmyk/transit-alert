@@ -28,6 +28,7 @@ import {
   saveAdminConfig,
   updateAdminAccount,
   type AdminAccountRecord,
+  type ApprovedDebugTesterRecord,
   type AdminRuntimeConfig,
 } from "@/lib/admin-config";
 import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
@@ -223,11 +224,86 @@ const FLEET_TYPES: FleetTypeConfig[] = [
 const VERSION_LOG: ChangelogEntry[] = [
   {
     version: TRANSITALERT_WEB_VERSION,
+    date: "14/05/2026",
+    notes: [
+      "Admin tools now show the approved debug-tester whitelist beside the account list for faster tester management.",
+      "Tyler admin defaults were cleaned up with the correct email + premium access, and public-facing TDN labels are now masked behind premium.",
+      "Database-first Render account handling was refined again so persistence, tester sign-up, and release tracking are easier to manage.",
+    ],
+  },
+  {
+    version: "V0.88",
     date: "12/05/2026",
     notes: [
       "Original app and fleet artwork replaced older source-derived visuals so TransitAlert reads clearly as an independent project.",
       "Privacy and account security were tightened with safer auth responses, request throttling, and stronger backend-only secret handling.",
       "Responsible transport-data handling guidance was added so release decisions stay aligned with safer operational-data presentation before public launch.",
+    ],
+  },
+  {
+    version: "V0.87",
+    date: "10/05/2026",
+    notes: [
+      "Glen Waverley debug overlays, Burnley loop rendering, and admin-side map debug tools were expanded.",
+      "Fleet display rules were tightened so invalid train types stop showing on the wrong lines.",
+      "Render deployment support was stabilised for the app’s post-Netlify hosting move.",
+    ],
+  },
+  {
+    version: "V0.86",
+    date: "09/05/2026",
+    notes: [
+      "Surface route visuals, alert grouping, and line overlays were refined across the shared map renderer.",
+      "Freight corridors and interstate overlays were improved as part of the broader network visual pass.",
+    ],
+  },
+  {
+    version: "V0.85",
+    date: "08/05/2026",
+    notes: [
+      "First-open update boards and station boarding guides were added for key interchanges.",
+      "Journey planning became more persistent and stable once a journey has started.",
+      "Guest and login flows were tightened so people could get back to real auth from inside the app.",
+    ],
+  },
+  {
+    version: "V0.84",
+    date: "07/05/2026",
+    notes: [
+      "Surface route filters for trams and buses were expanded and made easier to toggle from the map.",
+      "Live tram colours and route styling were aligned more closely with route palettes.",
+    ],
+  },
+  {
+    version: "V0.83",
+    date: "06/05/2026",
+    notes: [
+      "Live tram and bus tracking gained stronger map integration, popups, and stop-linked panels.",
+      "More tram routes and stops were added so the surface network felt much more complete.",
+    ],
+  },
+  {
+    version: "V0.82",
+    date: "05/05/2026",
+    notes: [
+      "Premium features, freight overlays, and admin-side controls were expanded during the major map feature push.",
+      "Performance and UI stability improvements landed across the planner and interactive map layers.",
+    ],
+  },
+  {
+    version: "V0.81",
+    date: "04/05/2026",
+    notes: [
+      "Auth, settings, and account preference saving were refined before the Render and database-first migration work.",
+      "Planner and station detail interactions were improved for day-to-day testing.",
+    ],
+  },
+  {
+    version: "V0.80",
+    date: "03/05/2026",
+    notes: [
+      "The shared app version system was formalised and exposed more clearly through the app UI.",
+      "More route data, admin tooling, and early premium wiring landed in the lead-up to the later 0.8x releases.",
     ],
   },
   {
@@ -263,7 +339,6 @@ const VERSION_LOG: ChangelogEntry[] = [
       "General backend and UI cleanups rolled into the same release.",
     ],
   },
-        
 ];
 
 const TRANSITALERT_SYSTEM_NOTES = [
@@ -274,8 +349,8 @@ const TRANSITALERT_SYSTEM_NOTES = [
 
 const VERSION_HIGHLIGHT_CARDS = [
   {
-    title: "What’s new in 0.88",
-    body: "Original branding, safer auth handling, and responsible transport-data guidance are now part of the release baseline.",
+    title: "What’s new in 0.89",
+    body: "Tester whitelist visibility, premium-only TDN masking, and cleaner Tyler/admin account defaults now sit on top of the earlier branding, privacy, and database work.",
   },
   {
     title: "Journey planning",
@@ -392,6 +467,67 @@ function formatFleetUpdatedAt(timestamp?: string) {
     minute: "2-digit",
     hour12: false,
   })}`;
+}
+
+function formatServiceClock(timestamp?: string) {
+  if (!timestamp) return "Live";
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) return "Live";
+  return parsed.toLocaleTimeString("en-AU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+const PUBLIC_SERVICE_CODE_MAP: Array<[string, string]> = [
+  ["flinders street", "FSS"],
+  ["southern cross", "SCS"],
+  ["town hall", "THL"],
+  ["state library", "STL"],
+  ["parliament", "PAR"],
+  ["melbourne central", "MCE"],
+  ["flagstaff", "FGS"],
+  ["glen waverley", "GWY"],
+  ["lilydale", "LIL"],
+  ["belgrave", "BEL"],
+  ["alamein", "ALA"],
+  ["mernda", "MER"],
+  ["hurstbridge", "HBE"],
+  ["sunbury", "SUN"],
+  ["cranbourne", "CRA"],
+  ["pakenham", "PAK"],
+  ["frankston", "FKN"],
+  ["sandringham", "SDM"],
+  ["werribee", "WER"],
+  ["williamstown", "WIL"],
+  ["upfield", "UPF"],
+  ["craigieburn", "CBN"],
+  ["ballarat", "BAL"],
+  ["bendigo", "BEN"],
+  ["geelong", "GEL"],
+  ["traralgon", "TRA"],
+  ["bairnsdale", "BAI"],
+];
+
+function getPublicServiceCode(...values: string[]) {
+  const joined = values.join(" ").toLowerCase();
+  const matched = PUBLIC_SERVICE_CODE_MAP.find(([needle]) => joined.includes(needle));
+  if (matched) return matched[1];
+
+  const words = values
+    .join(" ")
+    .replace(/[^a-z0-9\s]/gi, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const fallback = words.map((word) => word[0]?.toUpperCase() ?? "").join("");
+  return fallback || "SRV";
+}
+
+function getPublicFleetServiceLabel(trip: FleetTrip) {
+  return `${formatServiceClock(trip.updatedAt)} ${getPublicServiceCode(trip.route, trip.line)} Service`;
 }
 
 function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
@@ -800,13 +936,15 @@ export default function Home() {
     staleTime: 60_000,
   });
 
-  const { data: adminAccounts = [] } = useQuery({
+  const { data: adminAccountsPayload } = useQuery({
     queryKey: ["admin-accounts"],
     queryFn: fetchAdminAccounts,
     enabled: isAdmin,
     retry: false,
     staleTime: 30_000,
   });
+  const adminAccounts = adminAccountsPayload?.accounts ?? [];
+  const approvedDebugTesters = adminAccountsPayload?.approvedDebugTesters ?? [];
 
   const signOutMutation = useMutation({
     mutationFn: logoutSession,
@@ -970,12 +1108,16 @@ export default function Home() {
 
   const attachJourneyToService = useCallback((trip: FleetTrip) => {
     setAttachedJourneyServiceKey(trip.focusKey);
-    setAttachedJourneyServiceLabel(`${trip.line} Â· TDN ${trip.tripNumber} Â· ${trip.route}`);
+    setAttachedJourneyServiceLabel(
+      hasPremiumAccess(accountPreferences)
+        ? `${trip.line} Â· TDN ${trip.tripNumber} Â· ${trip.route}`
+        : getPublicFleetServiceLabel(trip),
+    );
     setJourneyStartedAt((current) => current ?? new Date().toISOString());
     setFocusedVehicleKey(trip.focusKey);
     setActiveTab("map");
     setIsPlannerOpen(true);
-  }, []);
+  }, [accountPreferences]);
 
   const finishJourney = useCallback(() => {
     setJourneyRoute([]);
@@ -2463,9 +2605,15 @@ export default function Home() {
                               </div>
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <span className="rounded-full bg-blue-500 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
-                                    TDN / Trip {trip.tripNumber}
-                                  </span>
+                                  {hasPremiumAccess(accountPreferences) ? (
+                                    <span className="rounded-full bg-blue-500 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+                                      TDN / Trip {trip.tripNumber}
+                                    </span>
+                                  ) : (
+                                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/85">
+                                      {getPublicFleetServiceLabel(trip)}
+                                    </span>
+                                  )}
                                   <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${trip.lineColor}`}>
                                     {trip.line}
                                   </span>
@@ -2475,7 +2623,11 @@ export default function Home() {
                                   </span>
                                 </div>
                                 <p className="mt-3 text-xl font-semibold tracking-tight text-white">{trip.route}</p>
-                                <p className="mt-1 text-sm text-white/55">Trip {trip.tdn} Â· Consist {trip.consist}</p>
+                                <p className="mt-1 text-sm text-white/55">
+                                  {hasPremiumAccess(accountPreferences)
+                                    ? `Trip ${trip.tdn} · Consist ${trip.consist}`
+                                    : `${getPublicFleetServiceLabel(trip)} · Premium unlocks TDN and consist details`}
+                                </p>
                               </div>
                             </div>
 
@@ -2642,6 +2794,42 @@ export default function Home() {
 
                       <div className="rounded-[1.8rem] border border-white/10 bg-white/5 p-5">
                         <p className="text-sm font-semibold text-white">How registration works right now</p>
+                        <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.18em] text-white/45">Approved debug testers</p>
+                              <p className="mt-2 text-sm text-white/70">
+                                These usernames or emails are currently allowed through the tester-only registration gate.
+                              </p>
+                            </div>
+                            <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-200">
+                              {approvedDebugTesters.length} approved
+                            </span>
+                          </div>
+                          <div className="mt-4 space-y-2">
+                            {approvedDebugTesters.length > 0 ? (
+                              approvedDebugTesters.map((tester: ApprovedDebugTesterRecord) => (
+                                <div
+                                  key={`${tester.source}-${tester.value}`}
+                                  className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-slate-900 px-3 py-2"
+                                >
+                                  <span className="text-sm font-medium text-white">{tester.value}</span>
+                                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/65">
+                                    {tester.source === "env"
+                                      ? "Env allowlist"
+                                      : tester.source === "built-in-account"
+                                        ? "Built-in account"
+                                        : "Built-in tester"}
+                                  </span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="rounded-2xl border border-dashed border-white/10 bg-slate-900/50 px-3 py-4 text-sm text-white/50">
+                                No tester whitelist entries are being returned yet.
+                              </div>
+                            )}
+                          </div>
+                        </div>
                         {!isDatabaseConfigured && (
                           <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">
                             The account database is not configured right now. Guest browsing still works, but proper account

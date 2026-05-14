@@ -16,6 +16,11 @@ export type AdminAccountRecord = {
   updatedAt?: string;
 };
 
+export type ApprovedDebugTesterRecord = {
+  value: string;
+  source: "env" | "built-in" | "built-in-account";
+};
+
 export async function fetchAdminConfig() {
   const response = await fetch("/api/admin/settings");
   if (!response.ok) {
@@ -46,8 +51,14 @@ export async function fetchAdminAccounts() {
     const payload = (await response.json().catch(() => ({ error: "Failed to load accounts" }))) as { error?: string };
     throw new Error(payload.error || "Failed to load accounts");
   }
-  const payload = (await response.json()) as { accounts?: AdminAccountRecord[] };
-  return payload.accounts ?? [];
+  const payload = (await response.json()) as {
+    accounts?: AdminAccountRecord[];
+    approvedDebugTesters?: ApprovedDebugTesterRecord[];
+  };
+  return {
+    accounts: payload.accounts ?? [],
+    approvedDebugTesters: payload.approvedDebugTesters ?? [],
+  };
 }
 
 export async function updateAdminAccount(

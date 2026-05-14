@@ -34,6 +34,14 @@ const ADMIN_SOURCE_KEYS = [
 
 const TRANSITALERT_UPDATE_ENTRIES = [
   {
+    date: "14/05/2026",
+    items: [
+      "Version 0.89 adds the approved debug-tester whitelist into the admin account panel so tester access is easier to audit.",
+      "TDN and consist identifiers are now premium-only in the main UI, while public users see safer generic service labels instead.",
+      "Tyler admin defaults, database-first account handling, and Render deployment guidance were refined again for the live build.",
+    ],
+  },
+  {
     date: "12/05/2026",
     items: [
       "Original app and fleet artwork replaced older source-derived visuals so the project reads clearly as independent.",

@@ -1,6 +1,7 @@
 import {
   getAppConfig,
   getSessionUser,
+  listApprovedDebugTesters,
   listAccounts,
   listMarkerOverrides,
   readJsonBody,
@@ -85,7 +86,8 @@ export default async function handler(req, res) {
   if (resource === "accounts") {
     if (req.method === "GET") {
       const accounts = await listAccounts();
-      sendJson(res, 200, { accounts });
+      const approvedDebugTesters = listApprovedDebugTesters();
+      sendJson(res, 200, { accounts, approvedDebugTesters });
       return;
     }
 

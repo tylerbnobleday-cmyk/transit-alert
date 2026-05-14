@@ -14,6 +14,10 @@ export const ROLE_OPTIONS = [
 const SESSION_COOKIE = "transitalert_session";
 const adminUsername = process.env.ADMIN_USERNAME || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD || "AppleJuice";
+const adminEmail = (
+  process.env.ADMIN_EMAIL ||
+  (adminUsername.trim().toLowerCase() === "tyler" ? "tylerbnobleday@gmail.com" : `${adminUsername}@transitalert.local`)
+).trim();
 const SESSION_SECRET =
   process.env.AUTH_SESSION_SECRET ||
   process.env.SESSION_SECRET ||
@@ -21,7 +25,6 @@ const SESSION_SECRET =
     .createHash("sha256")
     .update(`transitalert-fallback:${adminUsername}:${adminPassword}`)
     .digest("hex");
-const adminEmail = `${adminUsername}@transitalert.local`;
 const DEFAULT_PREMIUM_PRICE_AUD = 5;
 const REGISTRATION_PHASE = (process.env.REGISTRATION_PHASE || "debug-testers").trim().toLowerCase();
 const APPROVED_DEBUG_TESTERS = new Set(
@@ -150,6 +153,38 @@ export function getRegistrationPhase() {
   return REGISTRATION_PHASE;
 }
 
+export function listApprovedDebugTesters() {
+  const entries = new Map();
+
+  for (const value of APPROVED_DEBUG_TESTERS) {
+    if (!value) continue;
+    entries.set(value, {
+      value,
+      source: "env",
+    });
+  }
+
+  for (const value of FALLBACK_APPROVED_DEBUG_TESTERS) {
+    if (!value) continue;
+    entries.set(value, {
+      value,
+      source: "built-in",
+    });
+  }
+
+  for (const user of FALLBACK_USERS) {
+    const username = user.username.trim().toLowerCase();
+    if (username) {
+      entries.set(username, {
+        value: username,
+        source: "built-in-account",
+      });
+    }
+  }
+
+  return [...entries.values()].sort((left, right) => left.value.localeCompare(right.value));
+}
+
 export function isDatabaseConfigured() {
   return Boolean(process.env.DATABASE_URL);
 }
@@ -196,7 +231,7 @@ function getFallbackPreferencesForUser(userId) {
     userId,
     appPreferences: {
       ...defaultPreferences.appPreferences,
-      premiumAccess: Boolean(fallbackUser?.isPremium),
+      premiumAccess: Boolean(fallbackUser?.isPremium) || userId?.toLowerCase?.() === adminUsername.toLowerCase(),
     },
   };
 }
@@ -369,20 +404,80 @@ export async function ensureAdminAccount() {
   try {
     const context = await loadDbContext();
     if (!context) return;
-    const { db, appUsersTable } = context;
+    const { db, appUsersTable, userPreferencesTable } = context;
     if (!db) return;
     const existing = await db.query.appUsersTable.findFirst({
       where: (fields, operators) => operators.eq(fields.username, adminUsername),
     });
 
     if (!existing) {
-      await db.insert(appUsersTable).values({
+      const [created] = await db.insert(appUsersTable).values({
         username: adminUsername,
         email: adminEmail,
         passwordHash: createPasswordHash(adminPassword),
         role: "Admin",
         isAdmin: true,
-      });
+      }).returning();
+      if (created && userPreferencesTable) {
+        await db
+          .insert(userPreferencesTable)
+          .values({
+            userId: created.id,
+            appPreferences: {
+              ...defaultPreferences.appPreferences,
+              premiumAccess: true,
+            },
+          })
+          .onConflictDoUpdate({
+            target: userPreferencesTable.userId,
+            set: {
+              appPreferences: {
+                ...defaultPreferences.appPreferences,
+                premiumAccess: true,
+              },
+              updatedAt: new Date(),
+            },
+          });
+      }
+      return;
+    }
+
+    if (
+      existing.email !== adminEmail ||
+      existing.role !== "Admin" ||
+      existing.isAdmin !== true
+    ) {
+      await db
+        .update(appUsersTable)
+        .set({
+          email: adminEmail,
+          role: "Admin",
+          isAdmin: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(appUsersTable.id, existing.id));
+    }
+
+    if (userPreferencesTable) {
+      await db
+        .insert(userPreferencesTable)
+        .values({
+          userId: existing.id,
+          appPreferences: {
+            ...defaultPreferences.appPreferences,
+            premiumAccess: true,
+          },
+        })
+        .onConflictDoUpdate({
+          target: userPreferencesTable.userId,
+          set: {
+            appPreferences: {
+              ...(await getUserPreferences(existing.id))?.appPreferences,
+              premiumAccess: true,
+            },
+            updatedAt: new Date(),
+          },
+        });
     }
   } catch (error) {
     logDbFallback("ensureAdminAccount", error);
@@ -534,7 +629,9 @@ export async function listAccounts() {
     logDbFallback("listAccounts", error);
     return [getFallbackAdminUser(), ...FALLBACK_USERS.map((user) => sanitizeFallbackUser(user))].map((user) => ({
       ...user,
-      isPremium: FALLBACK_USERS.some((fallback) => fallback.id === user.id && fallback.isPremium),
+      isPremium:
+        user.username.toLowerCase() === adminUsername.toLowerCase() ||
+        FALLBACK_USERS.some((fallback) => fallback.id === user.id && fallback.isPremium),
     }));
   }
 }
