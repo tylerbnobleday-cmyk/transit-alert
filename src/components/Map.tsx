@@ -5637,10 +5637,15 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
   const memberships = getStationLineMemberships(station.name);
   const primaryLine = memberships[0] ?? "frankston";
   const preset = LINE_PLATFORM_PRESETS[primaryLine];
+  const isSunburyCorridorStation =
+    station.name === "Sunbury" ||
+    station.name === "Watergardens" ||
+    station.name === "Diggers Rest" ||
+    memberships.includes("sunbury");
   const inboundServices =
-    primaryLine === "sunbury" ? ["Town Hall", "State Library"] : preset.inboundServices;
+    isSunburyCorridorStation ? ["Town Hall", "State Library"] : preset.inboundServices;
   const outboundServices =
-    primaryLine === "sunbury" ? ["Sunbury", "Watergardens"] : preset.outboundServices;
+    isSunburyCorridorStation ? ["Sunbury", "Watergardens"] : preset.outboundServices;
   const now = new Date();
   const minuteOffsets = [4, 11, 7, 16];
 
@@ -5894,6 +5899,12 @@ function getPlatformServiceDisplay(
   let destination = service.destination;
   let originLabel = service.originLabel;
   let viaLabel = service.viaLabel;
+  const stationMemberships = getStationLineMemberships(stationName);
+  const isSunburyCorridorStation =
+    stationName === "Sunbury" ||
+    stationName === "Watergardens" ||
+    stationName === "Diggers Rest" ||
+    stationMemberships.includes("sunbury");
 
   const arrowParts = destination
     .split(/\s*(?:→|->|â†’)\s*/g)
@@ -5929,6 +5940,15 @@ function getPlatformServiceDisplay(
       destination = arrowParts[arrowParts.length - 1];
       viaLabel ||= "Via City Loop";
     }
+  }
+
+  if (
+    isSunburyCorridorStation &&
+    /city bound/i.test(platformLabel) &&
+    /^(city loop|flinders street|flinders st|flinders)$/i.test(destination)
+  ) {
+    destination = /flinders/i.test(destination) ? "State Library" : "Town Hall";
+    viaLabel = "Metro Tunnel";
   }
 
   return {
@@ -7686,6 +7706,7 @@ export function Map({
   const mobilePerformanceEnabled =
     mobilePerformanceMode === "on" || (mobilePerformanceMode === "auto" && isMobile);
   const aggressiveMobileProtectionEnabled = mobilePerformanceEnabled || isIos;
+  const disableLiveMapOverlaysForIos = isIos && mobilePerformanceMode !== "off";
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
   const consistData = { active: false } as any;
@@ -7744,7 +7765,11 @@ export function Map({
   } = useQuery({
     queryKey: ["/api/ptv/live-trains", viewportBoundsQuery],
     queryFn: () => fetchLiveTrains(viewportBoundsQuery),
-    enabled: !isGuest && allowMobileHeavyTrainTracking && (transportModes.includes("train") || transportModes.includes("vline")),
+    enabled:
+      !isGuest &&
+      !disableLiveMapOverlaysForIos &&
+      allowMobileHeavyTrainTracking &&
+      (transportModes.includes("train") || transportModes.includes("vline")),
     refetchInterval: aggressiveMobileProtectionEnabled ? 40_000 : 15_000,
     staleTime: aggressiveMobileProtectionEnabled ? 25_000 : 5_000,
     retry: false,
@@ -7755,7 +7780,11 @@ export function Map({
   } = useQuery({
     queryKey: ["/api/ptv/live-buses", viewportBoundsQuery],
     queryFn: () => fetchLiveBuses(viewportBoundsQuery),
-    enabled: !isGuest && transportModes.includes("bus") && allowMobileHeavySurfaceTracking,
+    enabled:
+      !isGuest &&
+      !disableLiveMapOverlaysForIos &&
+      transportModes.includes("bus") &&
+      allowMobileHeavySurfaceTracking,
     refetchInterval: aggressiveMobileProtectionEnabled ? 45_000 : 15_000,
     staleTime: aggressiveMobileProtectionEnabled ? 30_000 : 5_000,
     retry: false,
@@ -7766,7 +7795,11 @@ export function Map({
   } = useQuery({
     queryKey: ["/api/ptv/live-trams", viewportBoundsQuery],
     queryFn: () => fetchLiveTrams(viewportBoundsQuery),
-    enabled: !isGuest && transportModes.includes("tram") && allowMobileHeavySurfaceTracking,
+    enabled:
+      !isGuest &&
+      !disableLiveMapOverlaysForIos &&
+      transportModes.includes("tram") &&
+      allowMobileHeavySurfaceTracking,
     refetchInterval: aggressiveMobileProtectionEnabled ? 45_000 : 15_000,
     staleTime: aggressiveMobileProtectionEnabled ? 30_000 : 5_000,
     retry: false,
