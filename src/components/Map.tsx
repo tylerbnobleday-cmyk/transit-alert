@@ -1163,7 +1163,7 @@ const GLEN_WAVERLEY_STATIONS: Station[] = [
   { name: "East Malvern", position: [-37.876943166140485, 145.06928548142633] },
   { name: "Holmesglen", position: [-37.874467434174626, 145.0901950084133] },
   { name: "Jordanville", position: [-37.8736209099283, 145.11208946608417] },
-  { name: "Mount Waverley", position: [-37.87535549299886, 145.12775620827145] },
+  { name: "Mount Waverley", position: [-37.875253140075536, 145.1277433710727] },
   { name: "Syndal", position: [-37.876238755103856, 145.14971636451426] },
   { name: "Glen Waverley", position: [-37.87945446561707, 145.16198233013415] },
 ];
@@ -1195,7 +1195,7 @@ const GLEN_WAVERLEY_TRACK_POINTS: [number, number][] = [
   [-37.8736209099283, 145.11208946608417], // Jordanville
   [-37.873982, 145.117684],
   [-37.874648, 145.122747],
-  [-37.87535549299886, 145.12775620827145], // Mount Waverley
+  [-37.875253140075536, 145.1277433710727], // Mount Waverley
   [-37.875698, 145.134914],
   [-37.875969, 145.142836],
   [-37.876238755103856, 145.14971636451426], // Syndal
@@ -1460,6 +1460,12 @@ const BALLARAT_REGIONAL_STATIONS: Station[] = [
   { name: "Wendouree", position: [-37.5309, 143.8487], vline: true },
   { name: "Ararat", position: [-37.2867, 142.9479], vline: true },
   { name: "Maryborough", position: [-37.0462, 143.7397], vline: true },
+];
+
+const SEYMOUR_REGIONAL_STATIONS: Station[] = [
+  { name: "Southern Cross", position: [-37.81767225337158, 144.950639128634], vline: true, zone: "1" },
+  { name: "Broadmeadows", position: [-37.6805, 144.9191], vline: true, zone: "2" },
+  { name: "Seymour", position: [-37.0264, 145.1337], vline: true },
 ];
 
 // =========================
@@ -1988,6 +1994,18 @@ const BALLARAT_SHARED_VLINE_TRUNK: [number, number][] = [
   [-37.801696124765726, 144.90150029345793], // Footscray
   [-37.78812106172095, 144.83237218696007], // Sunshine
 ];
+const SEYMOUR_REGIONAL_LINE: [number, number][] = [
+  [-37.81767225337158, 144.950639128634], // Southern Cross
+  [-37.8128, 144.9469],
+  [-37.8096, 144.9443],
+  [-37.8073, 144.9426], // North Melbourne
+  [-37.7812, 144.9313],
+  [-37.7407, 144.9241],
+  [-37.6805, 144.9191], // Broadmeadows
+  [-37.4684, 144.9594],
+  [-37.2452, 145.0418],
+  [-37.0264, 145.1337], // Seymour
+];
 const SUNSHINE_VLINE_EXPRESS_OVERLAY: [number, number][] = [
   [-37.7929, 144.8468],
   [-37.7914, 144.8418],
@@ -2133,6 +2151,7 @@ export const ALL_STATIONS: Station[] = [
   ...ALTONA_LOOP_STATIONS,
   ...GIPPSLAND_STATIONS,
   ...BALLARAT_REGIONAL_STATIONS,
+  ...SEYMOUR_REGIONAL_STATIONS,
 ].filter(
   (station, index, array) =>
     array.findIndex((item) => item.name === station.name) === index
@@ -8893,12 +8912,12 @@ export function Map({
     {layers.craigieburnLine ? (
       <>
         <Polyline
-          positions={offsetPolylineCoordinates(NORTHERN_LOOP, "left", 0.28)}
-          pathOptions={{ color: "#FFD200", weight: 5, opacity: 0.85 }}
+          positions={offsetPolylineCoordinates(NORTHERN_LOOP, "left", 0.42)}
+          pathOptions={{ color: "#FFD200", weight: 4.5, opacity: 0.88 }}
         />
         <Polyline
-          positions={offsetPolylineCoordinates(NORTHERN_LOOP, "right", 0.28)}
-          pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.82 }}
+          positions={offsetPolylineCoordinates(NORTHERN_LOOP, "right", 0.42)}
+          pathOptions={{ color: "#7c3aed", weight: 4.5, opacity: 0.84 }}
         />
       </>
     ) : (
@@ -8978,19 +8997,19 @@ export function Map({
 {modeIsTrainVisible && layers.craigieburnLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "left", 0.3)}
+      positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "left", 0.45)}
       pathOptions={{
         color: "#FFD200",
-        weight: 5,
-        opacity: 0.85,
+        weight: 4.75,
+        opacity: 0.88,
       }}
     />
     <Polyline
-      positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "right", 0.3)}
+      positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "right", 0.45)}
       pathOptions={{
         color: "#7c3aed",
-        weight: 5,
-        opacity: 0.82,
+        weight: 4.75,
+        opacity: 0.84,
       }}
     />
     {renderStationMarkers(renderedStationKeys, CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
@@ -9184,6 +9203,27 @@ export function Map({
                 positions={GEELONG_LINE}
                 pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
               />
+            )}
+            {layers.seymourRegional && (
+              <>
+                <Polyline
+                  positions={
+                    layers.craigieburnLine
+                      ? offsetPolylineCoordinates(SEYMOUR_REGIONAL_LINE, "right", 0.45)
+                      : SEYMOUR_REGIONAL_LINE
+                  }
+                  pathOptions={{ color: "#7c3aed", weight: 4.75, opacity: 0.92 }}
+                />
+                {renderStationMarkers(
+                  renderedStationKeys,
+                  SEYMOUR_REGIONAL_STATIONS,
+                  "#7c3aed",
+                  "#5b21b6",
+                  resolveStation,
+                  (station) => setSelectedDetail({ type: "station", station }),
+                  toggleStationPillLine,
+                )}
+              </>
             )}
             {layers.traralgonRegional && (
               <>
