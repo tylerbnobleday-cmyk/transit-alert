@@ -5637,6 +5637,10 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
   const memberships = getStationLineMemberships(station.name);
   const primaryLine = memberships[0] ?? "frankston";
   const preset = LINE_PLATFORM_PRESETS[primaryLine];
+  const inboundServices =
+    primaryLine === "sunbury" ? ["Town Hall", "State Library"] : preset.inboundServices;
+  const outboundServices =
+    primaryLine === "sunbury" ? ["Sunbury", "Watergardens"] : preset.outboundServices;
   const now = new Date();
   const minuteOffsets = [4, 11, 7, 16];
 
@@ -5670,7 +5674,7 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
       platform: "1",
       label: preset.inboundLabel,
       tone: preset.tone,
-      services: preset.inboundServices.slice(0, 2).map((destination, index) => ({
+      services: inboundServices.slice(0, 2).map((destination, index) => ({
         destination,
         etaLabel: formatEta(minuteOffsets[index] ?? 5 + index * 6),
         tdnLabel: buildTdnLabel(destination, "1", index),
@@ -5680,7 +5684,7 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
       platform: "2",
       label: preset.outboundLabel,
       tone: preset.tone,
-      services: preset.outboundServices.slice(0, 2).map((destination, index) => ({
+      services: outboundServices.slice(0, 2).map((destination, index) => ({
         destination,
         etaLabel: formatEta(minuteOffsets[index + 2] ?? 10 + index * 7),
         tdnLabel: buildTdnLabel(destination, "2", index),
@@ -6260,6 +6264,7 @@ function renderStationMarkers(
   resolveStation: (station: Station) => Station,
   onSelectStation: (station: Station) => void,
   onToggleStationLine?: (station: Station) => boolean,
+  visibleBounds?: L.LatLngBounds | null,
 ) {
   const useCompactInlineStops = stations === GLEN_WAVERLEY_STATIONS;
   return stations.map((station, index) => {
@@ -6285,6 +6290,10 @@ function renderStationMarkers(
       ? "Melbourne Central / State Library"
       : resolvedStation.name;
     const isEndpoint = index === 0 || index === stations.length - 1;
+
+    if (visibleBounds && !visibleBounds.contains(L.latLng(markerPosition[0], markerPosition[1]))) {
+      return null;
+    }
 
     if (shouldRenderOnce && renderedStationKeys.has(stationRenderKey)) {
       return null;
@@ -7706,6 +7715,7 @@ export function Map({
       ),
     [viewportBoundsQuery],
   );
+  const stationMarkerVisibleBounds = aggressiveMobileProtectionEnabled ? visibleViewportBounds : null;
   const selectedAdminDebugOverlay = useMemo(() => {
     switch (debugLineKey) {
       case "glenWaverleyLine":
@@ -8878,7 +8888,7 @@ export function Map({
       positions={FRANKSTON_TRACK}
       pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
     />
-    {renderStationMarkers(renderedStationKeys, FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine)}
+    {renderStationMarkers(renderedStationKeys, FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
   </>
 )}
 {modeIsTrainVisible && layers.merndaLine && (
@@ -8887,7 +8897,7 @@ export function Map({
       positions={MERNDA_BRANCH_LINE}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(renderedStationKeys, MERNDA_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, MERNDA_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -8897,7 +8907,7 @@ export function Map({
       positions={HURSTBRIDGE_BRANCH_LINE}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(renderedStationKeys, HURSTBRIDGE_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, HURSTBRIDGE_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -8915,7 +8925,7 @@ export function Map({
       positions={CLIFTONHILL_LOOP}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(renderedStationKeys, CLIFTONHILLGROUPLOOP_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, CLIFTONHILLGROUPLOOP_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 {modeIsTrainVisible && (layers.sunburyLine || layers.craigieburnLine || layers.upfieldLine || layers.northernLoop) && (
@@ -8937,7 +8947,7 @@ export function Map({
         pathOptions={{ color: "#FFD200", weight: 5, opacity: 0.85 }}
       />
     )}
-    {renderStationMarkers(renderedStationKeys, NORTHERNGROUPLOOP_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, NORTHERNGROUPLOOP_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -8947,7 +8957,7 @@ export function Map({
       positions={offsetPolylineCoordinates(BURNLEY_LOOP, "left", 0.45)}
   pathOptions={{ color: "#003A8F", weight: 3, opacity: 0.6 }}
     />
-    {renderStationMarkers(renderedStationKeys, BURNLEYGROUPLOOP_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, BURNLEYGROUPLOOP_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 {modeIsTrainVisible && layers.lilydaleLine && (
@@ -8960,7 +8970,7 @@ export function Map({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(renderedStationKeys, LILYDALE_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, LILYDALE_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -8974,7 +8984,7 @@ export function Map({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(renderedStationKeys, BELGRAVE_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, BELGRAVE_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -8988,7 +8998,7 @@ export function Map({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(renderedStationKeys, ALAMEIN_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, ALAMEIN_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -9002,7 +9012,7 @@ export function Map({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(renderedStationKeys, GLEN_WAVERLEY_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, GLEN_WAVERLEY_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 {modeIsTrainVisible && layers.craigieburnLine && (
@@ -9023,7 +9033,7 @@ export function Map({
         opacity: 0.84,
       }}
     />
-    {renderStationMarkers(renderedStationKeys, CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -9037,7 +9047,7 @@ export function Map({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(renderedStationKeys, UPFIELD_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, UPFIELD_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
         {modeIsTrainVisible && layers.cranbourneLine && (
@@ -9054,7 +9064,7 @@ export function Map({
               )}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine)}
+            {renderStationMarkers(renderedStationKeys, CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9076,7 +9086,7 @@ export function Map({
               positions={offsetPolylineCoordinates(PAKENHAM_POST_CARNEGIE_LINE, "left", 0.38)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine)}
+            {renderStationMarkers(renderedStationKeys, PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9090,7 +9100,7 @@ export function Map({
               positions={offsetPolylineCoordinates(SUNBURY_LINE, "right", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            {renderStationMarkers(renderedStationKeys, SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9104,7 +9114,7 @@ export function Map({
               positions={offsetPolylineCoordinates(METRO_TUNNEL_LINE, "right", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            {renderStationMarkers(renderedStationKeys, METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
 {modeIsTrainVisible && layers.werribeeLine && (
@@ -9233,6 +9243,7 @@ export function Map({
                   resolveStation,
                   (station) => setSelectedDetail({ type: "station", station }),
                   toggleStationPillLine,
+                  stationMarkerVisibleBounds,
                 )}
               </>
             )}
@@ -9254,6 +9265,7 @@ export function Map({
                   resolveStation,
                   (station) => setSelectedDetail({ type: "station", station }),
                   toggleStationPillLine,
+                  stationMarkerVisibleBounds,
                 )}
               </>
             )}
