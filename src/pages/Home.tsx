@@ -483,6 +483,8 @@ function formatServiceClock(timestamp?: string) {
 
 const PUBLIC_SERVICE_CODE_MAP: Array<[string, string]> = [
   ["flinders street", "FSS"],
+  ["flinders st", "FSS"],
+  ["flinders", "FSS"],
   ["southern cross", "SCS"],
   ["town hall", "THL"],
   ["state library", "STL"],
