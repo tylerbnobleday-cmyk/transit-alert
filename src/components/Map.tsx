@@ -7672,8 +7672,11 @@ export function Map({
   mobilePerformanceMode = "auto",
 }: MapProps = {}) {
   const isMobile = useIsMobile();
+  const isIos =
+    typeof navigator !== "undefined" && /iPad|iPhone|iPod/i.test(navigator.userAgent);
   const mobilePerformanceEnabled =
     mobilePerformanceMode === "on" || (mobilePerformanceMode === "auto" && isMobile);
+  const aggressiveMobileProtectionEnabled = mobilePerformanceEnabled || isIos;
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
   const consistData = { active: false } as any;
@@ -7685,16 +7688,16 @@ export function Map({
   const [mapZoom, setMapZoom] = useState(13);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
   const viewportBoundsQuery = useMemo(() => {
-    const sourceBounds = mapBounds?.pad(mobilePerformanceEnabled ? 0.2 : 0.35) ?? L.latLngBounds([-38.25, 144.35], [-37.45, 145.55]);
+    const sourceBounds = mapBounds?.pad(aggressiveMobileProtectionEnabled ? 0.14 : 0.35) ?? L.latLngBounds([-38.25, 144.35], [-37.45, 145.55]);
     return {
       minLat: Number(sourceBounds.getSouth().toFixed(5)),
       maxLat: Number(sourceBounds.getNorth().toFixed(5)),
       minLng: Number(sourceBounds.getWest().toFixed(5)),
       maxLng: Number(sourceBounds.getEast().toFixed(5)),
     };
-  }, [mapBounds, mobilePerformanceEnabled]);
-  const allowMobileHeavySurfaceTracking = !mobilePerformanceEnabled || mapZoom >= 14;
-  const allowMobileHeavyTrainTracking = !mobilePerformanceEnabled || mapZoom >= 12.6;
+  }, [aggressiveMobileProtectionEnabled, mapBounds]);
+  const allowMobileHeavySurfaceTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 14.4;
+  const allowMobileHeavyTrainTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 13.1;
   const visibleViewportBounds = useMemo(
     () =>
       L.latLngBounds(
@@ -7732,8 +7735,8 @@ export function Map({
     queryKey: ["/api/ptv/live-trains", viewportBoundsQuery],
     queryFn: () => fetchLiveTrains(viewportBoundsQuery),
     enabled: !isGuest && allowMobileHeavyTrainTracking && (transportModes.includes("train") || transportModes.includes("vline")),
-    refetchInterval: mobilePerformanceEnabled ? 25_000 : 15_000,
-    staleTime: mobilePerformanceEnabled ? 15_000 : 5_000,
+    refetchInterval: aggressiveMobileProtectionEnabled ? 40_000 : 15_000,
+    staleTime: aggressiveMobileProtectionEnabled ? 25_000 : 5_000,
     retry: false,
   });
   const {
@@ -7743,8 +7746,8 @@ export function Map({
     queryKey: ["/api/ptv/live-buses", viewportBoundsQuery],
     queryFn: () => fetchLiveBuses(viewportBoundsQuery),
     enabled: !isGuest && transportModes.includes("bus") && allowMobileHeavySurfaceTracking,
-    refetchInterval: mobilePerformanceEnabled ? 30_000 : 15_000,
-    staleTime: mobilePerformanceEnabled ? 20_000 : 5_000,
+    refetchInterval: aggressiveMobileProtectionEnabled ? 45_000 : 15_000,
+    staleTime: aggressiveMobileProtectionEnabled ? 30_000 : 5_000,
     retry: false,
   });
   const {
@@ -7754,8 +7757,8 @@ export function Map({
     queryKey: ["/api/ptv/live-trams", viewportBoundsQuery],
     queryFn: () => fetchLiveTrams(viewportBoundsQuery),
     enabled: !isGuest && transportModes.includes("tram") && allowMobileHeavySurfaceTracking,
-    refetchInterval: mobilePerformanceEnabled ? 30_000 : 15_000,
-    staleTime: mobilePerformanceEnabled ? 20_000 : 5_000,
+    refetchInterval: aggressiveMobileProtectionEnabled ? 45_000 : 15_000,
+    staleTime: aggressiveMobileProtectionEnabled ? 30_000 : 5_000,
     retry: false,
   });
   const { data: featuredConsistSnapshot } = useQuery({
@@ -7929,20 +7932,20 @@ export function Map({
     inspectors: true,
     delays: true,
     incidents: true,
-    heatCircles: !mobilePerformanceEnabled,
+    heatCircles: !aggressiveMobileProtectionEnabled,
   });
   const regularLiveVehicles = useMemo(
     () => {
       const filtered = liveVehicles.filter((vehicle) => vehicle.consist !== FEATURED_CONSIST);
-      if (!mobilePerformanceEnabled) {
+      if (!aggressiveMobileProtectionEnabled) {
         return filtered;
       }
 
       const limited = sortVehiclesByViewportDistance(filtered, visibleViewportBounds);
-      const cap = mapZoom >= 14 ? 70 : mapZoom >= 13 ? 44 : 24;
+      const cap = mapZoom >= 14.4 ? 28 : mapZoom >= 13.5 ? 14 : 0;
       return limited.slice(0, cap);
     },
-    [liveVehicles, mapZoom, mobilePerformanceEnabled, visibleViewportBounds],
+    [aggressiveMobileProtectionEnabled, liveVehicles, mapZoom, visibleViewportBounds],
   );
   const metroLiveVehicles = useMemo(
     () =>
