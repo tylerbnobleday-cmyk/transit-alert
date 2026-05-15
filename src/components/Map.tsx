@@ -34,12 +34,15 @@ import type { MobilePerformanceMode } from "@/lib/preferences";
 import { DEFAULT_TRANSPORT_MODES } from "@/lib/preferences";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
+  Accessibility,
   Train,
+  BusFront,
   MapPin,
   Layers,
   AlertTriangle,
   Clock,
   Info,
+  Plane,
   ZoomIn,
   ZoomOut,
   ArrowRight,
@@ -10872,6 +10875,64 @@ export function Map({
           )}
         </div>
       )}
+
+      <div className="pointer-events-none absolute bottom-28 left-3 z-[1000] max-w-[17rem] sm:bottom-32 sm:left-4 sm:max-w-[20rem]">
+        <div className="rounded-2xl border border-white/10 bg-slate-950/88 p-3 shadow-xl backdrop-blur-xl">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
+            Map key
+          </p>
+
+          <div className="mt-3 space-y-2.5 text-[11px] leading-4 text-white/72">
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 flex h-5 w-8 items-center justify-center rounded-full border-2 border-slate-950 bg-white shadow-[0_2px_6px_rgba(0,0,0,0.25)]">
+                <div className="h-[3px] w-5 rounded-full bg-slate-900/20" />
+              </div>
+              <p>
+                <span className="font-semibold text-white">Interchange station</span>
+              </p>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-md bg-blue-600/90 text-white">
+                <Accessibility className="h-3.5 w-3.5" />
+              </div>
+              <p>
+                <span className="font-semibold text-white">Lift or ramp access</span> where accessible station access is available.
+              </p>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 inline-flex h-5 items-center gap-1 rounded-md bg-black/70 px-1.5 text-white">
+                <BusFront className="h-3 w-3 text-red-300" />
+                <Plane className="h-3 w-3 text-white" />
+              </div>
+              <p>
+                <span className="font-semibold text-white">SkyBus / airport shuttle</span> interchange point or airport coach access.
+              </p>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white text-slate-950">
+                <Info className="h-3.5 w-3.5" />
+              </div>
+              <p>
+                <span className="font-semibold text-white">Stations staffed</span> from first to last train where full-time staffing applies.
+              </p>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <div className="mt-[9px] h-0 w-8 border-t-2 border-dotted border-white/55" />
+              <p>
+                <span className="font-semibold text-white">Zone 1 and 2 boundary</span>
+              </p>
+            </div>
+          </div>
+
+          <p className="mt-3 border-t border-white/10 pt-2 text-[10px] leading-4 text-white/45">
+            Metro staffed-station hours vary by station. Regional station staffing can vary more widely again.
+          </p>
+        </div>
+      </div>
 
       <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_120px_rgba(10,10,20,0.7)] z-[500]" />
     </div>
