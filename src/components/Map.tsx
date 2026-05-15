@@ -449,6 +449,14 @@ function getMarkerServiceCode(line: string) {
   const normalized = line.trim().toLowerCase();
 
   switch (normalized) {
+    case "flinders street":
+    case "flinders st":
+    case "flinders":
+      return "FSS";
+    case "town hall":
+      return "THL";
+    case "state library":
+      return "STL";
     case "lilydale":
       return "LIL";
     case "belgrave":
@@ -5376,7 +5384,7 @@ const LINE_PLATFORM_PRESETS: Record<
   },
   frankston: {
     inboundLabel: "Platform 1 · City bound",
-    inboundServices: ["City Loop", "Flinders Street"],
+    inboundServices: ["Town Hall", "State Library"],
     outboundLabel: "Platform 2 · Frankston bound",
     outboundServices: ["Frankston", "Mordialloc"],
     tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
@@ -7685,8 +7693,8 @@ export function Map({
       maxLng: Number(sourceBounds.getEast().toFixed(5)),
     };
   }, [mapBounds, mobilePerformanceEnabled]);
-  const allowMobileHeavySurfaceTracking = !mobilePerformanceEnabled || mapZoom >= 13.25;
-  const allowMobileHeavyTrainTracking = !mobilePerformanceEnabled || mapZoom >= 11.75;
+  const allowMobileHeavySurfaceTracking = !mobilePerformanceEnabled || mapZoom >= 14;
+  const allowMobileHeavyTrainTracking = !mobilePerformanceEnabled || mapZoom >= 12.6;
   const visibleViewportBounds = useMemo(
     () =>
       L.latLngBounds(
@@ -7921,7 +7929,7 @@ export function Map({
     inspectors: true,
     delays: true,
     incidents: true,
-    heatCircles: true,
+    heatCircles: !mobilePerformanceEnabled,
   });
   const regularLiveVehicles = useMemo(
     () => {
@@ -7931,7 +7939,7 @@ export function Map({
       }
 
       const limited = sortVehiclesByViewportDistance(filtered, visibleViewportBounds);
-      const cap = mapZoom >= 13 ? 160 : mapZoom >= 12 ? 110 : 80;
+      const cap = mapZoom >= 14 ? 70 : mapZoom >= 13 ? 44 : 24;
       return limited.slice(0, cap);
     },
     [liveVehicles, mapZoom, mobilePerformanceEnabled, visibleViewportBounds],
