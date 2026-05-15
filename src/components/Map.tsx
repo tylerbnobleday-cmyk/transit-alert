@@ -8890,10 +8890,23 @@ export function Map({
 )}
 {modeIsTrainVisible && (layers.sunburyLine || layers.craigieburnLine || layers.upfieldLine || layers.northernLoop) && (
   <>
-    <Polyline
-      positions={NORTHERN_LOOP}
-      pathOptions={{ color: "#FFD200", weight: 5, opacity: 0.85 }}
-    />
+    {layers.craigieburnLine ? (
+      <>
+        <Polyline
+          positions={offsetPolylineCoordinates(NORTHERN_LOOP, "left", 0.28)}
+          pathOptions={{ color: "#FFD200", weight: 5, opacity: 0.85 }}
+        />
+        <Polyline
+          positions={offsetPolylineCoordinates(NORTHERN_LOOP, "right", 0.28)}
+          pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.82 }}
+        />
+      </>
+    ) : (
+      <Polyline
+        positions={NORTHERN_LOOP}
+        pathOptions={{ color: "#FFD200", weight: 5, opacity: 0.85 }}
+      />
+    )}
     {renderStationMarkers(renderedStationKeys, NORTHERNGROUPLOOP_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
   </>
 )}
