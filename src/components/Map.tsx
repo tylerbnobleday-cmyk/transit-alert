@@ -1220,7 +1220,6 @@ const JOLIMONT_TO_FLINDERS_PORTAL: [number, number][] = [
   [-37.81778485426324, 144.96826388056115], // Jolimont / MCG side
   [-37.8184161, 144.9664779], // Flinders Street eastern portal
 ];
-const BURNLEY_LOOP: [number, number][] = BURNLEYGROUPLOOP_STATIONS.map((station) => station.position);
 
 const PAKENHAM_STATIONS: Station[] = [
   { name: "Anzac", position: [-37.83323797420302, 144.97276854232885] },
@@ -1520,9 +1519,10 @@ const CAUFIELD_LOOP: [number, number][] = [
 [-37.81938608424239, 144.96263273086195], // Southern Cross Via Duct Curve 14
 [-37.819158312401186, 144.96355675186595], // Southern Cross Via Duct Curve 15
 [-37.81896761915805, 144.96448747839776],
-[-37.81871971720591, 144.96543429817373],
-[-37.81857139939793, 144.9660082909082], // Flinders Street 
+  [-37.81871971720591, 144.96543429817373],
+  [-37.81857139939793, 144.9660082909082], // Flinders Street 
 ];
+const BURNLEY_LOOP: [number, number][] = [...CAUFIELD_LOOP];
 const JOLIMONT_TO_WEST_RICHMOND: [number, number][] = [
   [-37.816492790989656, 144.98395976419087],   // Jolimont
   [-37.816851137082246, 144.98751730791793],
