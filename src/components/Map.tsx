@@ -2021,6 +2021,18 @@ const GIPPSLAND_PRE_CARNEGIE_LINE =
   GIPPSLAND_CARNEGIE_INDEX >= 0 ? GIPPSLAND_LINE.slice(0, GIPPSLAND_CARNEGIE_INDEX + 1) : GIPPSLAND_LINE;
 const GIPPSLAND_POST_CARNEGIE_LINE =
   GIPPSLAND_CARNEGIE_INDEX >= 0 ? GIPPSLAND_LINE.slice(GIPPSLAND_CARNEGIE_INDEX) : GIPPSLAND_LINE;
+const GIPPSLAND_RICHMOND_INDEX = GIPPSLAND_PRE_CARNEGIE_LINE.findIndex(
+  ([lat, lng]) =>
+    Math.abs(lat - -37.823476053233385) < 0.000001 &&
+    Math.abs(lng - 144.9882499129706) < 0.000001,
+);
+const GIPPSLAND_VISIBLE_PRE_CARNEGIE_LINE =
+  GIPPSLAND_RICHMOND_INDEX >= 0
+    ? GIPPSLAND_PRE_CARNEGIE_LINE.slice(GIPPSLAND_RICHMOND_INDEX)
+    : GIPPSLAND_PRE_CARNEGIE_LINE;
+const MAP_GIPPSLAND_STATIONS = GIPPSLAND_STATIONS.filter(
+  (station) => station.name !== "Southern Cross" && station.name !== "Flinders Street",
+);
 const RENDERED_PAKENHAM_LINE = [
   ...offsetPolylineCoordinates(PAKENHAM_PRE_HAWKSBURN_LINE, "left", 0.6),
   ...PAKENHAM_HAWKSBURN_TO_CARNEGIE_LINE.slice(1),
@@ -2028,12 +2040,12 @@ const RENDERED_PAKENHAM_LINE = [
 ];
 const RENDERED_PAKENHAM_STATIONS = alignStationsToPolyline(PAKENHAM_STATIONS, RENDERED_PAKENHAM_LINE);
 const RENDERED_GIPPSLAND_LINE = [
-  ...GIPPSLAND_PRE_CARNEGIE_LINE,
+  ...GIPPSLAND_VISIBLE_PRE_CARNEGIE_LINE,
   ...offsetPolylineCoordinates(GIPPSLAND_POST_CARNEGIE_LINE, "right", 0.38).slice(1),
 ];
-const RENDERED_GIPPSLAND_STATIONS = alignStationsToPolyline(GIPPSLAND_STATIONS, RENDERED_GIPPSLAND_LINE);
+const RENDERED_GIPPSLAND_STATIONS = alignStationsToPolyline(MAP_GIPPSLAND_STATIONS, RENDERED_GIPPSLAND_LINE);
 const BAIRNSDALE_DEBUG_TRACK_POINTS = [
-  ...GIPPSLAND_PRE_CARNEGIE_LINE,
+  ...GIPPSLAND_VISIBLE_PRE_CARNEGIE_LINE,
   ...offsetPolylineCoordinates(GIPPSLAND_POST_CARNEGIE_LINE, "right", 0.38).slice(1),
 ].map((position, index) => ({ position, index }));
 const GEELONG_LINE: [number, number][] = [
@@ -9370,7 +9382,7 @@ export function Map({
             {layers.traralgonRegional && (
               <>
                 <Polyline
-                  positions={GIPPSLAND_PRE_CARNEGIE_LINE}
+                  positions={GIPPSLAND_VISIBLE_PRE_CARNEGIE_LINE}
                   pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
                 />
                 <Polyline
