@@ -9049,10 +9049,6 @@ export function Map({
           positions={offsetPolylineCoordinates(NORTHERN_LOOP, "left", 0.42)}
           pathOptions={{ color: "#FFD200", weight: 4.5, opacity: 0.88 }}
         />
-        <Polyline
-          positions={offsetPolylineCoordinates(NORTHERN_LOOP, "right", 0.42)}
-          pathOptions={{ color: "#7c3aed", weight: 4.5, opacity: 0.84 }}
-        />
       </>
     ) : (
       <Polyline
