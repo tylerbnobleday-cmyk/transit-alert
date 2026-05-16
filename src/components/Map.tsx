@@ -1734,6 +1734,19 @@ const UPFIELD_LINE = UPFIELD_STATIONS.map((station) => station.position);
 const WERRIBEE_LINE = WERRIBEE_STATIONS.map((station) => station.position);
 const WILLIAMSTOWN_LINE = WILLIAMSTOWN_STATIONS.map((station) => station.position);
 const ALTONA_LOOP_LINE = ALTONA_LOOP_STATIONS.map((station) => station.position);
+const RENDERED_WERRIBEE_STATIONS = alignStationsToRenderedPolyline(WERRIBEE_STATIONS, WERRIBEE_LINE, "left", 0.5);
+const RENDERED_WILLIAMSTOWN_STATIONS = alignStationsToRenderedPolyline(
+  WILLIAMSTOWN_STATIONS,
+  WILLIAMSTOWN_LINE,
+  "left",
+  0.35,
+);
+const RENDERED_ALTONA_LOOP_STATIONS = alignStationsToRenderedPolyline(
+  ALTONA_LOOP_STATIONS,
+  ALTONA_LOOP_LINE,
+  "left",
+  0.35,
+);
 const RENDERED_SANDRINGHAM_STATIONS = alignStationsToRenderedPolyline(
   SANDRINGHAM_STATIONS,
   SANDRINGHAM_LINE,
@@ -1840,7 +1853,9 @@ const FRANKSTON_TRACK: [number, number][] = [
 [-37.81883627840431, 144.96497044269884], // Flinders Street
 
 ];
+const RENDERED_FRANKSTON_STATIONS = alignStationsToPolyline(FRANKSTON_STATIONS, FRANKSTON_TRACK);
 const GLEN_WAVERLEY_LINE = GLEN_WAVERLEY_TRACK_POINTS;
+const RENDERED_GLEN_WAVERLEY_STATIONS = alignStationsToPolyline(GLEN_WAVERLEY_STATIONS, GLEN_WAVERLEY_LINE);
 const UPFIELD_DEBUG_TRACK_POINTS = offsetPolylineCoordinates(UPFIELD_LINE, "right", 0.45)
   .map((position, index) => ({ position, index }));
 const GLEN_WAVERLEY_DEBUG_TRACK_POINTS = GLEN_WAVERLEY_LINE.map((position, index) => ({ position, index }));
@@ -1868,6 +1883,50 @@ const LILYDALE_LINE = LILYDALE_STATIONS.map((station) => station.position);
 const BELGRAVE_LINE = BELGRAVE_STATIONS.map((station) => station.position);
 const ALAMEIN_LINE = ALAMEIN_STATIONS.map((station) => station.position);
 const METRO_TUNNEL_LINE = METRO_TUNNEL_STATIONS.map((station) => station.position);
+const RENDERED_MERNDA_LINE = [MERNDA_LINE[0], ...JOLIMONT_TO_WEST_RICHMOND, ...MERNDA_BRANCH_LINE.slice(1)];
+const RENDERED_MERNDA_STATIONS = alignStationsToPolyline(MERNDA_STATIONS, RENDERED_MERNDA_LINE);
+const RENDERED_HURSTBRIDGE_STATIONS = alignStationsToPolyline(HURSTBRIDGE_STATIONS, HURSTBRIDGE_BRANCH_LINE);
+const RENDERED_CLIFTONHILL_LOOP_STATIONS = alignStationsToPolyline(
+  CLIFTONHILLGROUPLOOP_STATIONS,
+  [...JOLIMONT_TO_WEST_RICHMOND, ...CLIFTONHILL_LOOP],
+);
+const RENDERED_NORTHERN_LOOP_STATIONS = alignStationsToPolyline(NORTHERNGROUPLOOP_STATIONS, NORTHERN_LOOP);
+const RENDERED_NORTHERN_LOOP_CRAIGIEBURN_STATIONS = alignStationsToRenderedPolyline(
+  NORTHERNGROUPLOOP_STATIONS,
+  NORTHERN_LOOP,
+  "left",
+  0.42,
+);
+const RENDERED_BURNLEY_LOOP_STATIONS = alignStationsToRenderedPolyline(
+  BURNLEYGROUPLOOP_STATIONS,
+  BURNLEY_LOOP,
+  "left",
+  0.45,
+);
+const RENDERED_CRAIGIEBURN_STATIONS = alignStationsToRenderedPolyline(
+  CRAIGIEBURN_STATIONS,
+  CRAIGIEBURN_LINE,
+  "left",
+  0.45,
+);
+const RENDERED_CRANBOURNE_STATIONS = alignStationsToRenderedPolyline(
+  CRANBOURNE_STATIONS,
+  CRANBOURNE_LINE,
+  "left",
+  0.6,
+);
+const RENDERED_SUNBURY_STATIONS = alignStationsToRenderedPolyline(
+  SUNBURY_STATIONS,
+  SUNBURY_LINE,
+  "left",
+  0.6,
+);
+const RENDERED_METRO_TUNNEL_STATIONS = alignStationsToRenderedPolyline(
+  METRO_TUNNEL_STATIONS,
+  METRO_TUNNEL_LINE,
+  "left",
+  0.6,
+);
 const GIPPSLAND_LINE: [number, number][] = [
   [-37.81760709859187, 144.95075647527574], // Southern Cross PL 15 
   [-37.82003795534144, 144.9528633468371], // other End of Southern Cross
@@ -1962,6 +2021,17 @@ const GIPPSLAND_PRE_CARNEGIE_LINE =
   GIPPSLAND_CARNEGIE_INDEX >= 0 ? GIPPSLAND_LINE.slice(0, GIPPSLAND_CARNEGIE_INDEX + 1) : GIPPSLAND_LINE;
 const GIPPSLAND_POST_CARNEGIE_LINE =
   GIPPSLAND_CARNEGIE_INDEX >= 0 ? GIPPSLAND_LINE.slice(GIPPSLAND_CARNEGIE_INDEX) : GIPPSLAND_LINE;
+const RENDERED_PAKENHAM_LINE = [
+  ...offsetPolylineCoordinates(PAKENHAM_PRE_HAWKSBURN_LINE, "left", 0.6),
+  ...PAKENHAM_HAWKSBURN_TO_CARNEGIE_LINE.slice(1),
+  ...offsetPolylineCoordinates(PAKENHAM_POST_CARNEGIE_LINE, "left", 0.38).slice(1),
+];
+const RENDERED_PAKENHAM_STATIONS = alignStationsToPolyline(PAKENHAM_STATIONS, RENDERED_PAKENHAM_LINE);
+const RENDERED_GIPPSLAND_LINE = [
+  ...GIPPSLAND_PRE_CARNEGIE_LINE,
+  ...offsetPolylineCoordinates(GIPPSLAND_POST_CARNEGIE_LINE, "right", 0.38).slice(1),
+];
+const RENDERED_GIPPSLAND_STATIONS = alignStationsToPolyline(GIPPSLAND_STATIONS, RENDERED_GIPPSLAND_LINE);
 const BAIRNSDALE_DEBUG_TRACK_POINTS = [
   ...GIPPSLAND_PRE_CARNEGIE_LINE,
   ...offsetPolylineCoordinates(GIPPSLAND_POST_CARNEGIE_LINE, "right", 0.38).slice(1),
@@ -2014,6 +2084,13 @@ const SEYMOUR_REGIONAL_LINE: [number, number][] = [
   [-37.2452, 145.0418],
   [-37.0264, 145.1337], // Seymour
 ];
+const RENDERED_SEYMOUR_REGIONAL_STATIONS = alignStationsToPolyline(SEYMOUR_REGIONAL_STATIONS, SEYMOUR_REGIONAL_LINE);
+const RENDERED_SEYMOUR_REGIONAL_OFFSET_STATIONS = alignStationsToRenderedPolyline(
+  SEYMOUR_REGIONAL_STATIONS,
+  SEYMOUR_REGIONAL_LINE,
+  "right",
+  0.45,
+);
 const SUNSHINE_VLINE_EXPRESS_OVERLAY: [number, number][] = [
   [-37.7929, 144.8468],
   [-37.7914, 144.8418],
@@ -6239,15 +6316,8 @@ function getDistanceSquared(left: [number, number], right: [number, number]) {
   return latDelta * latDelta + lngDelta * lngDelta;
 }
 
-function alignStationsToRenderedPolyline(
-  stations: Station[],
-  track: [number, number][],
-  direction: "left" | "right",
-  multiplier: number,
-): Station[] {
-  const renderedTrack = offsetPolylineCoordinates(track, direction, multiplier);
-
-  if (renderedTrack.length < 2) {
+function alignStationsToPolyline(stations: Station[], track: [number, number][]): Station[] {
+  if (track.length < 2) {
     return stations;
   }
 
@@ -6255,11 +6325,11 @@ function alignStationsToRenderedPolyline(
     let closestPoint = station.position;
     let closestDistance = Number.POSITIVE_INFINITY;
 
-    for (let index = 0; index < renderedTrack.length - 1; index += 1) {
+    for (let index = 0; index < track.length - 1; index += 1) {
       const projectedPoint = projectPointToSegment(
         station.position,
-        renderedTrack[index],
-        renderedTrack[index + 1],
+        track[index],
+        track[index + 1],
       );
       const distance = getDistanceSquared(station.position, projectedPoint);
 
@@ -6276,6 +6346,16 @@ function alignStationsToRenderedPolyline(
   });
 }
 
+function alignStationsToRenderedPolyline(
+  stations: Station[],
+  track: [number, number][],
+  direction: "left" | "right",
+  multiplier: number,
+): Station[] {
+  const renderedTrack = offsetPolylineCoordinates(track, direction, multiplier);
+  return alignStationsToPolyline(stations, renderedTrack);
+}
+
 function renderStationMarkers(
   renderedStationKeys: Set<string>,
   stations: Station[],
@@ -6286,7 +6366,7 @@ function renderStationMarkers(
   onToggleStationLine?: (station: Station) => boolean,
   visibleBounds?: L.LatLngBounds | null,
 ) {
-  const useCompactInlineStops = stations === GLEN_WAVERLEY_STATIONS;
+  const useCompactInlineStops = stations === GLEN_WAVERLEY_STATIONS || stations === RENDERED_GLEN_WAVERLEY_STATIONS;
   return stations.map((station, index) => {
     const resolvedStation = resolveStation(station);
     const isCityLoopPill =
@@ -8921,7 +9001,7 @@ export function Map({
       positions={FRANKSTON_TRACK}
       pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
     />
-    {renderStationMarkers(renderedStationKeys, FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, RENDERED_FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
   </>
 )}
 {modeIsTrainVisible && layers.merndaLine && (
@@ -8930,7 +9010,7 @@ export function Map({
       positions={MERNDA_BRANCH_LINE}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(renderedStationKeys, MERNDA_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, RENDERED_MERNDA_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -8940,7 +9020,7 @@ export function Map({
       positions={HURSTBRIDGE_BRANCH_LINE}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(renderedStationKeys, HURSTBRIDGE_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, RENDERED_HURSTBRIDGE_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -8958,7 +9038,7 @@ export function Map({
       positions={CLIFTONHILL_LOOP}
       pathOptions={{ color: "#BE1014", weight: 5, opacity: 0.85 }}
     />
-    {renderStationMarkers(renderedStationKeys, CLIFTONHILLGROUPLOOP_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, RENDERED_CLIFTONHILL_LOOP_STATIONS, "#BE1014", "#BE1014", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 {modeIsTrainVisible && (layers.sunburyLine || layers.craigieburnLine || layers.upfieldLine || layers.northernLoop) && (
@@ -8980,7 +9060,16 @@ export function Map({
         pathOptions={{ color: "#FFD200", weight: 5, opacity: 0.85 }}
       />
     )}
-    {renderStationMarkers(renderedStationKeys, NORTHERNGROUPLOOP_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+    {renderStationMarkers(
+      renderedStationKeys,
+      layers.craigieburnLine ? RENDERED_NORTHERN_LOOP_CRAIGIEBURN_STATIONS : RENDERED_NORTHERN_LOOP_STATIONS,
+      "#FFD200",
+      "#cca700",
+      resolveStation,
+      (station) => setSelectedDetail({ type: "station", station }),
+      undefined,
+      stationMarkerVisibleBounds,
+    )}
   </>
 )}
 
@@ -8990,7 +9079,7 @@ export function Map({
       positions={offsetPolylineCoordinates(BURNLEY_LOOP, "left", 0.45)}
   pathOptions={{ color: "#003A8F", weight: 3, opacity: 0.6 }}
     />
-    {renderStationMarkers(renderedStationKeys, BURNLEYGROUPLOOP_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, RENDERED_BURNLEY_LOOP_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 {modeIsTrainVisible && layers.lilydaleLine && (
@@ -9045,7 +9134,7 @@ export function Map({
         opacity: 0.85,
       }}
     />
-    {renderStationMarkers(renderedStationKeys, GLEN_WAVERLEY_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, RENDERED_GLEN_WAVERLEY_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 {modeIsTrainVisible && layers.craigieburnLine && (
@@ -9066,7 +9155,7 @@ export function Map({
         opacity: 0.84,
       }}
     />
-    {renderStationMarkers(renderedStationKeys, CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, RENDERED_CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -9097,7 +9186,7 @@ export function Map({
               )}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
+            {renderStationMarkers(renderedStationKeys, RENDERED_CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9119,7 +9208,7 @@ export function Map({
               positions={offsetPolylineCoordinates(PAKENHAM_POST_CARNEGIE_LINE, "left", 0.38)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
+            {renderStationMarkers(renderedStationKeys, RENDERED_PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9133,7 +9222,7 @@ export function Map({
               positions={offsetPolylineCoordinates(SUNBURY_LINE, "right", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+            {renderStationMarkers(renderedStationKeys, RENDERED_SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9147,7 +9236,7 @@ export function Map({
               positions={offsetPolylineCoordinates(METRO_TUNNEL_LINE, "right", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+            {renderStationMarkers(renderedStationKeys, RENDERED_METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
 {modeIsTrainVisible && layers.werribeeLine && (
@@ -9199,9 +9288,9 @@ export function Map({
       }}
     />
 
-    {renderStationMarkers(renderedStationKeys, WERRIBEE_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
-    {renderStationMarkers(renderedStationKeys, WILLIAMSTOWN_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
-    {renderStationMarkers(renderedStationKeys, ALTONA_LOOP_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+    {renderStationMarkers(renderedStationKeys, RENDERED_WERRIBEE_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, RENDERED_WILLIAMSTOWN_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, RENDERED_ALTONA_LOOP_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
         {modeIsTrainVisible && layers.sandringhamLine && (
@@ -9214,7 +9303,7 @@ export function Map({
               )}
               pathOptions={{ color: "#F178AF", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, RENDERED_SANDRINGHAM_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }))}
+            {renderStationMarkers(renderedStationKeys, RENDERED_SANDRINGHAM_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9270,7 +9359,9 @@ export function Map({
                 />
                 {renderStationMarkers(
                   renderedStationKeys,
-                  SEYMOUR_REGIONAL_STATIONS,
+                  layers.craigieburnLine
+                    ? RENDERED_SEYMOUR_REGIONAL_OFFSET_STATIONS
+                    : RENDERED_SEYMOUR_REGIONAL_STATIONS,
                   "#7c3aed",
                   "#5b21b6",
                   resolveStation,
@@ -9292,7 +9383,7 @@ export function Map({
                 />
                 {renderStationMarkers(
                   renderedStationKeys,
-                  GIPPSLAND_STATIONS,
+                  RENDERED_GIPPSLAND_STATIONS,
                   "#7c3aed",
                   "#5b21b6",
                   resolveStation,
