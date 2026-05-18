@@ -6402,8 +6402,19 @@ function renderStationMarkers(
       ? "Melbourne Central / State Library"
       : resolvedStation.name;
     const isEndpoint = index === 0 || index === stations.length - 1;
+    const shouldThinMobileStationMarker =
+      visibleBounds &&
+      stations.length > 10 &&
+      !isEndpoint &&
+      !isCityLoopPill &&
+      !shouldRenderOnce &&
+      index % 2 === 1;
 
     if (visibleBounds && !visibleBounds.contains(L.latLng(markerPosition[0], markerPosition[1]))) {
+      return null;
+    }
+
+    if (shouldThinMobileStationMarker) {
       return null;
     }
 
@@ -7320,9 +7331,9 @@ const CONSIST_LAYOUT_PRESETS = {
 function inferComengVariant(vehicle: LiveTrain) {
   const joined = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
   if (/(craigieburn|upfield|sunbury|northern|mernda|hurstbridge|clifton hill)/i.test(joined)) {
-    return "North-side Comeng";
+    return "Alstom Comeng";
   }
-  return "South-side Comeng";
+  return "EDI Comeng";
 }
 
 function sortVehiclesByViewportDistance<T extends { lat: number; lng: number }>(
@@ -7359,9 +7370,9 @@ function resolveVehicleFamilyForLine(vehicle: LiveTrain, explicitFamily: string 
     case "burnley":
       return "Xâ€™Trapolis 100";
     case "northern":
-      return explicitFamily === "Xâ€™Trapolis 100" ? explicitFamily : "North-side Comeng";
+      return explicitFamily === "Xâ€™Trapolis 100" ? explicitFamily : "Alstom Comeng";
     case "bayside":
-      if (explicitFamily === "South-side Comeng" || explicitFamily === "Siemens Nexas") {
+      if (explicitFamily === "EDI Comeng" || explicitFamily === "Siemens Nexas") {
         return explicitFamily;
       }
       return "Siemens Nexas";
@@ -7440,9 +7451,9 @@ function getVehicleTypeIcon(vehicle: LiveTrain) {
       return siemensIcon;
     case "Xâ€™Trapolis 100":
       return xtrapolisIcon;
-    case "South-side Comeng":
+    case "EDI Comeng":
       return southsideComengIcon;
-    case "North-side Comeng":
+    case "Alstom Comeng":
       return northsideComengIcon;
     default:
       return null;

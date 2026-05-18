@@ -216,8 +216,8 @@ const FLEET_TYPES: FleetTypeConfig[] = [
   { key: "hcmt", label: "HCMT", emoji: "Train", total: 37 },
   { key: "xtrapolis", label: "X'Trapolis", emoji: "Train", total: 32 },
   { key: "siemens", label: "Siemens", emoji: "Train", total: 20 },
-  { key: "ss-comeng", label: "SS Comeng", emoji: "Train", total: 12 },
-  { key: "ns-comeng", label: "NS Comeng", emoji: "Train", total: 7 },
+  { key: "ss-comeng", label: "EDI Comeng", emoji: "Train", total: 12 },
+  { key: "ns-comeng", label: "Alstom Comeng", emoji: "Train", total: 7 },
   { key: "n-class", label: "N Class", emoji: "Train", total: 1 },
   { key: "vlocity", label: "VLocity", emoji: "Train", total: 25 },
 ];
