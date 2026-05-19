@@ -6402,19 +6402,29 @@ function renderStationMarkers(
       ? "Melbourne Central / State Library"
       : resolvedStation.name;
     const isEndpoint = index === 0 || index === stations.length - 1;
+    const isMobileBoundedMarkerSet = Boolean(visibleBounds && stations.length > 10);
     const shouldThinMobileStationMarker =
-      visibleBounds &&
-      stations.length > 10 &&
+      isMobileBoundedMarkerSet &&
       !isEndpoint &&
       !isCityLoopPill &&
       !shouldRenderOnce &&
       index % 2 === 1;
+    const shouldHideDenseMobileStationMarker =
+      isMobileBoundedMarkerSet &&
+      stations.length > 16 &&
+      !isEndpoint &&
+      !isCityLoopPill &&
+      !shouldRenderOnce &&
+      !isSharedCaulfieldMetroStation &&
+      !isSharedNorthernStation &&
+      !isCraigieburnLineStation &&
+      index % 4 !== 0;
 
     if (visibleBounds && !visibleBounds.contains(L.latLng(markerPosition[0], markerPosition[1]))) {
       return null;
     }
 
-    if (shouldThinMobileStationMarker) {
+    if (shouldThinMobileStationMarker || shouldHideDenseMobileStationMarker) {
       return null;
     }
 
@@ -7810,6 +7820,7 @@ export function Map({
     mobilePerformanceMode === "on" || (mobilePerformanceMode === "auto" && isMobile);
   const aggressiveMobileProtectionEnabled = mobilePerformanceEnabled || isIos;
   const disableLiveMapOverlaysForIos = isIos && mobilePerformanceMode !== "off";
+  const iosLeanMapEnabled = isIos && mobilePerformanceMode !== "off";
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
   const consistData = { active: false } as any;
@@ -7831,6 +7842,10 @@ export function Map({
   }, [aggressiveMobileProtectionEnabled, mapBounds]);
   const allowMobileHeavySurfaceTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 15.25;
   const allowMobileHeavyTrainTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 13.1;
+  const allowIosSurfaceStops = !iosLeanMapEnabled || mapZoom >= 15.8;
+  const allowIosFreightLayer = !iosLeanMapEnabled || mapZoom >= 13.2;
+  const allowIosReportLayer = !iosLeanMapEnabled || mapZoom >= 14.8;
+  const allowIosParallelTrackCopies = !iosLeanMapEnabled || mapZoom >= 13.8;
   const shouldDeferSurfaceLiveOnMobile =
     aggressiveMobileProtectionEnabled &&
     (transportModes.includes("train") || transportModes.includes("vline")) &&
@@ -9172,14 +9187,16 @@ export function Map({
         opacity: 0.88,
       }}
     />
-    <Polyline
-      positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "right", 0.45)}
-      pathOptions={{
-        color: "#7c3aed",
-        weight: 4.75,
-        opacity: 0.84,
-      }}
-    />
+    {allowIosParallelTrackCopies && (
+      <Polyline
+        positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "right", 0.45)}
+        pathOptions={{
+          color: "#7c3aed",
+          weight: 4.75,
+          opacity: 0.84,
+        }}
+      />
+    )}
     {renderStationMarkers(renderedStationKeys, RENDERED_CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
@@ -9203,14 +9220,16 @@ export function Map({
               positions={offsetPolylineCoordinates(CRANBOURNE_LINE, "left", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            <Polyline
-              positions={offsetPolylineCoordinates(
-                CRANBOURNE_LINE,
-                "right",
-                0.6
-              )}
-              pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
-            />
+            {allowIosParallelTrackCopies && (
+              <Polyline
+                positions={offsetPolylineCoordinates(
+                  CRANBOURNE_LINE,
+                  "right",
+                  0.6
+                )}
+                pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
+              />
+            )}
             {renderStationMarkers(renderedStationKeys, RENDERED_CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
           </>
         )}
@@ -9221,10 +9240,12 @@ export function Map({
               positions={offsetPolylineCoordinates(PAKENHAM_PRE_HAWKSBURN_LINE, "left", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            <Polyline
-              positions={offsetPolylineCoordinates(PAKENHAM_PRE_HAWKSBURN_LINE, "right", 0.6)}
-              pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
-            />
+            {allowIosParallelTrackCopies && (
+              <Polyline
+                positions={offsetPolylineCoordinates(PAKENHAM_PRE_HAWKSBURN_LINE, "right", 0.6)}
+                pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
+              />
+            )}
             <Polyline
               positions={PAKENHAM_HAWKSBURN_TO_CARNEGIE_LINE}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
@@ -9243,10 +9264,12 @@ export function Map({
               positions={offsetPolylineCoordinates(SUNBURY_LINE, "left", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            <Polyline
-              positions={offsetPolylineCoordinates(SUNBURY_LINE, "right", 0.6)}
-              pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
-            />
+            {allowIosParallelTrackCopies && (
+              <Polyline
+                positions={offsetPolylineCoordinates(SUNBURY_LINE, "right", 0.6)}
+                pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
+              />
+            )}
             {renderStationMarkers(renderedStationKeys, RENDERED_SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
@@ -9257,10 +9280,12 @@ export function Map({
               positions={offsetPolylineCoordinates(METRO_TUNNEL_LINE, "left", 0.6)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            <Polyline
-              positions={offsetPolylineCoordinates(METRO_TUNNEL_LINE, "right", 0.6)}
-              pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
-            />
+            {allowIosParallelTrackCopies && (
+              <Polyline
+                positions={offsetPolylineCoordinates(METRO_TUNNEL_LINE, "right", 0.6)}
+                pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
+              />
+            )}
             {renderStationMarkers(renderedStationKeys, RENDERED_METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
@@ -9286,14 +9311,16 @@ export function Map({
         opacity: 0.85,
       }}
     />
-    <Polyline
-      positions={offsetPolylineCoordinates(WILLIAMSTOWN_LINE, "right", 0.35)}
-      pathOptions={{
-        color: "#F178AF",
-        weight: 5,
-        opacity: 0.85,
-      }}
-    />
+    {allowIosParallelTrackCopies && (
+      <Polyline
+        positions={offsetPolylineCoordinates(WILLIAMSTOWN_LINE, "right", 0.35)}
+        pathOptions={{
+          color: "#F178AF",
+          weight: 5,
+          opacity: 0.85,
+        }}
+      />
+    )}
 
     {/* Altona loop branch */}
     <Polyline
@@ -9304,14 +9331,16 @@ export function Map({
         opacity: 0.85,
       }}
     />
-    <Polyline
-      positions={offsetPolylineCoordinates(ALTONA_LOOP_LINE, "right", 0.35)}
-      pathOptions={{
-        color: "#F178AF",
-        weight: 5,
-        opacity: 0.85,
-      }}
-    />
+    {allowIosParallelTrackCopies && (
+      <Polyline
+        positions={offsetPolylineCoordinates(ALTONA_LOOP_LINE, "right", 0.35)}
+        pathOptions={{
+          color: "#F178AF",
+          weight: 5,
+          opacity: 0.85,
+        }}
+      />
+    )}
 
     {renderStationMarkers(renderedStationKeys, RENDERED_WERRIBEE_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
     {renderStationMarkers(renderedStationKeys, RENDERED_WILLIAMSTOWN_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
@@ -9432,7 +9461,7 @@ export function Map({
           </>
         )}
 
-        {(modeIsTrainVisible || modeIsVlineVisible) && (
+        {(modeIsTrainVisible || modeIsVlineVisible) && allowIosFreightLayer && (
           <>
             <Polyline
               positions={FREIGHT_PORT_TERMINAL_LINE}
@@ -9490,6 +9519,7 @@ export function Map({
         )}
 
         {layers.heatCircles &&
+          allowIosReportLayer &&
           inspectorReports.map((report) => (
             <Circle
               key={`heat-${report.id}`}
@@ -9686,6 +9716,7 @@ export function Map({
             </Marker>
           ))}
         {modeIsBusVisible &&
+          allowIosSurfaceStops &&
           renderSurfaceStops(
             ANYTRIP_SURFACE_STOPS.filter(
               (stop) => stop.modes.includes("bus") && isSurfaceRouteVisible("bus", stop.routeLabel),
@@ -9697,6 +9728,7 @@ export function Map({
             "bus",
           )}
         {modeIsTramVisible &&
+          allowIosSurfaceStops &&
           renderSurfaceStops(
             ANYTRIP_SURFACE_STOPS.filter(
               (stop) => stop.modes.includes("tram") && isSurfaceRouteVisible("tram", stop.routeLabel),
@@ -9707,7 +9739,7 @@ export function Map({
             visibleViewportBounds,
             "tram",
           )}
-        {visibleReports.map((report) => {
+        {allowIosReportLayer && visibleReports.map((report) => {
           if (!report.lat || !report.lng) return null;
 
           return (
