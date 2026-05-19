@@ -7829,8 +7829,12 @@ export function Map({
       maxLng: Number(sourceBounds.getEast().toFixed(5)),
     };
   }, [aggressiveMobileProtectionEnabled, mapBounds]);
-  const allowMobileHeavySurfaceTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 14.4;
+  const allowMobileHeavySurfaceTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 15.25;
   const allowMobileHeavyTrainTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 13.1;
+  const shouldDeferSurfaceLiveOnMobile =
+    aggressiveMobileProtectionEnabled &&
+    (transportModes.includes("train") || transportModes.includes("vline")) &&
+    mapZoom < 15.8;
   const visibleViewportBounds = useMemo(
     () =>
       L.latLngBounds(
@@ -7887,6 +7891,7 @@ export function Map({
       !isGuest &&
       !disableLiveMapOverlaysForIos &&
       transportModes.includes("bus") &&
+      !shouldDeferSurfaceLiveOnMobile &&
       allowMobileHeavySurfaceTracking,
     refetchInterval: aggressiveMobileProtectionEnabled ? 45_000 : 15_000,
     staleTime: aggressiveMobileProtectionEnabled ? 30_000 : 5_000,
@@ -7902,6 +7907,7 @@ export function Map({
       !isGuest &&
       !disableLiveMapOverlaysForIos &&
       transportModes.includes("tram") &&
+      !shouldDeferSurfaceLiveOnMobile &&
       allowMobileHeavySurfaceTracking,
     refetchInterval: aggressiveMobileProtectionEnabled ? 45_000 : 15_000,
     staleTime: aggressiveMobileProtectionEnabled ? 30_000 : 5_000,

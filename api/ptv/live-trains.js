@@ -97,6 +97,30 @@ function toNumber(value) {
   return undefined;
 }
 
+function buildFeedError(sourceKey, status) {
+  if (status === 429) {
+    return new Error(`${sourceKey}:rate-limited`);
+  }
+
+  return new Error(`${sourceKey}:unavailable:${status}`);
+}
+
+function sanitiseFeedFailure(message) {
+  if (/rate-limited|:429\b/i.test(message)) {
+    return "Live train feed is rate limited. Showing cached/fallback data where available.";
+  }
+
+  if (/nswtrains/i.test(message)) {
+    return "NSW TrainLink live feed is unavailable right now.";
+  }
+
+  if (/metro|vline/i.test(message)) {
+    return "PTV live train feed is unavailable right now.";
+  }
+
+  return "Live train feed is unavailable right now.";
+}
+
 function normaliseConsistLabel(...values) {
   for (const value of values) {
     if (typeof value !== "string") continue;
@@ -296,8 +320,7 @@ export default async function handler(req, res) {
             });
 
             if (!response.ok) {
-              const details = await response.text().catch(() => "");
-              throw new Error(`${source.key}:${response.status}:${details.slice(0, 120)}`);
+              throw buildFeedError(source.key, response.status);
             }
 
             const buffer = await response.arrayBuffer();
@@ -316,8 +339,7 @@ export default async function handler(req, res) {
               });
 
               if (!response.ok) {
-                const details = await response.text().catch(() => "");
-                throw new Error(`nswtrains:${response.status}:${details.slice(0, 120)}`);
+                throw buildFeedError("nswtrains", response.status);
               }
 
               const buffer = await response.arrayBuffer();
@@ -342,7 +364,8 @@ export default async function handler(req, res) {
 
     const failureMessage = responses
       .filter((result) => result.status === "rejected")
-      .map((result) => (result.reason instanceof Error ? result.reason.message : "Unknown feed error"))
+      .map((result) => sanitiseFeedFailure(result.reason instanceof Error ? result.reason.message : "Unknown feed error"))
+      .filter((message, index, messages) => messages.indexOf(message) === index)
       .join(" | ");
 
     res.status(502).json({

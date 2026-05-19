@@ -27,7 +27,7 @@ export const userPreferencesTable = pgTable("user_preferences", {
   favouriteStops: jsonb("favourite_stops").notNull().default([]),
   favouriteRoutes: jsonb("favourite_routes").notNull().default([]),
   selectedMapFilters: jsonb("selected_map_filters").notNull().default({}),
-  transportModes: jsonb("transport_modes").notNull().default(["train", "tram", "bus", "vline"]),
+  transportModes: jsonb("transport_modes").notNull().default(["train", "vline"]),
   appPreferences: jsonb("app_preferences").notNull().default({}),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

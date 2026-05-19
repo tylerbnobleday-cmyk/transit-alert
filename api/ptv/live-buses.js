@@ -12,6 +12,14 @@ function toNumber(value) {
   return undefined;
 }
 
+function getSafePtvError(status) {
+  if (status === 429) {
+    return "PTV bus feed is rate limited. Try again shortly.";
+  }
+
+  return `PTV bus feed is unavailable (${status}).`;
+}
+
 function normaliseBusRoute(routeId, fallback = "Bus") {
   if (typeof routeId !== "string") {
     return fallback;
@@ -136,10 +144,8 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      const details = await response.text().catch(() => "");
       res.status(response.status).json({
-        error: `PTV request failed (${response.status})`,
-        details: details.slice(0, 200),
+        error: getSafePtvError(response.status),
       });
       return;
     }

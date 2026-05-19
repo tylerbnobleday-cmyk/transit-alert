@@ -38,7 +38,7 @@ export async function ensureDatabaseReady() {
           favourite_stops jsonb NOT NULL DEFAULT '[]'::jsonb,
           favourite_routes jsonb NOT NULL DEFAULT '[]'::jsonb,
           selected_map_filters jsonb NOT NULL DEFAULT '{}'::jsonb,
-          transport_modes jsonb NOT NULL DEFAULT '["train","tram","bus","vline"]'::jsonb,
+          transport_modes jsonb NOT NULL DEFAULT '["train","vline"]'::jsonb,
           app_preferences jsonb NOT NULL DEFAULT '{}'::jsonb,
           updated_at timestamp NOT NULL DEFAULT now()
         );
@@ -62,6 +62,10 @@ export async function ensureDatabaseReady() {
           updated_by uuid REFERENCES app_users(id) ON DELETE SET NULL,
           updated_at timestamp NOT NULL DEFAULT now()
         );
+      `);
+      await pool.query(`
+        ALTER TABLE user_preferences
+        ALTER COLUMN transport_modes SET DEFAULT '["train","vline"]'::jsonb;
       `);
       return true;
     })().catch((error) => {

@@ -9,6 +9,29 @@ import Settings from "@/pages/Settings";
 import TodaysAlerts from "@/pages/TodaysAlerts";
 import NotFound from "@/pages/not-found";
 
+const CRASH_REPORT_STORAGE_KEY = "transitalert-last-crash-report";
+
+function buildCrashReport(error: unknown, source = "runtime") {
+  const resolvedError = error instanceof Error ? error : new Error(String(error || "Unknown error"));
+  return [
+    `TransitAlert crash report`,
+    `Source: ${source}`,
+    `Time: ${new Date().toISOString()}`,
+    `URL: ${typeof window !== "undefined" ? window.location.href : "unknown"}`,
+    `User agent: ${typeof navigator !== "undefined" ? navigator.userAgent : "unknown"}`,
+    `Message: ${resolvedError.message || "Unknown runtime error"}`,
+    `Stack: ${resolvedError.stack || "No stack available"}`,
+  ].join("\n");
+}
+
+function saveCrashReport(report: string) {
+  try {
+    window.localStorage.setItem(CRASH_REPORT_STORAGE_KEY, report);
+  } catch {
+    // Storage can fail in private browsing or locked-down mobile WebViews.
+  }
+}
+
 // Initialize QueryClient
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,19 +57,22 @@ function Router() {
 
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { error: Error | null }
+  { error: Error | null; report: string }
 > {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, report: "" };
   }
 
   static getDerivedStateFromError(error: Error) {
-    return { error };
+    return { error, report: buildCrashReport(error, "react-render") };
   }
 
   override componentDidCatch(error: Error) {
+    const report = buildCrashReport(error, "react-render");
+    saveCrashReport(report);
     console.error("Transit Alert crashed during render", error);
+    this.setState({ report });
   }
 
   override render() {
@@ -70,13 +96,31 @@ class AppErrorBoundary extends React.Component<
           <pre className="mt-5 overflow-x-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-amber-100">
             {this.state.error.message || "Unknown runtime error"}
           </pre>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="mt-5 rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white transition hover:bg-blue-500"
-          >
-            Reload app
-          </button>
+          <details className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-xs text-white/70">
+            <summary className="cursor-pointer font-semibold text-white">Debug report for testers</summary>
+            <pre className="mt-3 max-h-52 overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed text-white/70">
+              {this.state.report || buildCrashReport(this.state.error, "react-render")}
+            </pre>
+          </details>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white transition hover:bg-blue-500"
+            >
+              Reload app
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const report = this.state.report || buildCrashReport(this.state.error, "react-render");
+                void navigator.clipboard?.writeText(report);
+              }}
+              className="rounded-2xl border border-white/10 bg-white/10 px-5 py-3 font-semibold text-white transition hover:bg-white/15"
+            >
+              Copy debug report
+            </button>
+          </div>
         </div>
       </main>
     );
@@ -84,6 +128,22 @@ class AppErrorBoundary extends React.Component<
 }
 
 function App() {
+  React.useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      saveCrashReport(buildCrashReport(event.error ?? event.message, "window-error"));
+    };
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      saveCrashReport(buildCrashReport(event.reason, "unhandled-promise"));
+    };
+
+    window.addEventListener("error", handleError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", handleError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
