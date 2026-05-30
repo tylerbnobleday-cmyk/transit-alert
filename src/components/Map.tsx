@@ -342,7 +342,7 @@ export type ServiceFilterKey =
   | "burnleyGroup"
   | "cliftonHillGroup"
   | "upfieldCraigieburn"
-  | "upfieldCraigieburnCityLoop";
+  | "upfieldCraigieburnCityLoop" | "xptInterstate";
 
 export type TransportMode = "train" | "tram" | "bus" | "vline";
 export type AdminDebugLineKey =
@@ -764,7 +764,7 @@ const TRANSPORT_EMOJI: Record<string, string> = {
   stop: "🚏",
 };
 
-const REPORT_COLOR: Record<string, string> = {
+const APP_VERSION = "0.90"; const GUEST_PREVIEW_VERSION = "0.85"; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
   inspector: "#e11d48",
   delay: "#f59e0b",
   incident: "#3b82f6",
@@ -9868,7 +9868,7 @@ export function Map({
         <div className={`rounded-2xl border px-3 py-2.5 shadow-xl backdrop-blur-xl ${liveTrainStatusTone}`}>
           <div className="flex items-center gap-2">
             <Train className="h-3.5 w-3.5" />
-            <p className="text-xs font-semibold leading-tight sm:text-sm">Live train tracking</p>
+            { key: "xptInterstate", category: "regional", labe<p className="text-xs font-semibold leading-tight sm:text-sm">{isGuest ? `TransitAlert Guest Preview ${GUEST_PREVIEW_VERSION}` : `TransitAlert Version ${APP_VERSION}`}</p>
           </div>
           <p className="mt-1.5 text-xs leading-tight sm:text-sm">{liveTrainStatusLabel}</p>
           <p className="mt-1 text-[11px] leading-4 opacity-80 sm:text-xs">{liveTrainStatusDetail}</p>
