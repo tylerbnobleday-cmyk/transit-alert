@@ -9868,7 +9868,7 @@ export function Map({
         <div className={`rounded-2xl border px-3 py-2.5 shadow-xl backdrop-blur-xl ${liveTrainStatusTone}`}>
           <div className="flex items-center gap-2">
             <Train className="h-3.5 w-3.5" />
-            { key: "xptInterstate", category: "regional", labe<p className="text-xs font-semibold leading-tight sm:text-sm">{isGuest ? `TransitAlert Guest Preview ${GUEST_PREVIEW_VERSION}` : `TransitAlert Version ${APP_VERSION}`}</p>
+            <p className="text-xs font-semibold leading-tight sm:text-sm">{isGuest ? `TransitAlert Guest Preview ${GUEST_PREVIEW_VERSION}` : `TransitAlert Version ${APP_VERSION}`}</p>
           </div>
           <p className="mt-1.5 text-xs leading-tight sm:text-sm">{liveTrainStatusLabel}</p>
           <p className="mt-1 text-[11px] leading-4 opacity-80 sm:text-xs">{liveTrainStatusDetail}</p>
