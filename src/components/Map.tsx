@@ -106,6 +106,7 @@ const ROTATED_FRANKSTON_PILL_STATIONS = new Set([
   "Glen Huntly",
   "Ormond",
   "Bentleigh",
+  "McKinnon",
   "Patterson",
 ]);
 
@@ -1059,8 +1060,8 @@ const FRANKSTON_STATIONS: Station[] = [
   { name: "Patterson", position: [-37.9251159, 145.0354959] },
   { name: "Bentleigh", position: [-37.9175354, 145.0369346] },
   { name: "McKinnon", position: [-37.9114018, 145.0381036] },
-  { name: "Ormond", position: [-37.9042587, 145.0394811] },
-  { name: "Glen Huntly", position: [-37.8893136, 145.042285] },
+  { name: "Ormond", position: [-37.9035567870837, 145.03952610631947] },
+  { name: "Glen Huntly", position: [-37.889427520343936, 145.04216178464085] },
   { name: "Caulfield", position: [-37.8773212, 145.0423811] },
   { name: "Malvern", position: [-37.8663425, 145.029464] },
   { name: "Armadale", position: [-37.8562948, 145.0192436] },
@@ -1803,9 +1804,9 @@ const FRANKSTON_TRACK: [number, number][] = [
   [-37.9142, 145.0375],
   [-37.9114018, 145.0381036], // McKinnon
   [-37.9078, 145.0388],
-  [-37.9042587, 145.0394811], // Ormond
+  [-37.9035567870837, 145.03952610631947], // Ormond
   [-37.8968, 145.0409],
-  [-37.8893136, 145.042285], // Glen Huntly
+  [-37.889427520343936, 145.04216178464085], // Glen Huntly
   [-37.8832, 145.0424],
   [-37.8773212, 145.0423811], // Caulfield
   [-37.8715, 145.0364],

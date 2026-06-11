@@ -138,7 +138,7 @@ type FleetTypeKey =
   | "n-class"
   | "vlocity"
   | "xpt";
-type FleetFilterKey = "all" | "metro" | "vline" | FleetTypeKey;
+type FleetFilterKey = "all" | "suburban" | "vline" | "sydney-xpt" | FleetTypeKey;
 type HomeTabKey = "map" | "fleets" | "pid" | "admin";
 
 type FleetTripStatus = "running" | "upcoming";
@@ -233,8 +233,9 @@ const FLEET_TYPES: FleetTypeConfig[] = [
 
 const FLEET_FILTERS: Array<{ key: FleetFilterKey; label: string }> = [
   { key: "all", label: "All" },
-  { key: "metro", label: "Metro" },
+  { key: "suburban", label: "Melbourne Suburban" },
   { key: "vline", label: "V/Line" },
+  { key: "sydney-xpt", label: "Sydney / XPT" },
   ...FLEET_TYPES.map((fleet) => ({ key: fleet.key, label: fleet.label })),
 ];
 
@@ -709,6 +710,18 @@ function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
       specialLabel: isVlineLiveTrain(vehicle) ? getRegionalFleetSpecialLabel(vehicle) : "",
     };
   });
+}
+
+function getFleetTripSortScore(trip: FleetTrip) {
+  const seen = trip.updatedAt ? new Date(trip.updatedAt).getTime() : 0;
+  const recencyScore = Number.isFinite(seen) ? seen : 0;
+  const activeBonus = trip.status === "running" ? 10_000_000_000_000 : 0;
+  const regionalBonus = trip.fleet === "xpt" || trip.fleet === "vlocity" || trip.fleet === "n-class" ? 5_000 : 0;
+  return activeBonus + recencyScore + regionalBonus;
+}
+
+function sortFleetTripsForOperationsBoard(trips: FleetTrip[]) {
+  return [...trips].sort((left, right) => getFleetTripSortScore(right) - getFleetTripSortScore(left));
 }
 
 function addMinutesToTime(base: Date, minutes: number) {
@@ -1217,14 +1230,15 @@ export default function Home() {
   const fleetTripsForSelection = useMemo(
     () => {
       if (selectedFleetType === "all") return liveFleetTrips;
-      if (selectedFleetType === "metro") return liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class" && trip.fleet !== "xpt");
+      if (selectedFleetType === "suburban") return liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class" && trip.fleet !== "xpt");
       if (selectedFleetType === "vline") return liveFleetTrips.filter((trip) => trip.fleet === "vlocity" || trip.fleet === "n-class" || trip.fleet === "xpt");
+      if (selectedFleetType === "sydney-xpt") return liveFleetTrips.filter((trip) => trip.fleet === "xpt");
       return liveFleetTrips.filter((trip) => trip.fleet === selectedFleetType);
     },
     [liveFleetTrips, selectedFleetType],
   );
   const fleetTripsToDisplay = useMemo(
-    () => fleetTripsForSelection,
+    () => sortFleetTripsForOperationsBoard(fleetTripsForSelection),
     [fleetTripsForSelection],
   );
   const fleetStats = useMemo(() => {
@@ -2100,7 +2114,7 @@ export default function Home() {
       return {
         eyebrow: "Fleets",
         title: "Live fleet board",
-        summary: `Operations view filtered to ${selectedFleetFilterLabel}.`,
+        summary: `Operations view filtered to ${selectedFleetFilterLabel}. Newer and active rows appear first.`,
       };
     }
     if (activeTab === "pid") {
@@ -2819,10 +2833,12 @@ export default function Home() {
                       const isSelected = selectedFleetType === fleet.key;
                       const count = fleet.key === "all"
                         ? liveFleetTrips.length
-                        : fleet.key === "metro"
+                        : fleet.key === "suburban"
                           ? liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class" && trip.fleet !== "xpt").length
                           : fleet.key === "vline"
                             ? liveFleetTrips.filter((trip) => trip.fleet === "vlocity" || trip.fleet === "n-class" || trip.fleet === "xpt").length
+                            : fleet.key === "sydney-xpt"
+                              ? liveFleetTrips.filter((trip) => trip.fleet === "xpt").length
                             : fleetCountByType[fleet.key];
                       return (
                         <button
