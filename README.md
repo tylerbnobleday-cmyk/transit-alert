@@ -47,6 +47,8 @@ Right now the app is still in a tester/admin phase rather than open public regis
 - `PTV_SUBSCRIPTION_KEY`
 - `NSW_TRANSPORT_API_KEY` (optional for NSW/XPT live support)
 
+Set `NSW_TRANSPORT_API_KEY` in Render environment variables for NSW TrainLink/XPT live tracking. Do not commit the token into the repo.
+
 ## Local development
 
 Install dependencies:

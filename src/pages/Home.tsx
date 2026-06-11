@@ -136,7 +136,8 @@ type FleetTypeKey =
   | "ss-comeng"
   | "ns-comeng"
   | "n-class"
-  | "vlocity";
+  | "vlocity"
+  | "xpt";
 type FleetFilterKey = "all" | "metro" | "vline" | FleetTypeKey;
 type HomeTabKey = "map" | "fleets" | "pid" | "admin";
 
@@ -227,6 +228,7 @@ const FLEET_TYPES: FleetTypeConfig[] = [
   { key: "ns-comeng", label: "Alstom Comeng", emoji: "Train", total: 7 },
   { key: "n-class", label: "N Class", emoji: "Train", total: 1 },
   { key: "vlocity", label: "VLocity", emoji: "Train", total: 25 },
+  { key: "xpt", label: "XPT", emoji: "Train", total: 1 },
 ];
 
 const FLEET_FILTERS: Array<{ key: FleetFilterKey; label: string }> = [
@@ -271,6 +273,11 @@ const FLEET_TYPE_GUIDE: Array<{ title: string; subtitle: string; detail: string 
     title: "VLocity / N Class",
     subtitle: "Regional V/Line trains",
     detail: "VLocity sets are DMUs usually shown as 3-car or 6-car. N Class services are locomotive-hauled sets, so the app labels them as loco sets or special movements.",
+  },
+  {
+    title: "XPT",
+    subtitle: "NSW TrainLink interstate",
+    detail: "Long-distance NSW TrainLink services on the standard-gauge corridor. TransitAlert treats XPT separately from V/Line so interstate trips can be tracked and filtered cleanly.",
   },
 ];
 
@@ -517,6 +524,7 @@ function resolveMetroFleetKey(vehicle: LiveTrain, explicitFleet: FleetTypeKey | 
 function getRegionalFleetKey(vehicle: LiveTrain): FleetTypeKey {
   const family = getRegionalFleetTrainFamily(vehicle).toLowerCase();
   const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  if (family.includes("xpt") || /xpt|nsw trainlink/.test(joined)) return "xpt";
   if (family.includes("vlocity") || /\bv\d{3,4}\b/.test(joined)) return "vlocity";
   if (family.includes("n class") || /n\s*class|n-?set|loco|locomotive|swan hill|bairnsdale|albury/.test(joined)) return "n-class";
   return "vlocity";
@@ -545,7 +553,7 @@ function getHcmtSetLabel(vehicle: LiveTrain) {
 
 function getFleetSetDisplay(vehicle: LiveTrain, fleet: FleetTypeKey) {
   if (fleet === "hcmt") return getHcmtSetLabel(vehicle);
-  if (fleet === "vlocity" || fleet === "n-class") {
+  if (fleet === "vlocity" || fleet === "n-class" || fleet === "xpt") {
     return `${getRegionalFleetCarLength(vehicle)} ${getRegionalFleetTrainFamily(vehicle)}`;
   }
   return vehicle.consist || vehicle.tdn || "Set TBC";
@@ -1201,6 +1209,7 @@ export default function Home() {
           "ns-comeng": 0,
           "n-class": 0,
           vlocity: 0,
+          xpt: 0,
         },
       ),
     [liveFleetTrips],
@@ -1208,8 +1217,8 @@ export default function Home() {
   const fleetTripsForSelection = useMemo(
     () => {
       if (selectedFleetType === "all") return liveFleetTrips;
-      if (selectedFleetType === "metro") return liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class");
-      if (selectedFleetType === "vline") return liveFleetTrips.filter((trip) => trip.fleet === "vlocity" || trip.fleet === "n-class");
+      if (selectedFleetType === "metro") return liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class" && trip.fleet !== "xpt");
+      if (selectedFleetType === "vline") return liveFleetTrips.filter((trip) => trip.fleet === "vlocity" || trip.fleet === "n-class" || trip.fleet === "xpt");
       return liveFleetTrips.filter((trip) => trip.fleet === selectedFleetType);
     },
     [liveFleetTrips, selectedFleetType],
@@ -2811,9 +2820,9 @@ export default function Home() {
                       const count = fleet.key === "all"
                         ? liveFleetTrips.length
                         : fleet.key === "metro"
-                          ? liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class").length
+                          ? liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class" && trip.fleet !== "xpt").length
                           : fleet.key === "vline"
-                            ? liveFleetTrips.filter((trip) => trip.fleet === "vlocity" || trip.fleet === "n-class").length
+                            ? liveFleetTrips.filter((trip) => trip.fleet === "vlocity" || trip.fleet === "n-class" || trip.fleet === "xpt").length
                             : fleetCountByType[fleet.key];
                       return (
                         <button
@@ -2872,7 +2881,7 @@ export default function Home() {
                             className="grid gap-3 px-4 py-3 text-sm text-white/80 transition hover:bg-cyan-400/[0.04] lg:grid-cols-[92px_minmax(150px,1.1fr)_minmax(130px,0.9fr)_120px_110px_96px_112px] lg:items-center"
                           >
                             <div className="flex items-center gap-2">
-                              <span className={`h-2.5 w-2.5 rounded-full ${trip.fleet === "hcmt" ? "bg-sky-300" : trip.fleet === "vlocity" ? "bg-violet-300" : trip.fleet === "n-class" ? "bg-amber-300" : trip.fleet.includes("comeng") ? "bg-emerald-300" : "bg-cyan-300"}`} />
+                              <span className={`h-2.5 w-2.5 rounded-full ${trip.fleet === "hcmt" ? "bg-sky-300" : trip.fleet === "vlocity" ? "bg-violet-300" : trip.fleet === "n-class" ? "bg-amber-300" : trip.fleet === "xpt" ? "bg-orange-400" : trip.fleet.includes("comeng") ? "bg-emerald-300" : "bg-cyan-300"}`} />
                               <span className="font-semibold text-white">{FLEET_TYPES.find((fleet) => fleet.key === trip.fleet)?.label ?? trip.fleet}</span>
                             </div>
                             <div className="min-w-0">
