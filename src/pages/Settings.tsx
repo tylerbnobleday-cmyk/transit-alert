@@ -585,6 +585,9 @@ export default function Settings() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">About This System</p>
               <div className="mt-3 space-y-3 text-sm leading-6 text-white/72">
                 <p>
+                  Copyright 2026 Tyler Rose. TransitAlert, its app presentation, and original project assets are Tyler Rose work.
+                </p>
+                <p>
                   TransitAlert is an independent real-time transport platform combining public feeds, available operator data, and app-side logic.
                 </p>
                 <p>

@@ -21,6 +21,12 @@ TransitAlert is an independent Melbourne public transport map and tracking app f
   - approved debug tester visibility
 - Freight overlay and selected interstate/XPT support
 
+## Copyright
+
+Copyright 2026 Tyler Rose. TransitAlert, its app presentation, and original project assets are Tyler Rose work.
+
+TransitAlert remains an independent project and is not operated by, affiliated with, or endorsed by the Department of Transport and Planning, Transport Victoria, PTV, or Metro Trains Melbourne.
+
 ## Account model
 
 Right now the app is still in a tester/admin phase rather than open public registration.

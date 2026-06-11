@@ -349,6 +349,7 @@ const VERSION_LOG: ChangelogEntry[] = [
 ];
 
 const TRANSITALERT_SYSTEM_NOTES = [
+  "Copyright 2026 Tyler Rose. TransitAlert, its app presentation, and original project assets are Tyler Rose work.",
   "Independent real-time transport platform pulling together public feeds, operator data where available, and app-side logic.",
   "Data can be delayed, incomplete, or unavailable, so the app should never be treated as an official operator source.",
   "Usage, diagnostics, and stability logging may be collected to improve reliability, performance, and safety of the system.",
@@ -3212,7 +3213,10 @@ export default function Home() {
       </div>
 
       <div className="pointer-events-none absolute bottom-20 left-3 z-30 max-w-[12.5rem] rounded-2xl border border-white/10 bg-slate-950/78 px-3 py-2.5 text-[10px] leading-4 text-white/75 shadow-xl backdrop-blur-xl sm:bottom-6 sm:left-6 sm:max-w-xs sm:text-xs sm:leading-4">
-        TransitAlert is an independent project. We are not operated by, affiliated with, or endorsed by the Department of Transport and Planning, Transport Victoria, PTV, or Metro Trains Melbourne.
+        <p className="font-semibold text-white/85">Copyright 2026 Tyler Rose. TransitAlert.</p>
+        <p className="mt-1">
+          TransitAlert is an independent project. We are not operated by, affiliated with, or endorsed by the Department of Transport and Planning, Transport Victoria, PTV, or Metro Trains Melbourne.
+        </p>
       </div>
 
         <AddReportDrawer isOpen={isAddDrawerOpen} onClose={() => setIsAddDrawerOpen(false)} />
