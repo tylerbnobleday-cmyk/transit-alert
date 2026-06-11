@@ -4,7 +4,12 @@ import { X, Send, MapPin, Search } from "lucide-react";
 import { useCreateReport } from "@/lib/api-client-react/src/generated/api";
 import type { CreateReportInput } from "@/lib/api-client-react/src/generated/api.schemas";
 import { cn } from "@/lib/utils";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  fetchMetroNotifyAlerts,
+  isAlertCurrent,
+  metroAlertMatchesReportFields,
+} from "@/lib/todays-alerts";
 
 interface AddReportDrawerProps {
   isOpen: boolean;
@@ -13,6 +18,13 @@ interface AddReportDrawerProps {
 
 export function AddReportDrawer({ isOpen, onClose }: AddReportDrawerProps) {
   const queryClient = useQueryClient();
+  const [matchedAlertConfirmed, setMatchedAlertConfirmed] = useState<"yes" | "no" | null>(null);
+  const { data: metroAlerts = [] } = useQuery({
+    queryKey: ["/api/metro-notify/alerts", "report-drawer"],
+    queryFn: fetchMetroNotifyAlerts,
+    enabled: isOpen,
+    staleTime: 60_000,
+  });
   const { mutate: createReport, isPending } = useCreateReport({
     mutation: {
       onSuccess: () => {
@@ -32,6 +44,7 @@ export function AddReportDrawer({ isOpen, onClose }: AddReportDrawerProps) {
   });
 
   const resetForm = () => {
+    setMatchedAlertConfirmed(null);
     setFormData({
       reportType: "inspector",
       transportType: "tram",
@@ -55,7 +68,18 @@ export function AddReportDrawer({ isOpen, onClose }: AddReportDrawerProps) {
 
   const updateField = (field: keyof CreateReportInput, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    setMatchedAlertConfirmed(null);
   };
+
+  const matchingMetroAlert = metroAlerts.find((alert) =>
+    isAlertCurrent(alert) &&
+    metroAlertMatchesReportFields(alert, {
+      lineNumber: formData.lineNumber ?? "",
+      locationName: formData.locationName ?? "",
+      notes: formData.notes ?? "",
+      transportType: formData.transportType ?? "",
+    }),
+  );
 
   return (
     <AnimatePresence>
@@ -73,13 +97,13 @@ export function AddReportDrawer({ isOpen, onClose }: AddReportDrawerProps) {
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-white/10 rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.5)] max-h-[90vh] flex flex-col"
+            className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-white/10 rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.5)] max-h-[90vh] max-[430px]:max-h-[86vh] flex flex-col"
           >
             <div className="p-4 flex justify-center shrink-0">
               <div className="w-16 h-1.5 bg-white/20 rounded-full" />
             </div>
 
-            <div className="px-6 pb-4 flex items-center justify-between shrink-0 border-b border-white/5">
+            <div className="px-6 pb-4 flex items-center justify-between gap-3 shrink-0 border-b border-white/5 max-[430px]:px-4">
               <div>
                 <h2 className="font-display text-2xl font-bold text-white">Add a Report</h2>
                 <p className="text-sm text-muted-foreground">Help the community stay alert.</p>
@@ -92,13 +116,13 @@ export function AddReportDrawer({ isOpen, onClose }: AddReportDrawerProps) {
               </button>
             </div>
 
-            <div className="overflow-y-auto p-6 scrollbar-hide">
-              <form id="report-form" onSubmit={handleSubmit} className="space-y-6 max-w-2xl mx-auto pb-20">
+            <div className="overflow-y-auto p-6 scrollbar-hide max-[430px]:p-4">
+              <form id="report-form" onSubmit={handleSubmit} className="space-y-6 max-w-2xl mx-auto pb-24 max-[430px]:space-y-5">
                 
                 {/* 1. Report Type */}
                 <div className="space-y-3">
                   <label className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">1. What did you see?</label>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-3">
                     {[
                       { id: 'inspector', label: 'Inspector', icon: '🕵️', color: 'text-destructive', bg: 'bg-destructive/10 border-destructive/30' },
                       { id: 'delay', label: 'Delay', icon: '⏳', color: 'text-warning', bg: 'bg-warning/10 border-warning/30' },
@@ -109,7 +133,7 @@ export function AddReportDrawer({ isOpen, onClose }: AddReportDrawerProps) {
                         type="button"
                         onClick={() => updateField('reportType', type.id)}
                         className={cn(
-                          "flex flex-col items-center justify-center p-4 rounded-2xl border transition-all",
+                          "flex flex-col items-center justify-center p-4 rounded-2xl border transition-all max-[430px]:p-3",
                           formData.reportType === type.id 
                             ? `${type.bg} ${type.color} ring-2 ring-current ring-offset-2 ring-offset-card shadow-lg` 
                             : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10 hover:text-white"
@@ -125,7 +149,7 @@ export function AddReportDrawer({ isOpen, onClose }: AddReportDrawerProps) {
                 {/* 2. Transport Type */}
                 <div className="space-y-3">
                   <label className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">2. Mode of Transport</label>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {[
                       { id: 'tram', label: 'Tram', icon: '🚃' },
                       { id: 'train', label: 'Train', icon: '🚆' },
@@ -217,11 +241,40 @@ export function AddReportDrawer({ isOpen, onClose }: AddReportDrawerProps) {
                   />
                 </div>
 
+                {matchingMetroAlert && (
+                  <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-amber-50">
+                    <p className="text-sm font-semibold">This may explain what you are experiencing.</p>
+                    <p className="mt-2 text-sm text-amber-50/80">
+                      Metro has a live alert that lines up with this report: {matchingMetroAlert.title || matchingMetroAlert.summary || "service disruption"}.
+                    </p>
+                    <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-amber-200/80">
+                      Is this the same issue?
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(["yes", "no"] as const).map((answer) => (
+                        <button
+                          key={answer}
+                          type="button"
+                          onClick={() => setMatchedAlertConfirmed(answer)}
+                          className={cn(
+                            "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                            matchedAlertConfirmed === answer
+                              ? "border-amber-200 bg-amber-200 text-slate-950"
+                              : "border-amber-200/25 bg-black/20 text-amber-100 hover:bg-amber-400/15",
+                          )}
+                        >
+                          {answer === "yes" ? "Yes, same issue" : "No, different issue"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
               </form>
             </div>
             
             {/* Sticky bottom actions */}
-            <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-card via-card to-transparent pt-12 flex gap-4 max-w-2xl mx-auto w-full">
+            <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-card via-card to-transparent pt-12 flex gap-4 max-w-2xl mx-auto w-full max-[430px]:gap-2 max-[430px]:p-4 max-[430px]:pt-10">
               <button 
                 type="button"
                 onClick={onClose}

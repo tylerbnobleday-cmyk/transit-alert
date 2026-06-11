@@ -500,7 +500,9 @@ function toSearchableText(value: string | null | undefined): string {
   return (value ?? "").toLowerCase();
 }
 
-function metroAlertMatchesReport(alert: MetroNotifyAlert, report: Report): boolean {
+type ReportMatchFields = Pick<Report, "lineNumber" | "locationName" | "notes" | "transportType">;
+
+export function metroAlertMatchesReportFields(alert: MetroNotifyAlert, report: ReportMatchFields): boolean {
   const reportText = [
     report.lineNumber,
     report.locationName,
@@ -524,6 +526,10 @@ function metroAlertMatchesReport(alert: MetroNotifyAlert, report: Report): boole
   );
 
   return lineMatches || locationMatches;
+}
+
+function metroAlertMatchesReport(alert: MetroNotifyAlert, report: Report): boolean {
+  return metroAlertMatchesReportFields(alert, report);
 }
 
 export function getTodaysCommunityAlerts(reports: Report[], metroAlerts: MetroNotifyAlert[]): Report[] {

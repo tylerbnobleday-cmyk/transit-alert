@@ -1430,7 +1430,7 @@ const SANDRINGHAM_STATIONS: Station[] = [
     zone: "1",
   },  {
     name: "Brighton Beach",
-    position: [  -37.9265958148369, 144.98914037554712],
+    position: [-37.92248333333333, 144.9867861111111],
     staffed: false,
     barriers: false,
     metro: true,
@@ -1438,7 +1438,7 @@ const SANDRINGHAM_STATIONS: Station[] = [
   },
   {
     name: "Hampton",
-    position: [-37.9378, 145.0028],
+    position: [-37.93786773858502, 145.0011463536134],
     staffed: false,
     barriers: false,
     metro: true,
@@ -1446,7 +1446,7 @@ const SANDRINGHAM_STATIONS: Station[] = [
   },
   {
     name: "Sandringham",
-    position: [-37.9505, 145.0058],
+    position: [-37.95036297669773, 145.00454952822133],
     staffed: true,
     barriers: false,
     metro: true,
@@ -10249,7 +10249,7 @@ export function Map({
       )}
 
         <div
-          className={`absolute bottom-[8.5rem] right-4 z-[1001] flex flex-col gap-2 sm:bottom-20 sm:right-6 ${
+          className={`absolute bottom-[6.75rem] right-4 z-[1001] flex flex-col gap-3 max-[430px]:bottom-[6.5rem] max-[430px]:right-3 sm:bottom-24 sm:right-6 ${
             selectedDetail?.type === "vehicle" ? "md:left-auto md:right-[26rem]" : "md:left-auto md:right-6"
           }`}
         >

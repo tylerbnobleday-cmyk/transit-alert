@@ -84,14 +84,14 @@ class AppErrorBoundary extends React.Component<
       <main className="flex min-h-[100dvh] items-center justify-center bg-background px-6 text-foreground">
         <div className="w-full max-w-xl rounded-[2rem] border border-white/10 bg-card/90 p-6 shadow-2xl backdrop-blur-xl">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-300">
-            App Error
+            Oops, TransitAlert hit an error
           </p>
           <h1 className="mt-3 text-2xl font-semibold text-white">
-            The page hit a runtime error instead of loading.
+            Something crashed before the app could finish loading.
           </h1>
           <p className="mt-3 text-sm text-white/65">
-            Refresh the page after this patch lands. If it still fails, this panel will show the
-            actual message instead of leaving the screen black.
+            This can happen on low-memory mobile sessions or when a live layer fails during render.
+            You can reload, or copy the debug report so testers can see the exact error instead of a blank screen.
           </p>
           <pre className="mt-5 overflow-x-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-amber-100">
             {this.state.error.message || "Unknown runtime error"}

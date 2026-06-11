@@ -38,6 +38,9 @@ const TRANSITALERT_UPDATE_ENTRIES = [
   {
     date: "14/05/2026",
     items: [
+      "Bug/debug notes now call out station marker and position issues to verify, especially the Sandringham line geometry.",
+      "Floating map controls were separated into mobile layout zones so zoom/location controls do not collide with Add a Report.",
+      "Crash handling now shows a friendly debug screen with copyable tester details instead of leaving users on a blank page.",
       "Version 0.89 adds the approved debug-tester whitelist into the admin account panel so tester access is easier to audit.",
       "TDN and consist identifiers are now premium-only in the main UI, while public users see safer generic service labels instead.",
       "Tyler admin defaults, database-first account handling, and Render deployment guidance were refined again for the live build.",
@@ -89,7 +92,7 @@ const TRANSITALERT_UPDATE_ENTRIES = [
       "Improved layout fit for map overlays on smaller screens.",
       "Added station platform departure preview.",
       "Raised station detail sheet above planner for better layering.",
-      "Fixed Vercel auth runtime loader issues.",
+      "Fixed earlier auth runtime loader issues before the Render hosting move.",
       "Prevented crashes when the database is unavailable.",
       "Consolidated API routes to stay within Hobby limits.",
       "Fixed auth helper imports and converted helpers to JavaScript.",
@@ -111,7 +114,7 @@ const TRANSITALERT_UPDATE_ENTRIES = [
   },
   {
     date: "13/04/2026",
-    items: ["Initial project setup: Vite configuration, Vercel setup, submodule fixes, and initial commit."],
+    items: ["Initial project setup: Vite configuration, hosting config, submodule fixes, and initial commit."],
   },
 ] as const;
 

@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { ChevronDown, ChevronUp, MapPin, Plus, Search, TrainFront } from "lucide-react";
+import { ChevronDown, ChevronUp, MapPin, Plus, Search } from "lucide-react";
 import {
   Map as TransitMap,
   ADMIN_DEBUG_LINE_OPTIONS,
@@ -48,6 +48,7 @@ import {
   type UserPreferences,
   writeLocalPreferences,
 } from "@/lib/preferences";
+import { fetchMetroNotifyAlerts, isAlertCurrent, type MetroNotifyAlert } from "@/lib/todays-alerts";
 
 const TRAIN_BOARDING_HINTS: Record<string, { zone: string; reason: string }> = {
   "North Melbourne": {
@@ -136,6 +137,8 @@ type FleetTypeKey =
   | "ns-comeng"
   | "n-class"
   | "vlocity";
+type FleetFilterKey = "all" | "metro" | "vline" | FleetTypeKey;
+type HomeTabKey = "map" | "fleets" | "pid" | "admin";
 
 type FleetTripStatus = "running" | "upcoming";
 
@@ -159,6 +162,7 @@ type FleetTrip = {
   statusLabel: string;
   updatedAt: string;
   consist: string;
+  setNumber: string;
   realtimeLabel: string;
   consistPublicLabel: string;
   specialLabel: string;
@@ -225,6 +229,51 @@ const FLEET_TYPES: FleetTypeConfig[] = [
   { key: "vlocity", label: "VLocity", emoji: "Train", total: 25 },
 ];
 
+const FLEET_FILTERS: Array<{ key: FleetFilterKey; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "metro", label: "Metro" },
+  { key: "vline", label: "V/Line" },
+  ...FLEET_TYPES.map((fleet) => ({ key: fleet.key, label: fleet.label })),
+];
+
+const FLEET_TYPE_GUIDE: Array<{ title: string; subtitle: string; detail: string }> = [
+  {
+    title: "HCMT",
+    subtitle: "High Capacity Metro Train",
+    detail: "7-car sets used on the Metro Tunnel, Cranbourne, Pakenham, and Sunbury corridors. Wider walkthrough interiors and newer passenger screens make them easy to spot.",
+  },
+  {
+    title: "X'Trapolis 100",
+    subtitle: "Older X'Trapolis fleet",
+    detail: "Common on Burnley and Clifton Hill lines. Look for the sharper silver front, side destination displays, and the familiar motor sound on departure.",
+  },
+  {
+    title: "X'Trapolis 2.0",
+    subtitle: "Next-generation X'Trapolis",
+    detail: "Newer design for future Metro service. The app keeps this separate from X'Trapolis 100 when data starts identifying it clearly.",
+  },
+  {
+    title: "Siemens Nexas",
+    subtitle: "Bayside and western workhorse",
+    detail: "Usually seen on Sandringham, Werribee, Williamstown, and Frankston group services. Rounded cab front and smooth silver body panels.",
+  },
+  {
+    title: "EDI Comeng",
+    subtitle: "Southside Comeng",
+    detail: "Comeng trains refurbished by EDI. Often treated separately from Alstom Comeng because the front, interior fittings, and operating areas differ.",
+  },
+  {
+    title: "Alstom Comeng",
+    subtitle: "Northside Comeng",
+    detail: "Comeng trains refurbished by Alstom. Similar base fleet to EDI Comeng, but with different cab styling, interior details, and line allocation history.",
+  },
+  {
+    title: "VLocity / N Class",
+    subtitle: "Regional V/Line trains",
+    detail: "VLocity sets are DMUs usually shown as 3-car or 6-car. N Class services are locomotive-hauled sets, so the app labels them as loco sets or special movements.",
+  },
+];
+
 const VERSION_LOG: ChangelogEntry[] = [
   {
     version: TRANSITALERT_WEB_VERSION,
@@ -233,6 +282,7 @@ const VERSION_LOG: ChangelogEntry[] = [
       "V/Line realtime trips now show a public service label with time, route, consist length, and train family instead of exposing raw trip IDs.",
       "Journey planning now includes a disruption brief that explains delays, track work, service changes, and incidents against your planned corridor.",
       "Special regional train movements are called out more clearly when they appear in live tracking.",
+      "Debug notes now call out station marker and position bugs to verify, including the Sandringham line geometry pass.",
       "Admin tools now show the approved debug-tester whitelist beside the account list for faster tester management.",
       "Tyler admin defaults were cleaned up with the correct email + premium access, and public-facing TDN labels are now masked behind premium.",
       "Database-first Render account handling was refined again so persistence, tester sign-up, and release tracking are easier to manage.",
@@ -398,6 +448,16 @@ function getJourneyCorridorLabels(route: Station[]) {
     .map((line) => line.name);
 }
 
+function metroAlertMatchesJourneyCorridor(alert: MetroNotifyAlert, corridorLabels: string[]) {
+  if (corridorLabels.length === 0) return false;
+  const searchable = `${alert.title} ${alert.summary} ${alert.lines.join(" ")}`.toLowerCase();
+  return corridorLabels.some((label) => {
+    const lineLabel = `${label} line`.toLowerCase();
+    const rawLabel = label.toLowerCase();
+    return searchable.includes(lineLabel) || searchable.includes(rawLabel);
+  });
+}
+
 const STATUS_STYLES: Record<FleetTripStatus, string> = {
   running: "bg-emerald-500/15 text-emerald-300",
   upcoming: "bg-slate-500/15 text-slate-300",
@@ -454,12 +514,20 @@ function resolveMetroFleetKey(vehicle: LiveTrain, explicitFleet: FleetTypeKey | 
   }
 }
 
+function getRegionalFleetKey(vehicle: LiveTrain): FleetTypeKey {
+  const family = getRegionalFleetTrainFamily(vehicle).toLowerCase();
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  if (family.includes("vlocity") || /\bv\d{3,4}\b/.test(joined)) return "vlocity";
+  if (family.includes("n class") || /n\s*class|n-?set|loco|locomotive|swan hill|bairnsdale|albury/.test(joined)) return "n-class";
+  return "vlocity";
+}
+
 function inferFleetTypeKey(vehicle: LiveTrain): FleetTypeKey {
-  const searchable = `${vehicle.trainType} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  if (isVlineLiveTrain(vehicle)) return getRegionalFleetKey(vehicle);
+
+  const searchable = `${vehicle.consist} ${vehicle.trainType} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
   if (/(hcmt)/i.test(searchable)) return "hcmt";
   if (/(x'?trapolis)/i.test(searchable)) return "xtrapolis";
-  if (/(vlocity)/i.test(searchable)) return "vlocity";
-  if (/(n class|swan hill|bairnsdale|geelong|ballarat|traralgon)/i.test(searchable)) return "n-class";
   let explicitFleet: FleetTypeKey | null = null;
   if (/(siemens)/i.test(searchable)) {
     explicitFleet = "siemens";
@@ -467,6 +535,20 @@ function inferFleetTypeKey(vehicle: LiveTrain): FleetTypeKey {
     explicitFleet = /(craigieburn|upfield)/i.test(searchable) ? "ns-comeng" : "ss-comeng";
   }
   return resolveMetroFleetKey(vehicle, explicitFleet);
+}
+
+function getHcmtSetLabel(vehicle: LiveTrain) {
+  const joined = `${vehicle.consist} ${vehicle.tdn} ${vehicle.trainType}`.toUpperCase();
+  const match = joined.match(/\b9[09](\d{2})M\b/);
+  return match?.[1] ? `HCMT Set ${match[1]}` : "HCMT Set";
+}
+
+function getFleetSetDisplay(vehicle: LiveTrain, fleet: FleetTypeKey) {
+  if (fleet === "hcmt") return getHcmtSetLabel(vehicle);
+  if (fleet === "vlocity" || fleet === "n-class") {
+    return `${getRegionalFleetCarLength(vehicle)} ${getRegionalFleetTrainFamily(vehicle)}`;
+  }
+  return vehicle.consist || vehicle.tdn || "Set TBC";
 }
 
 function buildFleetRoute(vehicle: LiveTrain) {
@@ -598,23 +680,27 @@ function getFleetRealtimeLabel(vehicle: LiveTrain) {
 }
 
 function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
-  return vehicles.map((vehicle, index) => ({
-    id: `${vehicle.consist}-${vehicle.tdn}-${index}`,
-    focusKey: `${vehicle.consist}::${vehicle.tdn}`,
-    tdn: vehicle.tdn.startsWith("TDN") ? vehicle.tdn : `TDN ${vehicle.tdn}`,
-    tripNumber: vehicle.tdn.replace(/^TDN\s*/i, "").trim(),
-    line: vehicle.line,
-    route: buildFleetRoute(vehicle),
-    fleet: inferFleetTypeKey(vehicle),
-    status: vehicle.timestamp ? "running" : "upcoming",
-    lineColor: getFleetLineTone(vehicle.line),
-    statusLabel: formatFleetUpdatedAt(vehicle.timestamp),
-    updatedAt: vehicle.timestamp ?? "",
-    consist: vehicle.consist,
-    realtimeLabel: getFleetRealtimeLabel(vehicle),
-    consistPublicLabel: isVlineLiveTrain(vehicle) ? `${getRegionalFleetCarLength(vehicle)} ${getRegionalFleetTrainFamily(vehicle)}` : inferFleetTypeKey(vehicle),
-    specialLabel: isVlineLiveTrain(vehicle) ? getRegionalFleetSpecialLabel(vehicle) : "",
-  }));
+  return vehicles.map((vehicle, index) => {
+    const fleet = inferFleetTypeKey(vehicle);
+    return {
+      id: `${vehicle.consist}-${vehicle.tdn}-${index}`,
+      focusKey: `${vehicle.consist}::${vehicle.tdn}`,
+      tdn: vehicle.tdn.startsWith("TDN") ? vehicle.tdn : `TDN ${vehicle.tdn}`,
+      tripNumber: vehicle.tdn.replace(/^TDN\s*/i, "").trim(),
+      line: vehicle.line,
+      route: buildFleetRoute(vehicle),
+      fleet,
+      status: vehicle.timestamp ? "running" : "upcoming",
+      lineColor: getFleetLineTone(vehicle.line),
+      statusLabel: formatFleetUpdatedAt(vehicle.timestamp),
+      updatedAt: vehicle.timestamp ?? "",
+      consist: vehicle.consist,
+      setNumber: getFleetSetDisplay(vehicle, fleet),
+      realtimeLabel: getFleetRealtimeLabel(vehicle),
+      consistPublicLabel: isVlineLiveTrain(vehicle) ? `${getRegionalFleetCarLength(vehicle)} ${getRegionalFleetTrainFamily(vehicle)}` : getFleetSetDisplay(vehicle, fleet),
+      specialLabel: isVlineLiveTrain(vehicle) ? getRegionalFleetSpecialLabel(vehicle) : "",
+    };
+  });
 }
 
 function addMinutesToTime(base: Date, minutes: number) {
@@ -777,7 +863,7 @@ function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
         </span>
       </button>
 
-      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[64vh] overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-4.5`}>
+      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[64vh] overflow-y-auto px-4 pb-4 max-[430px]:max-h-[56vh] max-[430px]:px-3 sm:px-5 sm:pb-4.5`}>
         {children}
       </div>
     </div>
@@ -898,7 +984,7 @@ function DockedPanelSheet({ isOpen, onToggle, eyebrow, title, summary, children 
         </span>
       </button>
 
-      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[68vh] overflow-y-auto px-5 pb-5`}>
+      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[68vh] overflow-y-auto px-5 pb-5 max-[430px]:max-h-[58vh] max-[430px]:px-3 max-[430px]:pb-4`}>
         {children}
       </div>
     </div>
@@ -923,8 +1009,15 @@ export default function Home() {
     refetchInterval: isMobile ? 30_000 : 15_000,
     staleTime: isMobile ? 20_000 : 10_000,
   });
+  const { data: metroJourneyAlerts = [] } = useQuery({
+    queryKey: ["/api/metro-notify/alerts", "journey-brief"],
+    queryFn: fetchMetroNotifyAlerts,
+    retry: false,
+    refetchInterval: 90_000,
+    staleTime: 60_000,
+  });
     const isAuthenticated = authSession?.authenticated ?? false;
-    const [activeTab, setActiveTab] = useState<"map" | "fleets" | "admin">("map");
+    const [activeTab, setActiveTab] = useState<HomeTabKey>("map");
     const [isAddDrawerOpen, setIsAddDrawerOpen] = useState(false);
     const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [isUtilityPanelOpen, setIsUtilityPanelOpen] = useState(true);
@@ -932,7 +1025,7 @@ export default function Home() {
   const [isVersionOpen, setIsVersionOpen] = useState(false);
   const [isVersionFirstOpen, setIsVersionFirstOpen] = useState(false);
   const [userMenuMessage, setUserMenuMessage] = useState("");
-  const [selectedFleetType, setSelectedFleetType] = useState<FleetTypeKey | null>(null);
+  const [selectedFleetType, setSelectedFleetType] = useState<FleetFilterKey>("all");
   const [focusedVehicleKey, setFocusedVehicleKey] = useState<string | null>(null);
   const [journeyOrigin, setJourneyOrigin] = useState<string>("Flinders Street");
   const [journeyDestination, setJourneyDestination] = useState<string>("Sandringham");
@@ -1088,8 +1181,8 @@ export default function Home() {
   }, []);
   const lineKeys = useMemo(() => Object.keys(LINES), []);
 
-  const selectedFleetConfig = useMemo(
-    () => FLEET_TYPES.find((fleet) => fleet.key === selectedFleetType) ?? null,
+  const selectedFleetFilterLabel = useMemo(
+    () => FLEET_FILTERS.find((filter) => filter.key === selectedFleetType)?.label ?? "All",
     [selectedFleetType],
   );
   const liveFleetTrips = useMemo(() => buildFleetTripsFromLive(liveFleetVehicles), [liveFleetVehicles]);
@@ -1113,12 +1206,17 @@ export default function Home() {
     [liveFleetTrips],
   );
   const fleetTripsForSelection = useMemo(
-    () => (selectedFleetType ? liveFleetTrips.filter((trip) => trip.fleet === selectedFleetType) : []),
+    () => {
+      if (selectedFleetType === "all") return liveFleetTrips;
+      if (selectedFleetType === "metro") return liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class");
+      if (selectedFleetType === "vline") return liveFleetTrips.filter((trip) => trip.fleet === "vlocity" || trip.fleet === "n-class");
+      return liveFleetTrips.filter((trip) => trip.fleet === selectedFleetType);
+    },
     [liveFleetTrips, selectedFleetType],
   );
   const fleetTripsToDisplay = useMemo(
-    () => (selectedFleetType ? fleetTripsForSelection : liveFleetTrips),
-    [fleetTripsForSelection, liveFleetTrips, selectedFleetType],
+    () => fleetTripsForSelection,
+    [fleetTripsForSelection],
   );
   const fleetStats = useMemo(() => {
     const trips = fleetTripsToDisplay;
@@ -1175,13 +1273,19 @@ export default function Home() {
 
     const corridorLabels = getJourneyCorridorLabels(journeyRoute).slice(0, 3);
     const corridorText = corridorLabels.length > 0 ? corridorLabels.join(", ") : "your planned corridor";
+    const matchingAlerts = metroJourneyAlerts
+      .filter((alert) => isAlertCurrent(alert) && metroAlertMatchesJourneyCorridor(alert, corridorLabels))
+      .slice(0, 2);
 
     return {
       title: `${corridorText} alert check`,
-      summary: `TransitAlert treats alerts on ${corridorText} as journey-relevant, then explains them as delays, track work, service changes, or incidents so the next step is clearer before you travel.`,
+      summary: matchingAlerts.length > 0
+        ? `Live disruptions are currently matching ${corridorText}. Check the detail before you travel.`
+        : `TransitAlert treats alerts on ${corridorText} as journey-relevant, then explains them as delays, track work, service changes, or incidents so the next step is clearer before you travel.`,
       terms: JOURNEY_DISRUPTION_TERMS,
+      matchingAlerts,
     };
-  }, [journeyRoute]);
+  }, [journeyRoute, metroJourneyAlerts]);
 
   const openLiveTrainOnMap = useCallback((trip: FleetTrip) => {
     setFocusedVehicleKey(trip.focusKey);
@@ -1987,9 +2091,14 @@ export default function Home() {
       return {
         eyebrow: "Fleets",
         title: "Live fleet board",
-        summary: selectedFleetConfig
-          ? `Showing ${selectedFleetConfig.label} trips and live-style fleet stats.`
-          : "Choose a fleet type to peek at the live board.",
+        summary: `Operations view filtered to ${selectedFleetFilterLabel}.`,
+      };
+    }
+    if (activeTab === "pid") {
+      return {
+        eyebrow: "Station PID",
+        title: "Independent PID mockup",
+        summary: "A TransitAlert-style platform display concept for testing station screen layouts.",
       };
     }
 
@@ -2000,7 +2109,7 @@ export default function Home() {
         ? "Station positions, line assignments, and admin drafting tools."
         : "Admin-only tools live here once your account has permission.",
     };
-  }, [activeTab, isAdmin, selectedFleetConfig]);
+  }, [activeTab, isAdmin, selectedFleetFilterLabel]);
 
   const handleTabChange = (value: string) => {
     if (isGuest && value !== "map") {
@@ -2008,7 +2117,7 @@ export default function Home() {
       setIsUserMenuOpen(true);
       return;
     }
-    setActiveTab(value as "map" | "fleets" | "admin");
+    setActiveTab(value as HomeTabKey);
     setIsUtilityPanelOpen(value === "map" ? isUtilityPanelOpen : true);
   };
 
@@ -2065,6 +2174,7 @@ export default function Home() {
         <TabsList className="pointer-events-auto flex w-full max-w-[calc(100%-0.75rem)] justify-start gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-card/80 p-1 shadow-xl backdrop-blur-xl sm:w-auto sm:max-w-xl sm:justify-center">
             <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="map">Journey Planner</TabsTrigger>
             {!isGuest && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="fleets">Fleets</TabsTrigger>}
+            {!isGuest && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="pid">Station PID</TabsTrigger>}
             {isAdmin && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="admin">Admin</TabsTrigger>}
         </TabsList>
       </div>
@@ -2505,6 +2615,18 @@ export default function Home() {
                         </button>
                       </div>
                       <p className="mt-2 text-sm text-amber-50/90">{journeyDisruptionBrief.summary}</p>
+                      {journeyDisruptionBrief.matchingAlerts.length > 0 && (
+                        <div className="mt-3 grid gap-2">
+                          {journeyDisruptionBrief.matchingAlerts.map((alert) => (
+                            <div key={alert.id} className="rounded-2xl border border-amber-200/15 bg-black/20 px-3 py-2">
+                              <p className="text-sm font-semibold text-amber-50">{alert.title || "Live service disruption"}</p>
+                              {alert.summary && (
+                                <p className="mt-1 line-clamp-2 text-xs leading-5 text-amber-50/75">{alert.summary}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {journeyDisruptionBrief.terms.map((term) => (
                           <span
@@ -2642,147 +2764,212 @@ export default function Home() {
             >
               <div className="rounded-[2rem] border border-white/10 bg-card/55 p-5 text-white shadow-2xl sm:p-6">
             {activeTab === "fleets" && (
-              <div className="rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_rgba(15,23,42,0.96)_45%,_rgba(10,15,25,1)_100%)] p-4 shadow-2xl sm:p-6">
-                <div className="flex flex-col gap-6">
+              <div className="rounded-[2rem] border border-cyan-400/15 bg-[linear-gradient(135deg,_rgba(2,6,23,0.98),_rgba(15,23,42,0.96)_45%,_rgba(8,13,24,1))] p-4 shadow-2xl sm:p-5">
+                <div className="flex flex-col gap-5">
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="max-w-2xl text-center xl:text-left">
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/90">Live Fleet Types</p>
-                      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">See what each fleet type is running right now</h2>
+                      <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300/90">Rail Operations Fleet Board</p>
+                      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">Live fleet control dashboard</h2>
                       <p className="mt-2 text-sm text-white/60">
-                        {selectedFleetConfig
-                          ? `Showing live tracked ${selectedFleetConfig.label} services from the current train feed.`
-                          : "Showing all live tracked train services from the current feed. Tap a fleet type to narrow the list."}
+                        Dense operations view for live train feed checks, fleet classification, last-seen status, and set identifiers.
                       </p>
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[360px]">
-                      <div className="rounded-[1.4rem] border border-white/10 bg-black/20 px-5 py-4">
+                      <div className="rounded-[1.2rem] border border-cyan-300/10 bg-black/25 px-4 py-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/45">Service Day</p>
-                        <p className="mt-2 text-2xl font-semibold text-white">{serviceDayLabel}</p>
+                        <p className="mt-2 font-mono text-lg font-semibold text-white">{serviceDayLabel}</p>
                       </div>
-                      <div className="rounded-[1.4rem] border border-white/10 bg-black/20 px-5 py-4">
+                      <div className="rounded-[1.2rem] border border-cyan-300/10 bg-black/25 px-4 py-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/45">Last Updated</p>
-                        <p className="mt-2 text-2xl font-semibold text-blue-300">{isFleetRefreshing ? "Refreshing..." : lastUpdatedLabel}</p>
+                        <p className="mt-2 font-mono text-lg font-semibold text-cyan-200">{isFleetRefreshing ? "Refreshing..." : lastUpdatedLabel}</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="h-px bg-white/10" />
+                  <div className="h-px bg-cyan-300/10" />
 
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     {[
                       { label: "Live Trips", value: fleetStats.liveTrips },
                       { label: "Running Now", value: fleetStats.runningNow },
                       { label: "Upcoming Soon", value: fleetStats.upcomingSoon },
-                      { label: "Selected Type", value: selectedFleetConfig?.label ?? "All fleets" },
+                      { label: "Filter", value: selectedFleetFilterLabel },
                     ].map((item) => (
-                      <div key={item.label} className="rounded-[1.35rem] border border-white/10 bg-black/20 px-5 py-4">
+                      <div key={item.label} className="rounded-[1.15rem] border border-white/10 bg-black/25 px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-sm font-semibold text-blue-300">{item.label}</span>
-                          <span className="text-2xl font-semibold text-white">{item.value}</span>
+                          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300/75">{item.label}</span>
+                          <span className="font-mono text-lg font-semibold text-white">{item.value}</span>
                         </div>
                       </div>
                     ))}
                   </div>
 
-                  <div className="flex flex-wrap gap-3">
-                    {FLEET_TYPES.map((fleet) => {
+                  <div className="flex flex-wrap gap-2">
+                    {FLEET_FILTERS.map((fleet) => {
                       const isSelected = selectedFleetType === fleet.key;
+                      const count = fleet.key === "all"
+                        ? liveFleetTrips.length
+                        : fleet.key === "metro"
+                          ? liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class").length
+                          : fleet.key === "vline"
+                            ? liveFleetTrips.filter((trip) => trip.fleet === "vlocity" || trip.fleet === "n-class").length
+                            : fleetCountByType[fleet.key];
                       return (
                         <button
                           key={fleet.key}
                           type="button"
-                          onClick={() => setSelectedFleetType((current) => (current === fleet.key ? null : fleet.key))}
-                          className={`inline-flex items-center gap-3 rounded-[1.2rem] border px-4 py-3 text-left transition ${
+                          onClick={() => setSelectedFleetType(fleet.key)}
+                          className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition ${
                             isSelected
-                              ? "border-blue-400/70 bg-blue-500/10 shadow-[0_0_24px_rgba(59,130,246,0.22)]"
-                              : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/5"
+                              ? "border-cyan-300/70 bg-cyan-400/10 shadow-[0_0_20px_rgba(34,211,238,0.18)]"
+                              : "border-white/10 bg-black/25 hover:border-white/20 hover:bg-white/5"
                           }`}
                         >
-                          <span className="text-base font-semibold text-white">{fleet.label}</span>
-                          <span className="text-2xl font-semibold text-white/80">{fleetCountByType[fleet.key]}</span>
+                          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-white">{fleet.label}</span>
+                          <span className="font-mono text-sm font-semibold text-cyan-200">{count}</span>
                         </button>
                       );
                     })}
                   </div>
 
-                  {fleetTripsToDisplay.length > 0 ? (
-                    <div className="space-y-3">
-                      {fleetTripsToDisplay.map((trip, index) => (
-                        <article
-                          key={`${trip.fleet}-${trip.tdn}-${trip.id}`}
-                          className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-black/25 shadow-lg"
-                        >
-                          <div className="flex flex-col gap-4 border-l-4 border-l-blue-400 px-4 py-4 md:flex-row md:items-center md:justify-between">
-                            <div className="flex min-w-0 flex-1 items-start gap-4">
-                              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10 text-lg font-semibold text-blue-300">
-                                {index + 1}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {hasPremiumAccess(accountPreferences) ? (
-                                    <span className="rounded-full bg-blue-500 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
-                                      TDN / Trip {trip.tripNumber}
-                                    </span>
-                                  ) : (
-                                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/85">
-                                      {getPublicFleetServiceLabel(trip)}
-                                    </span>
-                                  )}
-                                  {trip.specialLabel && (
-                                    <span className="rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-100">
-                                      {trip.specialLabel}
-                                    </span>
-                                  )}
-                                  <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${trip.lineColor}`}>
-                                    {trip.line}
-                                  </span>
-                                  <span className="inline-flex items-center gap-2 rounded-full bg-blue-950/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-300">
-                                    <TrainFront className="h-3.5 w-3.5" />
-                                    {selectedFleetConfig?.label ?? FLEET_TYPES.find((fleet) => fleet.key === trip.fleet)?.label ?? trip.fleet}
-                                  </span>
-                                </div>
-                                <p className="mt-3 text-xl font-semibold tracking-tight text-white">{trip.route}</p>
-                                <p className="mt-1 text-sm text-white/55">
-                                  {hasPremiumAccess(accountPreferences)
-                                    ? `Trip ${trip.tdn} · Consist ${trip.consist}`
-                                    : `${getPublicFleetServiceLabel(trip)} · ${trip.consistPublicLabel} · Update shown without private trip IDs`}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="flex flex-col gap-3 md:items-end">
-                              <div className="flex flex-wrap items-center gap-3">
-                                <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${STATUS_STYLES[trip.status]}`}>
-                                  {STATUS_LABELS[trip.status]}
-                                </span>
-                                <span className="text-sm font-semibold text-white/85">{trip.statusLabel}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => openLiveTrainOnMap(trip)}
-                                  className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
-                                >
-                                  Live track
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </article>
+                  <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.04] p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-300/85">Train type guide</p>
+                        <h3 className="mt-2 text-lg font-semibold text-white">What the fleet labels mean</h3>
+                      </div>
+                      <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-semibold text-white/60">
+                        For new riders and testers
+                      </span>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {FLEET_TYPE_GUIDE.map((fleet) => (
+                        <div key={fleet.title} className="rounded-[1.25rem] border border-white/10 bg-black/20 p-3">
+                          <p className="text-sm font-semibold text-white">{fleet.title}</p>
+                          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-blue-200/75">{fleet.subtitle}</p>
+                          <p className="mt-2 text-sm leading-6 text-white/65">{fleet.detail}</p>
+                        </div>
                       ))}
+                    </div>
+                  </div>
 
-                      <p className="pt-1 text-sm text-white/60">
-                        {selectedFleetConfig
-                          ? `Showing ${fleetTripsToDisplay.length} live trips for ${selectedFleetConfig.label}.`
-                          : `Showing all ${fleetTripsToDisplay.length} live trips from the current feed.`}
+                  {fleetTripsToDisplay.length > 0 ? (
+                    <div className="overflow-hidden rounded-[1.35rem] border border-cyan-300/10 bg-black/30">
+                      <div className="grid grid-cols-[92px_minmax(150px,1.1fr)_minmax(130px,0.9fr)_120px_110px_96px_112px] gap-3 border-b border-cyan-300/10 bg-cyan-950/20 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200/70 max-lg:hidden">
+                        <span>Fleet</span>
+                        <span>Service</span>
+                        <span>Destination</span>
+                        <span>Set Number</span>
+                        <span>Line</span>
+                        <span>Status</span>
+                        <span>Last Seen</span>
+                      </div>
+                      <div className="max-h-[38vh] divide-y divide-white/5 overflow-y-auto">
+                        {fleetTripsToDisplay.map((trip) => (
+                          <article
+                            key={`${trip.fleet}-${trip.tdn}-${trip.id}`}
+                            className="grid gap-3 px-4 py-3 text-sm text-white/80 transition hover:bg-cyan-400/[0.04] lg:grid-cols-[92px_minmax(150px,1.1fr)_minmax(130px,0.9fr)_120px_110px_96px_112px] lg:items-center"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className={`h-2.5 w-2.5 rounded-full ${trip.fleet === "hcmt" ? "bg-sky-300" : trip.fleet === "vlocity" ? "bg-violet-300" : trip.fleet === "n-class" ? "bg-amber-300" : trip.fleet.includes("comeng") ? "bg-emerald-300" : "bg-cyan-300"}`} />
+                              <span className="font-semibold text-white">{FLEET_TYPES.find((fleet) => fleet.key === trip.fleet)?.label ?? trip.fleet}</span>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate font-mono text-cyan-100">{hasPremiumAccess(accountPreferences) ? trip.tdn : getPublicFleetServiceLabel(trip)}</p>
+                              <p className="truncate text-xs text-white/45 lg:hidden">{trip.route}</p>
+                            </div>
+                            <p className="min-w-0 truncate text-white/80">{trip.route}</p>
+                            <p className="font-mono text-white">{trip.setNumber}</p>
+                            <span className={`w-fit rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${trip.lineColor}`}>
+                              {trip.line}
+                            </span>
+                            <span className={`w-fit rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${STATUS_STYLES[trip.status]}`}>
+                              {STATUS_LABELS[trip.status]}
+                            </span>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-xs text-white/65">{trip.statusLabel.replace(/^Seen\s+/i, "")}</span>
+                              <button
+                                type="button"
+                                onClick={() => openLiveTrainOnMap(trip)}
+                                className="rounded-lg border border-cyan-300/20 bg-cyan-400/10 px-2.5 py-1 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-400/15"
+                              >
+                                Track
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+
+                      <p className="border-t border-cyan-300/10 px-4 py-3 text-sm text-white/55">
+                        Showing {fleetTripsToDisplay.length} live rows for {selectedFleetFilterLabel}. Counts are calculated from the current live feed after fleet classification.
                       </p>
                     </div>
                   ) : (
                     <div className="rounded-[1.8rem] border border-dashed border-white/15 bg-black/15 px-6 py-16 text-center text-lg text-white/55">
-                      {selectedFleetConfig
-                        ? `No live ${selectedFleetConfig.label} services are in the current feed right now.`
-                        : "No live train services are in the current feed right now."}
+                      No live rows match the {selectedFleetFilterLabel} fleet filter right now.
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "pid" && (
+              <div className="rounded-[2rem] border border-violet-300/15 bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.18),_rgba(2,6,23,0.98)_48%,_rgba(8,13,24,1))] p-4 text-white shadow-2xl sm:p-5">
+                <div className="flex flex-col gap-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.28em] text-violet-200/85">Station PID Mockup</p>
+                      <h2 className="mt-2 text-2xl font-semibold tracking-tight">TransitAlert platform display concept</h2>
+                      <p className="mt-2 max-w-2xl text-sm text-white/60">
+                        Original layout for station screen experiments. It avoids copying operator screens while still showing useful departure, disruption, and platform context.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-violet-200/20 bg-violet-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-violet-100">
+                      Mock data
+                    </span>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+                    <div className="overflow-hidden rounded-[1.5rem] border border-violet-200/15 bg-black/35">
+                      <div className="flex items-center justify-between gap-3 border-b border-violet-200/10 bg-violet-950/25 px-4 py-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-200/75">Platform 2</p>
+                          <p className="mt-1 text-xl font-semibold">Sandringham Line</p>
+                        </div>
+                        <p className="font-mono text-2xl font-semibold text-violet-100">14:08</p>
+                      </div>
+                      <div className="divide-y divide-white/5">
+                        {[
+                          { time: "14:11", dest: "Sandringham", pattern: "Stopping all stations", status: "On time" },
+                          { time: "14:26", dest: "Brighton Beach", pattern: "Terminates at Brighton Beach", status: "Monitor" },
+                          { time: "14:41", dest: "Sandringham", pattern: "Stopping all stations", status: "3 min late" },
+                        ].map((row) => (
+                          <div key={`${row.time}-${row.dest}`} className="grid grid-cols-[72px_minmax(0,1fr)_96px] gap-3 px-4 py-3 text-sm">
+                            <span className="font-mono text-violet-100">{row.time}</span>
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-white">{row.dest}</p>
+                              <p className="truncate text-xs text-white/50">{row.pattern}</p>
+                            </div>
+                            <span className="text-right text-xs font-semibold uppercase tracking-[0.14em] text-violet-200/80">{row.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.5rem] border border-amber-300/20 bg-amber-500/10 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200/80">Service note</p>
+                      <p className="mt-3 text-lg font-semibold text-amber-50">Live alert matching this corridor</p>
+                      <p className="mt-2 text-sm leading-6 text-amber-50/75">
+                        If disruptions match the station line, this panel can explain whether it is a delay, planned work, replacement bus, or incident.
+                      </p>
+                      <div className="mt-4 grid gap-2 text-sm text-white/70">
+                        <span className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">Readable from a distance</span>
+                        <span className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">Independent visual style</span>
+                        <span className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">Debugger-friendly mock data</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -3193,7 +3380,7 @@ export default function Home() {
       )}
       </Tabs>
 
-      <div className="pointer-events-none absolute bottom-28 right-3 z-30 flex sm:bottom-10 sm:right-6">
+      <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center px-4 max-[430px]:bottom-4 sm:bottom-8">
         <button
           onClick={() => {
             if (isGuest) {
@@ -3203,7 +3390,7 @@ export default function Home() {
             }
             setIsAddDrawerOpen(true);
           }}
-          className="pointer-events-auto group flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-bold text-black shadow-[0_10px_40px_rgba(255,255,255,0.3)] transition-all hover:scale-105 active:scale-95 sm:px-6 sm:text-base"
+          className="pointer-events-auto group flex min-h-12 max-w-[calc(100vw-7.5rem)] items-center justify-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-bold text-black shadow-[0_10px_40px_rgba(255,255,255,0.3)] transition-all hover:scale-105 active:scale-95 max-[430px]:max-w-[calc(100vw-6.5rem)] max-[430px]:px-4 sm:px-6 sm:text-base"
         >
           <div className="rounded-full bg-black p-1 text-white transition-transform duration-300 group-hover:rotate-90">
             <Plus className="h-4 w-4" />

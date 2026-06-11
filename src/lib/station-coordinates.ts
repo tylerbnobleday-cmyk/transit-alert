@@ -7,7 +7,7 @@ const STATION_COORDINATES: Record<string, [number, number]> = {
   Williamstown: [-37.8673, 144.9006],
   "North Williamstown": [-37.8573, 144.8872],
   "Williamstown Beach": [-37.8636, 144.8994],
-  Sandringham: [-37.9528, 145.0047],
+  Sandringham: [-37.95036297669773, 145.00454952822133],
   Frankston: [-38.1426676, 145.1262003],
   Werribee: [-37.8999, 144.6602],
 };
