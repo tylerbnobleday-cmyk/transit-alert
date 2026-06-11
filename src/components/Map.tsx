@@ -102,6 +102,12 @@ const CAULFIELD_METRO_SHARED_STATIONS = new Set([
   "Caulfield",
 ]);
 const NORTHERN_SHARED_STATIONS = new Set(["North Melbourne"]);
+const ROTATED_FRANKSTON_PILL_STATIONS = new Set([
+  "Glen Huntly",
+  "Ormond",
+  "Bentleigh",
+  "Patterson",
+]);
 
 function createCityLoopPillIcon(strokeColor: string, stationName: string) {
   const isHorizontalPill =
@@ -6634,10 +6640,38 @@ function createInlineStationStopIcon(
   const endpoint = options?.endpoint ?? false;
   const compact = options?.compact ?? false;
   const escapedName = escapeInlineMarkerHtml(stationName);
+  const useRotatedPill = ROTATED_FRANKSTON_PILL_STATIONS.has(stationName);
   const tickHeight = endpoint ? (compact ? 14 : 16) : compact ? 10 : 14;
   const iconHeight = endpoint ? (compact ? 46 : 60) : compact ? 40 : 52;
   const labelMargin = compact ? 2 : 4;
   const translateY = compact ? -22 : -30;
+  const labelStyle = useRotatedPill
+    ? `
+          margin-bottom:${labelMargin + 2}px;
+          color:#ffffff;
+          font-size:12px;
+          font-weight:800;
+          line-height:1.1;
+          white-space:nowrap;
+          letter-spacing:0.01em;
+          padding:4px 10px 5px;
+          border-radius:9999px;
+          background:${color};
+          border:1px solid rgba(255,255,255,0.18);
+          box-shadow:0 4px 10px rgba(0,0,0,0.38), 0 0 0 1px rgba(15,23,42,0.42);
+          transform:rotate(-10deg);
+          transform-origin:center;
+        `
+    : `
+          margin-bottom:${labelMargin}px;
+          color:#ffffff;
+          font-size:12px;
+          font-weight:700;
+          line-height:1.1;
+          white-space:nowrap;
+          text-shadow:0 2px 10px rgba(2,6,23,0.95), 0 0 6px rgba(2,6,23,0.85);
+          letter-spacing:0.01em;
+        `;
 
   return L.divIcon({
     html: `
@@ -6649,16 +6683,7 @@ function createInlineStationStopIcon(
         min-width:136px;
         transform:translateY(${translateY}px);
       ">
-        <div style="
-          margin-bottom:${labelMargin}px;
-          color:#ffffff;
-          font-size:12px;
-          font-weight:700;
-          line-height:1.1;
-          white-space:nowrap;
-          text-shadow:0 2px 10px rgba(2,6,23,0.95), 0 0 6px rgba(2,6,23,0.85);
-          letter-spacing:0.01em;
-        ">
+        <div style="${labelStyle}">
           ${escapedName}
         </div>
         <div style="
