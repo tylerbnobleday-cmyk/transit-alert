@@ -124,6 +124,26 @@ function createCityLoopPillIcon(strokeColor: string, stationName: string) {
       ? "0deg"
       : "0deg";
 
+  if (stationName === "Caulfield") {
+    return L.divIcon({
+      html: `
+        <div style="position:relative;width:70px;height:58px;display:flex;align-items:center;justify-content:center;">
+          <div style="position:absolute;left:15px;top:21px;width:34px;height:13px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 4px 10px rgba(0,0,0,0.36);overflow:hidden;">
+            <div style="position:absolute;left:4px;right:4px;top:4px;height:3px;border-radius:9999px;background:${strokeColor};opacity:0.92;"></div>
+          </div>
+          <div style="position:absolute;left:28px;top:10px;width:14px;height:38px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 4px 10px rgba(0,0,0,0.36);overflow:hidden;">
+            <div style="position:absolute;top:5px;bottom:5px;left:4px;width:3px;border-radius:9999px;background:#22c55e;opacity:0.92;"></div>
+          </div>
+          <div style="position:absolute;right:8px;top:14px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);padding:3px 7px;font-size:10px;font-weight:800;color:#0f172a;box-shadow:0 4px 10px rgba(0,0,0,0.32);">CFD</div>
+        </div>
+      `,
+      className: "bg-transparent border-none",
+      iconSize: [70, 58],
+      iconAnchor: [35, 29],
+      popupAnchor: [0, -14],
+    });
+  }
+
   if (isCombinedCentralLibrary) {
     return L.divIcon({
 html: `

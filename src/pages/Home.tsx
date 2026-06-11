@@ -180,6 +180,11 @@ type StationDeparture = {
   lineTone: string;
 };
 
+type PidStyleKey = "metro-modern" | "connex-legacy" | "metlink-era" | "transitalert" | "vline" | "custom";
+type PidPreviewMode = "single" | "split" | "multi-platform" | "station-wall" | "concourse" | "departure-board" | "operations";
+type PidDisplayDensity = "comfortable" | "standard" | "dense";
+type PidThemeMode = "dark" | "light";
+
 type JourneyLeg = {
   mode: "train" | "tram" | "bus" | "walk";
   title: string;
@@ -238,6 +243,46 @@ const FLEET_FILTERS: Array<{ key: FleetFilterKey; label: string }> = [
   { key: "sydney-xpt", label: "Sydney / XPT" },
   ...FLEET_TYPES.map((fleet) => ({ key: fleet.key, label: fleet.label })),
 ];
+
+const PID_STATIONS = [
+  "Flinders Street",
+  "Southern Cross",
+  "Richmond",
+  "Footscray",
+  "Caulfield",
+  "Ringwood",
+  "Frankston",
+  "North Melbourne",
+  "Town Hall",
+  "State Library",
+  "Sunshine",
+  "Dandenong",
+  "Sandringham",
+] as const;
+
+const PID_STYLE_PRESETS: Array<{ key: PidStyleKey; label: string; description: string }> = [
+  { key: "metro-modern", label: "Metro modern", description: "Clean current-generation suburban display direction." },
+  { key: "connex-legacy", label: "Legacy Connex-style", description: "Green legacy-inspired tester mode, not an official clone." },
+  { key: "metlink-era", label: "Metlink-era", description: "High-contrast blue/yellow era-inspired layout." },
+  { key: "transitalert", label: "TransitAlert custom", description: "Original dark control-room visual system." },
+  { key: "vline", label: "V/Line", description: "Regional departure board style for longer-distance services." },
+  { key: "custom", label: "Custom editor", description: "Use your own colours, density, font and branding." },
+];
+
+const PID_PREVIEW_MODES: Array<{ key: PidPreviewMode; label: string }> = [
+  { key: "single", label: "Single PID screen" },
+  { key: "split", label: "Split screen" },
+  { key: "multi-platform", label: "Multi-platform preview" },
+  { key: "station-wall", label: "Entire station wall" },
+  { key: "concourse", label: "Concourse overview" },
+  { key: "departure-board", label: "Departure board" },
+  { key: "operations", label: "Operations mode" },
+];
+
+const PID_FONTS = ["Inter", "Arial", "Helvetica", "DIN-style", "Mono operations"] as const;
+const PID_RESOLUTIONS = ["1920x1080", "1366x768", "1280x720", "1080x1920", "3840x2160"] as const;
+const PID_DENSITIES: PidDisplayDensity[] = ["comfortable", "standard", "dense"];
+const PID_THEMES: PidThemeMode[] = ["dark", "light"];
 
 const FLEET_TYPE_GUIDE: Array<{ title: string; subtitle: string; detail: string }> = [
   {
@@ -864,6 +909,59 @@ function getStationDepartureBoard(stationName: string) {
   ];
 }
 
+function getGeneratedPidPlatforms(stationName: string, departures: StationDeparture[]) {
+  const fromDepartures = [...new Set(departures.map((departure) => departure.platform))].sort((left, right) => Number(left) - Number(right));
+  const fallbackCount = /(flinders|southern cross|richmond)/i.test(stationName) ? 8 : /(caulfield|footscray|ringwood)/i.test(stationName) ? 4 : 2;
+  const fallback = Array.from({ length: fallbackCount }, (_, index) => String(index + 1));
+  return fromDepartures.length > 0 ? fromDepartures : fallback;
+}
+
+function getPidStyleClasses(style: PidStyleKey, theme: PidThemeMode) {
+  if (style === "connex-legacy") return "border-emerald-300/30 bg-emerald-950/40 text-emerald-50";
+  if (style === "metlink-era") return "border-yellow-300/30 bg-blue-950/55 text-yellow-50";
+  if (style === "vline") return "border-violet-300/30 bg-violet-950/45 text-violet-50";
+  if (style === "custom") return theme === "light" ? "border-slate-300 bg-slate-100 text-slate-950" : "border-white/15 bg-slate-950 text-white";
+  if (style === "metro-modern") return theme === "light" ? "border-blue-200 bg-white text-slate-950" : "border-blue-300/25 bg-slate-950 text-white";
+  return "border-cyan-300/25 bg-slate-950 text-white";
+}
+
+function getPidTrainFeatures(departure?: StationDeparture) {
+  const searchable = `${departure?.lineLabel ?? ""} ${departure?.destination ?? ""}`.toLowerCase();
+  if (/v\/line|regional|geelong|ballarat|bendigo/.test(searchable)) {
+    return { length: "6-car VLocity", cars: 6, doorSide: "Left side", accessible: [2, 5], bikes: [3, 6], firstClass: [] };
+  }
+  if (/xpt|sydney/.test(searchable)) {
+    return { length: "7-car XPT", cars: 7, doorSide: "Right side", accessible: [3], bikes: [6], firstClass: [1] };
+  }
+  if (/metro tunnel|cranbourne|pakenham|sunbury/.test(searchable)) {
+    return { length: "7-car HCMT", cars: 7, doorSide: "Left side", accessible: [1, 7], bikes: [2, 6], firstClass: [] };
+  }
+  return { length: "6-car suburban", cars: 6, doorSide: "Platform side", accessible: [1, 6], bikes: [3], firstClass: [] };
+}
+
+function getPidStoppingPattern(departure?: StationDeparture) {
+  if (!departure) return "Select a platform to preview stopping pattern.";
+  if (/brighton beach/i.test(departure.destination)) return "Stopping all stations to Brighton Beach.";
+  if (/city loop/i.test(departure.destination)) return "City Loop service. Check platform staff advice.";
+  if (/werribee|sandringham|frankston|mernda|sunbury|cranbourne|pakenham/i.test(departure.destination)) {
+    return `Stopping pattern generated for ${departure.destination}.`;
+  }
+  return departure.status === "Delayed" ? "Service delayed. Stopping pattern may change." : "Stopping pattern generated from selected station context.";
+}
+
+function getPidServiceTypeLabel(departure?: StationDeparture) {
+  const features = getPidTrainFeatures(departure);
+  const searchable = `${departure?.lineLabel ?? ""} ${departure?.destination ?? ""}`.toLowerCase();
+  const type = /v\/line|regional|geelong|ballarat|bendigo/.test(searchable)
+    ? "VLocity"
+    : /xpt|sydney/.test(searchable)
+      ? "XPT"
+      : /metro tunnel|cranbourne|pakenham|sunbury/.test(searchable)
+        ? "HCMT"
+        : "Metro train";
+  return `${features.length} · ${type}`;
+}
+
 function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
   return (
     <div
@@ -1047,6 +1145,17 @@ export default function Home() {
   const [isVersionFirstOpen, setIsVersionFirstOpen] = useState(false);
   const [userMenuMessage, setUserMenuMessage] = useState("");
   const [selectedFleetType, setSelectedFleetType] = useState<FleetFilterKey>("all");
+  const [pidStation, setPidStation] = useState<string>("Flinders Street");
+  const [pidPlatform, setPidPlatform] = useState<string>("1");
+  const [pidStyle, setPidStyle] = useState<PidStyleKey>("transitalert");
+  const [pidPreviewMode, setPidPreviewMode] = useState<PidPreviewMode>("single");
+  const [pidDensity, setPidDensity] = useState<PidDisplayDensity>("standard");
+  const [pidResolution, setPidResolution] = useState<(typeof PID_RESOLUTIONS)[number]>("1920x1080");
+  const [pidTheme, setPidTheme] = useState<PidThemeMode>("dark");
+  const [pidFont, setPidFont] = useState<(typeof PID_FONTS)[number]>("Inter");
+  const [pidAccentColor, setPidAccentColor] = useState("#7c3aed");
+  const [pidLineColor, setPidLineColor] = useState("#22c55e");
+  const [pidBranding, setPidBranding] = useState("TransitAlert PID Studio");
   const [focusedVehicleKey, setFocusedVehicleKey] = useState<string | null>(null);
   const [journeyOrigin, setJourneyOrigin] = useState<string>("Flinders Street");
   const [journeyDestination, setJourneyDestination] = useState<string>("Sandringham");
@@ -1249,6 +1358,18 @@ export default function Home() {
       upcomingSoon: trips.filter((trip) => trip.status === "upcoming").length,
     };
   }, [fleetTripsToDisplay]);
+  const pidDepartures = useMemo(() => getStationDepartureBoard(pidStation), [pidStation]);
+  const pidPlatforms = useMemo(() => getGeneratedPidPlatforms(pidStation, pidDepartures), [pidStation, pidDepartures]);
+  const pidSelectedDeparture = useMemo(
+    () => pidDepartures.find((departure) => departure.platform === pidPlatform) ?? pidDepartures[0],
+    [pidDepartures, pidPlatform],
+  );
+  const pidPlatformDepartures = useMemo(
+    () => pidDepartures.filter((departure) => departure.platform === pidPlatform),
+    [pidDepartures, pidPlatform],
+  );
+  const pidTrainFeatures = useMemo(() => getPidTrainFeatures(pidSelectedDeparture), [pidSelectedDeparture]);
+  const pidStyleClasses = useMemo(() => getPidStyleClasses(pidStyle, pidTheme), [pidStyle, pidTheme]);
   const serviceDayLabel = useMemo(
     () =>
       new Intl.DateTimeFormat("en-AU", {
@@ -1276,6 +1397,12 @@ export default function Home() {
       hour12: false,
     }).format(baseDate);
   }, [liveFleetTrips]);
+
+  useEffect(() => {
+    if (pidPlatforms.length > 0 && !pidPlatforms.includes(pidPlatform)) {
+      setPidPlatform(pidPlatforms[0] ?? "1");
+    }
+  }, [pidPlatform, pidPlatforms]);
   const stationDraftPreview = useMemo(
     () => uniqueStations.find((station) => station.name === adminSelectedStation) ?? uniqueStations[0],
     [adminSelectedStation, uniqueStations],
@@ -2944,56 +3071,177 @@ export default function Home() {
                 <div className="flex flex-col gap-5">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.28em] text-violet-200/85">Station PID Mockup</p>
-                      <h2 className="mt-2 text-2xl font-semibold tracking-tight">TransitAlert platform display concept</h2>
+                      <p className="text-xs font-semibold uppercase tracking-[0.28em] text-violet-200/85">PID Studio</p>
+                      <h2 className="mt-2 text-2xl font-semibold tracking-tight">Passenger information display designer</h2>
                       <p className="mt-2 max-w-2xl text-sm text-white/60">
-                        Original layout for station screen experiments. It avoids copying operator screens while still showing useful departure, disruption, and platform context.
+                        Select a Victorian station, pick platforms, choose display styles, and generate realistic platform, concourse, wall, overview, and operations screens.
                       </p>
                     </div>
                     <span className="rounded-full border border-violet-200/20 bg-violet-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-violet-100">
-                      Mock data
+                      {pidResolution} · {pidTheme}
                     </span>
                   </div>
 
-                  <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-                    <div className="overflow-hidden rounded-[1.5rem] border border-violet-200/15 bg-black/35">
-                      <div className="flex items-center justify-between gap-3 border-b border-violet-200/10 bg-violet-950/25 px-4 py-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-200/75">Platform 2</p>
-                          <p className="mt-1 text-xl font-semibold">Sandringham Line</p>
+                  <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+                    <div className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-200/80">Controls</p>
+                      <div className="mt-4 grid gap-3">
+                        <label className="grid gap-1.5 text-sm">
+                          <span className="text-white/60">Station</span>
+                          <select value={pidStation} onChange={(event) => setPidStation(event.target.value)} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white">
+                            {PID_STATIONS.map((station) => <option key={station} value={station}>{station}</option>)}
+                          </select>
+                        </label>
+                        <label className="grid gap-1.5 text-sm">
+                          <span className="text-white/60">Platform</span>
+                          <select value={pidPlatform} onChange={(event) => setPidPlatform(event.target.value)} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white">
+                            {pidPlatforms.map((platform) => <option key={platform} value={platform}>Platform {platform}</option>)}
+                          </select>
+                        </label>
+                        <label className="grid gap-1.5 text-sm">
+                          <span className="text-white/60">Preview mode</span>
+                          <select value={pidPreviewMode} onChange={(event) => setPidPreviewMode(event.target.value as PidPreviewMode)} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white">
+                            {PID_PREVIEW_MODES.map((mode) => <option key={mode.key} value={mode.key}>{mode.label}</option>)}
+                          </select>
+                        </label>
+                        <label className="grid gap-1.5 text-sm">
+                          <span className="text-white/60">Style system</span>
+                          <select value={pidStyle} onChange={(event) => setPidStyle(event.target.value as PidStyleKey)} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white">
+                            {PID_STYLE_PRESETS.map((style) => <option key={style.key} value={style.key}>{style.label}</option>)}
+                          </select>
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="grid gap-1.5 text-sm">
+                            <span className="text-white/60">Density</span>
+                            <select value={pidDensity} onChange={(event) => setPidDensity(event.target.value as PidDisplayDensity)} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white">
+                              {PID_DENSITIES.map((density) => <option key={density} value={density}>{density}</option>)}
+                            </select>
+                          </label>
+                          <label className="grid gap-1.5 text-sm">
+                            <span className="text-white/60">Theme</span>
+                            <select value={pidTheme} onChange={(event) => setPidTheme(event.target.value as PidThemeMode)} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white">
+                              {PID_THEMES.map((theme) => <option key={theme} value={theme}>{theme}</option>)}
+                            </select>
+                          </label>
                         </div>
-                        <p className="font-mono text-2xl font-semibold text-violet-100">14:08</p>
-                      </div>
-                      <div className="divide-y divide-white/5">
-                        {[
-                          { time: "14:11", dest: "Sandringham", pattern: "Stopping all stations", status: "On time" },
-                          { time: "14:26", dest: "Brighton Beach", pattern: "Terminates at Brighton Beach", status: "Monitor" },
-                          { time: "14:41", dest: "Sandringham", pattern: "Stopping all stations", status: "3 min late" },
-                        ].map((row) => (
-                          <div key={`${row.time}-${row.dest}`} className="grid grid-cols-[72px_minmax(0,1fr)_96px] gap-3 px-4 py-3 text-sm">
-                            <span className="font-mono text-violet-100">{row.time}</span>
-                            <div className="min-w-0">
-                              <p className="truncate font-semibold text-white">{row.dest}</p>
-                              <p className="truncate text-xs text-white/50">{row.pattern}</p>
-                            </div>
-                            <span className="text-right text-xs font-semibold uppercase tracking-[0.14em] text-violet-200/80">{row.status}</span>
-                          </div>
-                        ))}
+                        <label className="grid gap-1.5 text-sm">
+                          <span className="text-white/60">Screen resolution</span>
+                          <select value={pidResolution} onChange={(event) => setPidResolution(event.target.value as (typeof PID_RESOLUTIONS)[number])} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white">
+                            {PID_RESOLUTIONS.map((resolution) => <option key={resolution} value={resolution}>{resolution}</option>)}
+                          </select>
+                        </label>
+                        <label className="grid gap-1.5 text-sm">
+                          <span className="text-white/60">Font</span>
+                          <select value={pidFont} onChange={(event) => setPidFont(event.target.value as (typeof PID_FONTS)[number])} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white">
+                            {PID_FONTS.map((font) => <option key={font} value={font}>{font}</option>)}
+                          </select>
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="grid gap-1.5 text-sm">
+                            <span className="text-white/60">Accent</span>
+                            <input type="color" value={pidAccentColor} onChange={(event) => setPidAccentColor(event.target.value)} className="h-10 w-full rounded-xl border border-white/10 bg-slate-950 p-1" />
+                          </label>
+                          <label className="grid gap-1.5 text-sm">
+                            <span className="text-white/60">Line colour</span>
+                            <input type="color" value={pidLineColor} onChange={(event) => setPidLineColor(event.target.value)} className="h-10 w-full rounded-xl border border-white/10 bg-slate-950 p-1" />
+                          </label>
+                        </div>
+                        <label className="grid gap-1.5 text-sm">
+                          <span className="text-white/60">Custom branding</span>
+                          <input value={pidBranding} onChange={(event) => setPidBranding(event.target.value)} className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white" />
+                        </label>
                       </div>
                     </div>
 
-                    <div className="rounded-[1.5rem] border border-amber-300/20 bg-amber-500/10 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200/80">Service note</p>
-                      <p className="mt-3 text-lg font-semibold text-amber-50">Live alert matching this corridor</p>
-                      <p className="mt-2 text-sm leading-6 text-amber-50/75">
-                        If disruptions match the station line, this panel can explain whether it is a delay, planned work, replacement bus, or incident.
-                      </p>
-                      <div className="mt-4 grid gap-2 text-sm text-white/70">
-                        <span className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">Readable from a distance</span>
-                        <span className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">Independent visual style</span>
-                        <span className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">Debugger-friendly mock data</span>
+                    <div className="grid gap-4">
+                      <div
+                        className={`overflow-hidden rounded-[1.5rem] border ${pidStyleClasses}`}
+                        style={{ borderColor: pidStyle === "custom" ? pidAccentColor : undefined, fontFamily: pidFont.includes("Mono") ? "ui-monospace, SFMono-Regular, Menlo, monospace" : undefined }}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-current/10 px-4 py-3" style={{ backgroundColor: pidStyle === "custom" ? `${pidAccentColor}22` : undefined }}>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] opacity-70">{pidBranding}</p>
+                            <p className="mt-1 text-2xl font-semibold">{pidStation}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-60">Platform {pidPlatform}</p>
+                            <p className="font-mono text-2xl font-semibold">{formatServiceClock(new Date().toISOString())}</p>
+                          </div>
+                        </div>
+                        <div className={`grid gap-3 p-4 ${pidPreviewMode === "split" ? "lg:grid-cols-2" : ""}`}>
+                          {(pidPreviewMode === "multi-platform" ? pidDepartures : pidPreviewMode === "station-wall" || pidPreviewMode === "concourse" || pidPreviewMode === "departure-board" || pidPreviewMode === "operations" ? pidDepartures : pidPlatformDepartures.length ? pidPlatformDepartures : [pidSelectedDeparture].filter(Boolean)).map((departure) => (
+                            <div key={departure.id} className={`rounded-2xl border border-current/10 bg-black/20 ${pidDensity === "dense" ? "p-3" : "p-4"}`}>
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-60">Next train</p>
+                                  <p className="mt-1 text-3xl font-semibold">{departure.destination}</p>
+                                  <p className="mt-1 text-sm font-semibold opacity-85">{getPidServiceTypeLabel(departure)}</p>
+                                  <p className="mt-1 text-sm opacity-70">{getPidStoppingPattern(departure)}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-mono text-4xl font-semibold">{departure.time}</p>
+                                  <p className="mt-1 text-sm font-semibold uppercase tracking-[0.14em]" style={{ color: departure.status === "Delayed" ? "#fbbf24" : pidLineColor }}>{departure.status}</p>
+                                </div>
+                              </div>
+                              <div className="mt-4 grid gap-2 sm:grid-cols-4">
+                                <span className="rounded-xl border border-current/10 bg-black/20 px-3 py-2 text-xs">Length: {pidTrainFeatures.length}</span>
+                                <span className="rounded-xl border border-current/10 bg-black/20 px-3 py-2 text-xs">Doors: {pidTrainFeatures.doorSide}</span>
+                                <span className="rounded-xl border border-current/10 bg-black/20 px-3 py-2 text-xs">Accessible: cars {pidTrainFeatures.accessible.join(", ")}</span>
+                                <span className="rounded-xl border border-current/10 bg-black/20 px-3 py-2 text-xs">Bikes: cars {pidTrainFeatures.bikes.join(", ")}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+                        <div className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-200/80">Train visualisation</p>
+                          <div className="mt-4 flex items-center gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-slate-950/70 p-3">
+                            {Array.from({ length: pidTrainFeatures.cars }, (_, index) => {
+                              const car = index + 1;
+                              const isAccessibleCar = pidTrainFeatures.accessible.includes(car);
+                              const isBikeCar = pidTrainFeatures.bikes.includes(car);
+                              const isFirstClass = pidTrainFeatures.firstClass.includes(car);
+                              return (
+                                <div key={car} className="min-w-[54px] rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-center">
+                                  <p className="text-xs font-semibold text-white">Car {car}</p>
+                                  <p className="mt-1 text-[10px] text-white/55">{isFirstClass ? "First" : isAccessibleCar ? "Access" : isBikeCar ? "Bike" : "Std"}</p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="mt-3 h-2 rounded-full bg-white/10">
+                            <div className="h-2 w-2/3 rounded-full" style={{ backgroundColor: pidLineColor }} />
+                          </div>
+                          <p className="mt-2 text-xs text-white/55">Train position along platform preview. Door side and carriage features are generated from the selected service type.</p>
+                        </div>
+
+                        <div className="rounded-[1.5rem] border border-amber-300/20 bg-amber-500/10 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200/80">Station features</p>
+                          <div className="mt-3 grid gap-2 text-sm text-amber-50/85">
+                            <span>Platforms generated: {pidPlatforms.map((platform) => `P${platform}`).join(", ")}</span>
+                            <span>Service notes: {pidSelectedDeparture?.status === "Delayed" ? "Delay messaging active" : "Normal operations"}</span>
+                            <span>Replacement bus panel: ready for disruption mode</span>
+                            <span>Display modes: platform, concourse, wall, overview, operations</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {PID_STYLE_PRESETS.map((style) => (
+                      <button
+                        key={style.key}
+                        type="button"
+                        onClick={() => setPidStyle(style.key)}
+                        className={`rounded-2xl border px-4 py-3 text-left transition ${pidStyle === style.key ? "border-violet-300 bg-violet-400/15" : "border-white/10 bg-black/20 hover:bg-white/5"}`}
+                      >
+                        <p className="text-sm font-semibold text-white">{style.label}</p>
+                        <p className="mt-1 text-xs leading-5 text-white/55">{style.description}</p>
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
