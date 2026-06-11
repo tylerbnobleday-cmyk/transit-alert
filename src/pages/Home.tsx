@@ -31,7 +31,7 @@ import {
   type ApprovedDebugTesterRecord,
   type AdminRuntimeConfig,
 } from "@/lib/admin-config";
-import { fetchLiveTrains, type LiveTrain } from "@/lib/live-trains";
+import { fetchLiveTrains, isVlineLiveTrain, type LiveTrain } from "@/lib/live-trains";
 import busButtonIcon from "@/assets/icons/bus.png";
 import tramButtonIcon from "@/assets/icons/tram.png";
 import {
@@ -159,6 +159,9 @@ type FleetTrip = {
   statusLabel: string;
   updatedAt: string;
   consist: string;
+  realtimeLabel: string;
+  consistPublicLabel: string;
+  specialLabel: string;
 };
 
 type StationDeparture = {
@@ -227,6 +230,9 @@ const VERSION_LOG: ChangelogEntry[] = [
     version: TRANSITALERT_WEB_VERSION,
     date: "14/05/2026",
     notes: [
+      "V/Line realtime trips now show a public service label with time, route, consist length, and train family instead of exposing raw trip IDs.",
+      "Journey planning now includes a disruption brief that explains delays, track work, service changes, and incidents against your planned corridor.",
+      "Special regional train movements are called out more clearly when they appear in live tracking.",
       "Admin tools now show the approved debug-tester whitelist beside the account list for faster tester management.",
       "Tyler admin defaults were cleaned up with the correct email + premium access, and public-facing TDN labels are now masked behind premium.",
       "Database-first Render account handling was refined again so persistence, tester sign-up, and release tracking are easier to manage.",
@@ -351,11 +357,11 @@ const TRANSITALERT_SYSTEM_NOTES = [
 const VERSION_HIGHLIGHT_CARDS = [
   {
     title: "What’s new in 0.89",
-    body: "Tester whitelist visibility, premium-only TDN masking, and cleaner Tyler/admin account defaults now sit on top of the earlier branding, privacy, and database work.",
+    body: "V/Line realtime cards now show time, route, consist size, train family, and special-train context alongside tester and account polish.",
   },
   {
     title: "Journey planning",
-    body: "Trips persist more reliably, GPS starts are friendlier, and attached live services stay visible while your journey is active.",
+    body: "Active journeys now get a disruption brief so alerts read as delays, track work, service changes, or incidents for the corridor you are using.",
   },
   {
     title: "Privacy and assets",
@@ -381,6 +387,15 @@ const PLANNER_LINES = [
   { name: "Werribee", stations: LINES.werribee },
   { name: "Williamstown", stations: LINES.williamstown },
 ] as const;
+
+const JOURNEY_DISRUPTION_TERMS = ["Delays", "Track work", "Service changes", "Incidents"] as const;
+
+function getJourneyCorridorLabels(route: Station[]) {
+  const routeNames = new Set(route.map((station) => station.name));
+  return PLANNER_LINES
+    .filter((line) => line.stations.filter((station) => routeNames.has(station.name)).length >= 2)
+    .map((line) => line.name);
+}
 
 const STATUS_STYLES: Record<FleetTripStatus, string> = {
   running: "bg-emerald-500/15 text-emerald-300",
@@ -530,7 +545,55 @@ function getPublicServiceCode(...values: string[]) {
 }
 
 function getPublicFleetServiceLabel(trip: FleetTrip) {
-  return `${formatServiceClock(trip.updatedAt)} ${getPublicServiceCode(trip.route, trip.line)} Service`;
+  return trip.realtimeLabel || `${formatServiceClock(trip.updatedAt)} ${getPublicServiceCode(trip.route, trip.line)} Service`;
+}
+
+function getRegionalFleetRouteLabel(vehicle: LiveTrain) {
+  const joined = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  if (/(waurn ponds|geelong|warrnambool)/.test(joined)) return "Geelong";
+  if (/(ballarat|wendouree|ararat|maryborough)/.test(joined)) return "Ballarat";
+  if (/(bendigo|castlemaine|echuca|swan hill)/.test(joined)) return "Bendigo";
+  if (/(seymour|shepparton|albury|wallan|broadford|tallarook)/.test(joined)) return "Seymour";
+  if (/(traralgon|bairnsdale|sale|morwell|moe)/.test(joined)) return "Gippsland";
+  if (/(xpt|nsw trainlink|sydney)/.test(joined)) return "XPT";
+  return vehicle.line.replace(/\s+line$/i, "").replace(/^V\/Line$/i, "Regional");
+}
+
+function getRegionalFleetTrainFamily(vehicle: LiveTrain) {
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
+  if (/XPT/.test(joined)) return "XPT";
+  if (/XPLORER/.test(joined)) return "Xplorer";
+  if (/SPRINTER/.test(joined)) return "Sprinter";
+  if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "N class";
+  if (/VLOCITY|\bV\d{3,4}\b/.test(joined)) return "VLocity";
+  return "Other locomotive";
+}
+
+function getRegionalFleetCarLength(vehicle: LiveTrain) {
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
+  const explicitCarMatch = joined.match(/\b(3|4|5|6|7|8|9)\s*[- ]?CAR\b/);
+  if (explicitCarMatch?.[1]) return `${explicitCarMatch[1]}-car`;
+  if (/\bV\d{3,4}\b.*\bV\d{3,4}\b/.test(joined)) return "6-car";
+  if (/\bV\d{3,4}\b/.test(joined) || /VLOCITY/.test(joined)) return "3-car";
+  if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "loco set";
+  if (/XPT|XPLORER|SPRINTER/.test(joined)) return "special";
+  return "set TBC";
+}
+
+function getRegionalFleetSpecialLabel(vehicle: LiveTrain) {
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
+  if (/XPT|XPLORER|NSW TRAINLINK/.test(joined)) return "Special train";
+  if (/SPRINTER|N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "Special movement";
+  if (!/VLOCITY|\bV\d{3,4}\b/.test(joined) && isVlineLiveTrain(vehicle)) return "Special / other";
+  return "";
+}
+
+function getFleetRealtimeLabel(vehicle: LiveTrain) {
+  if (!isVlineLiveTrain(vehicle)) {
+    return `${formatServiceClock(vehicle.timestamp)} ${getPublicServiceCode(buildFleetRoute(vehicle), vehicle.line)} Service`;
+  }
+
+  return `${formatServiceClock(vehicle.timestamp)} (${getRegionalFleetRouteLabel(vehicle)}) (${getRegionalFleetCarLength(vehicle)}) (${getRegionalFleetTrainFamily(vehicle)})`;
 }
 
 function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
@@ -547,6 +610,9 @@ function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
     statusLabel: formatFleetUpdatedAt(vehicle.timestamp),
     updatedAt: vehicle.timestamp ?? "",
     consist: vehicle.consist,
+    realtimeLabel: getFleetRealtimeLabel(vehicle),
+    consistPublicLabel: isVlineLiveTrain(vehicle) ? `${getRegionalFleetCarLength(vehicle)} ${getRegionalFleetTrainFamily(vehicle)}` : inferFleetTypeKey(vehicle),
+    specialLabel: isVlineLiveTrain(vehicle) ? getRegionalFleetSpecialLabel(vehicle) : "",
   }));
 }
 
@@ -1103,6 +1169,18 @@ export default function Home() {
     if (!query) return uniqueStations.slice(0, 18);
     return uniqueStations.filter((station) => station.name.toLowerCase().includes(query)).slice(0, 24);
   }, [originSearch, uniqueStations]);
+  const journeyDisruptionBrief = useMemo(() => {
+    if (journeyRoute.length < 2) return null;
+
+    const corridorLabels = getJourneyCorridorLabels(journeyRoute).slice(0, 3);
+    const corridorText = corridorLabels.length > 0 ? corridorLabels.join(", ") : "your planned corridor";
+
+    return {
+      title: `${corridorText} alert check`,
+      summary: `TransitAlert treats alerts on ${corridorText} as journey-relevant, then explains them as delays, track work, service changes, or incidents so the next step is clearer before you travel.`,
+      terms: JOURNEY_DISRUPTION_TERMS,
+    };
+  }, [journeyRoute]);
 
   const openLiveTrainOnMap = useCallback((trip: FleetTrip) => {
     setFocusedVehicleKey(trip.focusKey);
@@ -2408,6 +2486,37 @@ export default function Home() {
                     </div>
                   )}
 
+                  {journeyDisruptionBrief && (
+                    <div className="mt-3 rounded-2xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-200/85">
+                            Journey disruption brief
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-amber-50">{journeyDisruptionBrief.title}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setLocation("/alerts/today")}
+                          className="rounded-full border border-amber-300/25 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-100"
+                        >
+                          Open alerts
+                        </button>
+                      </div>
+                      <p className="mt-2 text-sm text-amber-50/90">{journeyDisruptionBrief.summary}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {journeyDisruptionBrief.terms.map((term) => (
+                          <span
+                            key={term}
+                            className="rounded-full border border-amber-200/20 bg-black/20 px-2.5 py-1 text-[11px] font-semibold text-amber-100/90"
+                          >
+                            {term}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {attachedJourneyServiceLabel && (
                     <div className="mt-3 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-3 py-2.5">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200/85">
@@ -2619,6 +2728,11 @@ export default function Home() {
                                       {getPublicFleetServiceLabel(trip)}
                                     </span>
                                   )}
+                                  {trip.specialLabel && (
+                                    <span className="rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-100">
+                                      {trip.specialLabel}
+                                    </span>
+                                  )}
                                   <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${trip.lineColor}`}>
                                     {trip.line}
                                   </span>
@@ -2631,7 +2745,7 @@ export default function Home() {
                                 <p className="mt-1 text-sm text-white/55">
                                   {hasPremiumAccess(accountPreferences)
                                     ? `Trip ${trip.tdn} · Consist ${trip.consist}`
-                                    : `${getPublicFleetServiceLabel(trip)} · Premium unlocks TDN and consist details`}
+                                    : `${getPublicFleetServiceLabel(trip)} · ${trip.consistPublicLabel} · Update shown without private trip IDs`}
                                 </p>
                               </div>
                             </div>

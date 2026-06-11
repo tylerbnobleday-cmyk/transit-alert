@@ -591,12 +591,15 @@ function createLiveTrainIcon(
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 18);
+  const regionalSpecialLabel = isVlineLiveTrain(vehicle) ? getRegionalSpecialTrainLabel(vehicle) : "";
   const badgePrimaryLabel = isVlineLiveTrain(vehicle)
-    ? (isExpanded ? `${getMarkerServiceTime(vehicle.timestamp)} ${destinationLabel}` : destinationLabel)
+    ? (isExpanded ? getRegionalRealtimeTripLabel(vehicle) : `${getMarkerServiceTime(vehicle.timestamp)} ${getRegionalRouteDisplayLabel(vehicle)}`)
     : isExpanded
       ? `${getMarkerServiceTime(vehicle.timestamp)} ${getMarkerServiceCode(vehicle.line)} Service`
       : `${getMarkerServiceTime(vehicle.timestamp)} ${getMarkerServiceCode(vehicle.line)}`;
-  const badgeSecondaryLabel = `TDN ${vehicle.tdn}`;
+  const badgeSecondaryLabel = isVlineLiveTrain(vehicle)
+    ? [regionalSpecialLabel || "V/Line live", destinationLabel].filter(Boolean).join(" · ")
+    : `TDN ${vehicle.tdn}`;
 
   return L.divIcon({
     html: `
@@ -5085,7 +5088,7 @@ const NORTH_MELBOURNE_PLATFORM_BOARD: PlatformBoardEntry[] = [
       {
         destination: "City Loop",
         etaLabel: "15:20",
-        tdnLabel: "TDN UFD11",
+        tdnLabel: "TDN X046",
         statusLabel: "Next service",
         originLabel: "Origin North Melbourne",
         viaLabel: "Via North Melbourne Loop",
@@ -6169,6 +6172,51 @@ function getRegionalTrainTypeLabel(vehicle: LiveTrain) {
   }
 
   return genericRegionalLabel ? "Regional train" : vehicle.trainType;
+}
+
+function getRegionalTrainFamilyLabel(vehicle: LiveTrain) {
+  const typeLabel = getRegionalTrainTypeLabel(vehicle);
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
+
+  if (/XPT|XPLORER/.test(joined)) return typeLabel;
+  if (/SPRINTER/.test(joined)) return "Sprinter";
+  if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "N class";
+  if (/VLOCITY|\bV\d{3,4}\b/.test(joined) || /VLOCITY/i.test(typeLabel)) return "VLocity";
+  if (/LOCOMOTIVE|LOCO/i.test(typeLabel)) return typeLabel;
+  return typeLabel === "Regional train" ? "Other locomotive" : typeLabel;
+}
+
+function getRegionalCarLengthLabel(vehicle: LiveTrain) {
+  const typeLabel = getRegionalTrainTypeLabel(vehicle);
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination} ${typeLabel}`.toUpperCase();
+  const explicitCarMatch = joined.match(/\b(3|4|5|6|7|8|9)\s*[- ]?CAR\b/);
+  if (explicitCarMatch?.[1]) return `${explicitCarMatch[1]}-car`;
+  if (/\bV\d{3,4}\b.*\bV\d{3,4}\b/.test(joined)) return "6-car";
+  if (/\bV\d{3,4}\b/.test(joined) || /VLOCITY/.test(joined)) return "3-car";
+  if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "loco set";
+  if (/XPT|XPLORER|SPRINTER/.test(joined)) return "special";
+  return "set TBC";
+}
+
+function getRegionalRouteDisplayLabel(vehicle: LiveTrain) {
+  const fallbackMeta = getRegionalFallbackMeta(vehicle);
+  const raw = fallbackMeta?.serviceLabel ?? vehicle.line ?? vehicle.destination ?? "V/Line";
+  return raw
+    .replace(/\s+line$/i, "")
+    .replace(/^V\/Line$/i, "Regional")
+    .trim();
+}
+
+function getRegionalSpecialTrainLabel(vehicle: LiveTrain) {
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
+  if (/XPT|XPLORER|NSW TRAINLINK/.test(joined)) return "Special train";
+  if (/SPRINTER|N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "Special movement";
+  if (!/VLOCITY|\bV\d{3,4}\b/.test(joined) && isVlineLiveTrain(vehicle)) return "Special / other";
+  return "";
+}
+
+function getRegionalRealtimeTripLabel(vehicle: LiveTrain) {
+  return `${getMarkerServiceTime(vehicle.timestamp)} (${getRegionalRouteDisplayLabel(vehicle)}) (${getRegionalCarLengthLabel(vehicle)}) (${getRegionalTrainFamilyLabel(vehicle)})`;
 }
 
 function getRegionalAllocatedSetLabel(vehicle: LiveTrain) {
@@ -8055,6 +8103,12 @@ export function Map({
   const selectedVehicleTypeLabel = selectedVehicle
     ? (selectedVehicleIsRegional ? getRegionalTrainTypeLabel(selectedVehicle) : getVehicleDisplayType(selectedVehicle))
     : "";
+  const selectedVehicleRealtimeLabel = selectedVehicleIsRegional && selectedVehicle
+    ? getRegionalRealtimeTripLabel(selectedVehicle)
+    : "";
+  const selectedVehicleSpecialLabel = selectedVehicleIsRegional && selectedVehicle
+    ? getRegionalSpecialTrainLabel(selectedVehicle)
+    : "";
   const selectedVehicleDisplayConsist = selectedVehicle ? getDisplayConsist(selectedVehicle.consist) : "";
   const selectedVehicleIsFavouriteConsist = Boolean(
     selectedVehicleDisplayConsist &&
@@ -9935,7 +9989,7 @@ export function Map({
                     handleTrainLookup();
                   }
                 }}
-                placeholder={isPremium ? "430M or UFD11" : "Premium required"}
+                placeholder={isPremium ? "430M or X046" : "Premium required"}
                 className="w-full rounded-xl border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-white outline-none transition focus:border-blue-400/40 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={!isPremium}
               />
@@ -10307,6 +10361,18 @@ export function Map({
                   <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">Type</p>
                   <p className="mt-1 text-sm font-semibold text-white">{selectedVehicleTypeLabel}</p>
                 </div>
+                {selectedVehicleRealtimeLabel && (
+                  <div className="md:col-span-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">Live trip</p>
+                    <p className="mt-1 text-sm font-semibold text-white">{selectedVehicleRealtimeLabel}</p>
+                  </div>
+                )}
+                {selectedVehicleSpecialLabel && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">Special</p>
+                    <p className="mt-1 text-sm font-semibold text-amber-100">{selectedVehicleSpecialLabel}</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">Window</p>
                   <p className="mt-1 text-sm font-semibold text-white">{selectedVehicleWindowLabel}</p>
