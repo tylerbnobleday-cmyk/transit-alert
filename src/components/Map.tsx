@@ -105,10 +105,17 @@ const NORTHERN_SHARED_STATIONS = new Set(["North Melbourne"]);
 const ROTATED_FRANKSTON_PILL_STATIONS = new Set([
   "Glen Huntly",
   "Ormond",
+  "Moorabbin",
   "Bentleigh",
   "McKinnon",
   "Patterson",
 ]);
+
+const STATION_SURFACE_ROUTE_TAGS: Record<string, string[]> = {
+  "Glen Huntly": ["Tram 67"],
+  Ormond: ["Bus 625", "Bus 630"],
+  Moorabbin: ["Bus 708", "Bus 811", "Bus 812", "Bus 825"],
+};
 
 function createCityLoopPillIcon(strokeColor: string, stationName: string) {
   const isHorizontalPill =
@@ -134,7 +141,7 @@ function createCityLoopPillIcon(strokeColor: string, stationName: string) {
           <div style="position:absolute;left:28px;top:10px;width:14px;height:38px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 4px 10px rgba(0,0,0,0.36);overflow:hidden;">
             <div style="position:absolute;top:5px;bottom:5px;left:4px;width:3px;border-radius:9999px;background:#22c55e;opacity:0.92;"></div>
           </div>
-          <div style="position:absolute;right:8px;top:14px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);padding:3px 7px;font-size:10px;font-weight:800;color:#0f172a;box-shadow:0 4px 10px rgba(0,0,0,0.32);">CFD</div>
+          <div style="position:absolute;right:0;top:14px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);padding:3px 8px;font-size:10px;font-weight:800;color:#0f172a;box-shadow:0 4px 10px rgba(0,0,0,0.32);">Caulfield</div>
         </div>
       `,
       className: "bg-transparent border-none",
@@ -306,6 +313,7 @@ type FreightLocation = {
 
 interface MapProps {
   journeyRoute?: Station[];
+  busReplacementLineKeys?: string[];
   splitCrossCityGroup?: boolean;
   transportModes?: TransportMode[];
   onTransportModesChange?: (modes: TransportMode[]) => void;
@@ -6714,6 +6722,30 @@ function createInlineStationStopIcon(
   const iconHeight = endpoint ? (compact ? 46 : 60) : compact ? 40 : 52;
   const labelMargin = compact ? 2 : 4;
   const translateY = compact ? -22 : -30;
+  const routeTags = STATION_SURFACE_ROUTE_TAGS[stationName] ?? [];
+  const routeTagsMarkup = routeTags.length > 0
+    ? `<div style="
+          margin-top:2px;
+          display:flex;
+          flex-wrap:wrap;
+          align-items:center;
+          justify-content:center;
+          gap:2px;
+          max-width:132px;
+        ">
+          ${routeTags.map((tag) => `<span style="
+            border-radius:9999px;
+            background:rgba(15,23,42,0.82);
+            border:1px solid rgba(255,255,255,0.16);
+            color:#f8fafc;
+            font-size:9px;
+            font-weight:800;
+            line-height:1;
+            padding:3px 5px;
+            box-shadow:0 2px 6px rgba(0,0,0,0.28);
+          ">${escapeInlineMarkerHtml(tag)}</span>`).join("")}
+        </div>`
+    : "";
   const labelStyle = useRotatedPill
     ? `
           margin-bottom:${labelMargin + 2}px;
@@ -6754,6 +6786,7 @@ function createInlineStationStopIcon(
       ">
         <div style="${labelStyle}">
           ${escapedName}
+          ${routeTagsMarkup}
         </div>
         <div style="
           width:3px;
@@ -7890,6 +7923,7 @@ label: "Werribee / Williamstown / Altona",
 // =========================
 export function Map({
   journeyRoute = [],
+  busReplacementLineKeys = [],
   splitCrossCityGroup = false,
   transportModes = [...DEFAULT_TRANSPORT_MODES],
   onTransportModesChange,
@@ -7925,6 +7959,8 @@ export function Map({
   );
   const [mapZoom, setMapZoom] = useState(13);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
+  const busReplacementLines = useMemo(() => new Set(busReplacementLineKeys), [busReplacementLineKeys]);
+  const isBusReplacementLine = useCallback((lineKey: string) => busReplacementLines.has(lineKey), [busReplacementLines]);
   const viewportBoundsQuery = useMemo(() => {
     const sourceBounds = mapBounds?.pad(aggressiveMobileProtectionEnabled ? 0.14 : 0.35) ?? L.latLngBounds([-38.25, 144.35], [-37.45, 145.55]);
     return {
@@ -9135,7 +9171,7 @@ export function Map({
           maxZoom={19}
         />
 
-{modeIsTrainVisible && layers.frankstonLine && (
+{modeIsTrainVisible && layers.frankstonLine && !isBusReplacementLine("frankstonLine") && (
   <>
   <Polyline
       positions={CAUFIELD_LOOP}
@@ -9213,7 +9249,7 @@ export function Map({
   </>
 )}
 
-{modeIsTrainVisible && (layers.lilydaleLine || layers.belgraveLine || layers.alameinLine || layers.glenWaverleyLine || layers.burnleyLoop) && (
+{modeIsTrainVisible && (layers.lilydaleLine || layers.belgraveLine || layers.alameinLine || layers.glenWaverleyLine || layers.burnleyLoop) && !isBusReplacementLine("burnleyLoop") && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(BURNLEY_LOOP, "left", 0.45)}
@@ -9222,7 +9258,7 @@ export function Map({
     {renderStationMarkers(renderedStationKeys, RENDERED_BURNLEY_LOOP_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
-{modeIsTrainVisible && layers.lilydaleLine && (
+{modeIsTrainVisible && layers.lilydaleLine && !isBusReplacementLine("lilydaleLine") && (
   <>
     <Polyline
       positions={LILYDALE_LINE}
@@ -9236,7 +9272,7 @@ export function Map({
   </>
 )}
 
-{modeIsTrainVisible && layers.belgraveLine && (
+{modeIsTrainVisible && layers.belgraveLine && !isBusReplacementLine("belgraveLine") && (
   <>
     <Polyline
       positions={BELGRAVE_LINE}
@@ -9250,7 +9286,7 @@ export function Map({
   </>
 )}
 
-{modeIsTrainVisible && layers.alameinLine && (
+{modeIsTrainVisible && layers.alameinLine && !isBusReplacementLine("alameinLine") && (
   <>
     <Polyline
       positions={ALAMEIN_LINE}
@@ -9264,7 +9300,7 @@ export function Map({
   </>
 )}
 
-{modeIsTrainVisible && layers.glenWaverleyLine && (
+{modeIsTrainVisible && layers.glenWaverleyLine && !isBusReplacementLine("glenWaverleyLine") && (
   <>
     <Polyline
       positions={GLEN_WAVERLEY_LINE}
@@ -9389,7 +9425,7 @@ export function Map({
             {renderStationMarkers(renderedStationKeys, RENDERED_METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
-{modeIsTrainVisible && layers.werribeeLine && (
+{modeIsTrainVisible && layers.werribeeLine && !isBusReplacementLine("werribeeLine") && (
   <>
     {/* Werribee main line */}
     <Polyline
@@ -9447,7 +9483,7 @@ export function Map({
     {renderStationMarkers(renderedStationKeys, RENDERED_ALTONA_LOOP_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
-        {modeIsTrainVisible && layers.sandringhamLine && (
+        {modeIsTrainVisible && layers.sandringhamLine && !isBusReplacementLine("sandringhamLine") && (
           <>
             <Polyline
               positions={offsetPolylineCoordinates(
@@ -9684,6 +9720,30 @@ export function Map({
               </div>
             </Popup>
           </Marker>
+        )}
+        {modeIsTrainVisible && isBusReplacementLine("werribeeLine") && layers.werribeeLine && (
+          <Polyline
+            positions={offsetPolylineCoordinates(WERRIBEE_LINE, "right", 1.1)}
+            pathOptions={{ color: "#FF8200", weight: 5, opacity: 0.9, dashArray: "10 8" }}
+          />
+        )}
+        {modeIsTrainVisible && isBusReplacementLine("sandringhamLine") && layers.sandringhamLine && (
+          <Polyline
+            positions={offsetPolylineCoordinates(SANDRINGHAM_LINE, "left", 1.1)}
+            pathOptions={{ color: "#FF8200", weight: 5, opacity: 0.9, dashArray: "10 8" }}
+          />
+        )}
+        {modeIsTrainVisible && isBusReplacementLine("frankstonLine") && layers.frankstonLine && (
+          <Polyline
+            positions={offsetPolylineCoordinates(FRANKSTON_TRACK, "right", 1.1)}
+            pathOptions={{ color: "#FF8200", weight: 5, opacity: 0.9, dashArray: "10 8" }}
+          />
+        )}
+        {modeIsTrainVisible && isBusReplacementLine("burnleyLoop") && (layers.lilydaleLine || layers.belgraveLine || layers.alameinLine || layers.glenWaverleyLine || layers.burnleyLoop) && (
+          <Polyline
+            positions={offsetPolylineCoordinates(BURNLEY_LOOP, "right", 1.1)}
+            pathOptions={{ color: "#FF8200", weight: 5, opacity: 0.9, dashArray: "10 8" }}
+          />
         )}
         {modeIsTrainVisible &&
           metroLiveVehicles.map((vehicle) => {

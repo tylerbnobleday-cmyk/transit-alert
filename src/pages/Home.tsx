@@ -511,6 +511,27 @@ function metroAlertMatchesJourneyCorridor(alert: MetroNotifyAlert, corridorLabel
   });
 }
 
+function getBusReplacementLineKeys(alerts: MetroNotifyAlert[]) {
+  const keys = new Set<string>();
+  for (const alert of alerts) {
+    if (!isAlertCurrent(alert)) continue;
+    const searchable = `${alert.title} ${alert.summary} ${alert.lines.join(" ")}`.toLowerCase();
+    if (!/buses replace trains|replacement buses|bus replacement|coach replacement/.test(searchable)) continue;
+
+    if (/werribee|williamstown|laverton|newport|altona/.test(searchable)) keys.add("werribeeLine");
+    if (/sandringham|brighton beach|hampton|elsternwick/.test(searchable)) keys.add("sandringhamLine");
+    if (/frankston|caulfield|glen huntly|ormond|moorabbin/.test(searchable)) keys.add("frankstonLine");
+    if (/belgrave|lilydale|glen waverley|alamein|burnley|ringwood/.test(searchable)) {
+      keys.add("burnleyLoop");
+      keys.add("lilydaleLine");
+      keys.add("belgraveLine");
+      keys.add("glenWaverleyLine");
+      keys.add("alameinLine");
+    }
+  }
+  return [...keys];
+}
+
 const STATUS_STYLES: Record<FleetTripStatus, string> = {
   running: "bg-emerald-500/15 text-emerald-300",
   upcoming: "bg-slate-500/15 text-slate-300",
@@ -1436,6 +1457,10 @@ export default function Home() {
       matchingAlerts,
     };
   }, [journeyRoute, metroJourneyAlerts]);
+  const busReplacementLineKeys = useMemo(
+    () => getBusReplacementLineKeys(metroJourneyAlerts),
+    [metroJourneyAlerts],
+  );
 
   const openLiveTrainOnMap = useCallback((trip: FleetTrip) => {
     setFocusedVehicleKey(trip.focusKey);
@@ -2570,6 +2595,7 @@ export default function Home() {
 
       <TransitMap
         journeyRoute={journeyRoute}
+        busReplacementLineKeys={busReplacementLineKeys}
         splitCrossCityGroup={splitCrossCityGroup}
         transportModes={preferences.transportModes as Array<"train" | "tram" | "bus" | "vline">}
         onTransportModesChange={(transportModes) => updatePreferences({ transportModes })}
