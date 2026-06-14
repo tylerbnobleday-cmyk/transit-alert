@@ -1,3 +1,5 @@
+import { readJsonErrorMessage, readJsonResponse, responseIsJson } from "@/lib/http-json";
+
 export type LiveBus = {
   id: string;
   label: string;
@@ -146,19 +148,15 @@ export async function fetchLiveBuses(bounds?: LiveViewportBounds): Promise<LiveB
   }
 
   if (!response.ok) {
-    let message = `Failed to load live buses (${response.status})`;
-    try {
-      const payload = (await response.json()) as { error?: string };
-      if (payload?.error) {
-        message = payload.error;
-      }
-    } catch {
-      // Keep the generic message if the endpoint did not return JSON.
-    }
+    const message = await readJsonErrorMessage(response, `Failed to load live buses (${response.status})`);
     throw new Error(message);
   }
 
-  const payload = (await response.json()) as LiveBusResponse;
+  if (!responseIsJson(response)) {
+    return [];
+  }
+
+  const payload = await readJsonResponse<LiveBusResponse>(response, "Live buses API");
   const buses = Array.isArray(payload) ? payload : payload.buses ?? [];
 
   return buses

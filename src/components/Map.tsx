@@ -30,19 +30,18 @@ import { GENERATED_TRAM_ROUTE_BUNDLES } from "@/lib/generated-tram-routes";
 import { findStationCoordinate } from "@/lib/station-coordinates";
 import { fetchConsistSnapshot, type ConsistSnapshot } from "@/lib/transportvic-bot";
 import { fetchMarkerOverrides, saveMarkerOverrides, type MarkerOverride } from "@/lib/marker-overrides";
+import { getStationConnectionTags, getStationInterchangeSummary, getTramRouteStyle } from "@/lib/interchanges";
 import type { MobilePerformanceMode } from "@/lib/preferences";
 import { DEFAULT_TRANSPORT_MODES } from "@/lib/preferences";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Accessibility,
   Train,
-  BusFront,
   MapPin,
   Layers,
   AlertTriangle,
   Clock,
   Info,
-  Plane,
   ZoomIn,
   ZoomOut,
   ArrowRight,
@@ -56,6 +55,18 @@ import {
 
 const MELBOURNE_CENTER: [number, number] = [-37.8136, 144.9631];
 const SOUTHERN_CROSS_POSITION: [number, number] = [-37.818313906129944, 144.95218];
+const ZONE_1_2_BOUNDARY: [number, number][] = [
+  [-37.86374615697885, 144.7720741120282], // Laverton
+  [-37.7814, 144.7728], // Deer Park / western boundary
+  [-37.7011, 144.7742], // Watergardens corridor
+  [-37.6830, 144.9196], // Broadmeadows corridor
+  [-37.7045, 145.1030], // Greensborough corridor
+  [-37.8157, 145.2295], // Ringwood corridor
+  [-37.875253140075536, 145.1277433710727], // Mount Waverley
+  [-37.9247726501578, 145.12035310256484], // Clayton
+  [-37.934353509080286, 145.03640347599866], // Southland / Cheltenham corridor
+  [-37.95036297669773, 145.00454952822133], // Sandringham
+];
 const FEATURED_CONSIST = "430M";
 const FLAGSTAFF_POSITION: [number, number] = [-37.81145, 144.9562];
 const MELBOURNE_CENTRAL_POSITION: [number, number] = [-37.80955, 144.96278];
@@ -75,6 +86,18 @@ const CITY_LOOP_PILL_STATIONS = new Set([
 ]);
 const SPECIAL_PILL_STATIONS = new Set([
   "Caulfield",
+  "South Yarra",
+  "Flinders Street",
+  "Southern Cross",
+  "Flagstaff",
+  "Melbourne Central",
+  "Parliament",
+  "State Library",
+  "Town Hall",
+  "Richmond",
+  "North Melbourne",
+  "Footscray",
+  "Newport",
   "Clayton",
   "Dandenong",
   "Pakenham",
@@ -94,6 +117,30 @@ const SINGLE_RENDER_STATIONS = new Set([
   "Town Hall",
 ]);
 const COMBINED_LOOP_INTERCHANGES = new Set(["Melbourne Central", "State Library"]);
+const CROSS_INTERCHANGE_PILL_STATIONS = new Set([
+  "Caulfield",
+  "South Yarra",
+  "Malvern",
+  "Flinders Street",
+  "Southern Cross",
+  "Flagstaff",
+  "Melbourne Central",
+  "Melbourne Central / State Library",
+  "Parliament",
+  "State Library",
+  "Town Hall",
+  "Richmond",
+  "North Melbourne",
+  "Footscray",
+  "Newport",
+  "Sunshine",
+  "Watergardens",
+  "Sunbury",
+  "Clayton",
+  "Dandenong",
+  "Pakenham",
+  "Frankston",
+]);
 const CAULFIELD_METRO_SHARED_STATIONS = new Set([
   "Hawksburn",
   "Toorak",
@@ -101,23 +148,338 @@ const CAULFIELD_METRO_SHARED_STATIONS = new Set([
   "Malvern",
   "Caulfield",
 ]);
+const FRANKSTON_GREEN_SHARED_STATIONS = new Set([
+  "Hawksburn",
+  "Toorak",
+  "Armadale",
+]);
 const NORTHERN_SHARED_STATIONS = new Set(["North Melbourne"]);
 const ROTATED_FRANKSTON_PILL_STATIONS = new Set([
+  "Frankston",
+  "Kananook",
+  "Seaford",
+  "Carrum",
+  "Bonbeach",
+  "Chelsea",
+  "Edithvale",
+  "Aspendale",
+  "Mordialloc",
+  "Parkdale",
+  "Mentone",
+  "Cheltenham",
+  "Southland",
+  "Highett",
   "Glen Huntly",
   "Ormond",
   "Moorabbin",
   "Bentleigh",
   "McKinnon",
   "Patterson",
+  "Armadale",
+  "Toorak",
+  "Hawksburn",
+  "Craigieburn",
+  "Roxburgh Park",
+  "Coolaroo",
+  "Broadmeadows",
+  "Jacana",
+  "Glenroy",
+  "Oak Park",
+  "Pascoe Vale",
+  "Strathmore",
+  "Essendon",
+  "Moonee Ponds",
+  "Ascot Vale",
+  "Newmarket",
+  "Kensington",
+  "Upfield",
+  "Gowrie",
+  "Fawkner",
+  "Merlynston",
+  "Batman",
+  "Coburg",
+  "Moreland",
+  "Anstey",
+  "Brunswick",
+  "Jewell",
+  "Royal Park",
+  "Flemington Bridge",
+  "Macaulay",
+  "Sunbury",
+  "Diggers Rest",
+  "Watergardens",
+  "Keilor Plains",
+  "St. Albans",
+  "Ginifer",
+  "Albion",
+  "Sunshine",
+  "Tottenham",
+  "West Footscray",
+  "Middle Footscray",
+  "Footscray",
+  "South Kensington",
+  "Arden",
+  "Parkville",
+  "Anzac",
+  "Carnegie",
+  "Murrumbeena",
+  "Hughesdale",
+  "Oakleigh",
+  "Huntingdale",
+  "Clayton",
+  "Westall",
+  "Springvale",
+  "Sandown Park",
+  "Noble Park",
+  "Yarraman",
+  "Dandenong",
+  "Hallam",
+  "Narre Warren",
+  "Berwick",
+  "Beaconsfield",
+  "Officer",
+  "Cardinia Road",
+  "Pakenham",
+  "East Pakenham",
+  "Lynbrook",
+  "Merinda Park",
+  "Cranbourne",
+  "Prahran",
+  "Windsor",
+  "Balaclava",
+  "Ripponlea",
+  "Elsternwick",
+  "Gardenvale",
+  "North Brighton",
+  "Middle Brighton",
+  "Brighton Beach",
+  "Hampton",
+  "Sandringham",
+  "Burnley",
+  "Heyington",
+  "Kooyong",
+  "Tooronga",
+  "Gardiner",
+  "Glen Iris",
+  "Darling",
+  "East Malvern",
+  "Holmesglen",
+  "Jordanville",
+  "Mount Waverley",
+  "Syndal",
+  "Glen Waverley",
+  "Richmond",
+  "East Richmond",
+  "Hawthorn",
+  "Glenferrie",
+  "Auburn",
+  "Camberwell",
+  "East Camberwell",
+  "Canterbury",
+  "Chatham",
+  "Union",
+  "Box Hill",
+  "Laburnum",
+  "Blackburn",
+  "Nunawading",
+  "Mitcham",
+  "Heatherdale",
+  "Ringwood",
+  "Croydon",
+  "Mooroolbark",
+  "Lilydale",
+  "Heathmont",
+  "Bayswater",
+  "Boronia",
+  "Ferntree Gully",
+  "Upper Ferntree Gully",
+  "Upwey",
+  "Tecoma",
+  "Belgrave",
+  "Riversdale",
+  "Willison",
+  "Hartwell",
+  "Burwood",
+  "Ashburton",
+  "Alamein",
+  "Jolimont",
+  "West Richmond",
+  "North Richmond",
+  "Collingwood",
+  "Victoria Park",
+  "Clifton Hill",
+  "Rushall",
+  "Merri",
+  "Northcote",
+  "Croxton",
+  "Thornbury",
+  "Bell",
+  "Preston",
+  "Regent",
+  "Reservoir",
+  "Ruthven",
+  "Keon Park",
+  "Thomastown",
+  "Lalor",
+  "Epping",
+  "South Morang",
+  "Middle Gorge",
+  "Hawkstowe",
+  "Mernda",
+  "Westgarth",
+  "Dennis",
+  "Fairfield",
+  "Alphington",
+  "Darebin",
+  "Ivanhoe",
+  "Eaglemont",
+  "Heidelberg",
+  "Rosanna",
+  "Macleod",
+  "Watsonia",
+  "Greensborough",
+  "Montmorency",
+  "Eltham",
+  "Diamond Creek",
+  "Wattle Glen",
+  "Hurstbridge",
+  "North Melbourne",
+  "Seddon",
+  "Yarraville",
+  "Spotswood",
+  "Newport",
+  "Laverton",
+  "Aircraft",
+  "Williams Landing",
+  "Hoppers Crossing",
+  "Werribee",
+  "North Williamstown",
+  "Williamstown Beach",
+  "Williamstown",
+  "Seaholme",
+  "Altona",
+  "Westona",
 ]);
 
-const STATION_SURFACE_ROUTE_TAGS: Record<string, string[]> = {
-  "Glen Huntly": ["Tram 67"],
-  Ormond: ["Bus 625", "Bus 630"],
-  Moorabbin: ["Bus 708", "Bus 811", "Bus 812", "Bus 825"],
+const STATION_SURFACE_ROUTE_CARDS: Record<string, Array<{ route: string; destination: string; via: string }>> = {
+  Ormond: [
+    { route: "625", destination: "Elsternwick &harr; Chadstone Shopping Centre", via: "via Ormond and Oakleigh" },
+    { route: "630", destination: "Elwood &harr; Monash University Clayton", via: "via Ormond and Huntingdale" },
+  ],
 };
 
-function createCityLoopPillIcon(strokeColor: string, stationName: string) {
+function createStaffedBadgeHtml(size = 13) {
+  return `<span style="
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:${size}px;
+    height:${size}px;
+    border-radius:9999px;
+    background:#f8fafc;
+    color:#0f172a;
+    border:1px solid rgba(15,23,42,0.88);
+    font-size:${Math.max(8, size - 4)}px;
+    font-weight:950;
+    line-height:1;
+    box-shadow:0 2px 6px rgba(0,0,0,0.35);
+  ">i</span>`;
+}
+
+function createCityLoopPillIcon(strokeColor: string, stationName: string, options?: { staffed?: boolean }) {
+  const staffed = options?.staffed ?? false;
+  const staffedBadgeMarkup = staffed ? createStaffedBadgeHtml(13) : "";
+  const interchangeLineBadges =
+    stationName === "Caulfield" || stationName === "South Yarra" || stationName === "Malvern"
+      ? stationName === "South Yarra"
+        ? [
+            { label: "Frankston", background: "#16a34a", color: "#ffffff" },
+            { label: "Sandringham", background: "#d86aa4", color: "#ffffff" },
+          ]
+        : [
+            { label: "Frankston", background: "#16a34a", color: "#ffffff" },
+            ...(stationName === "Caulfield" ? [{ label: "Traralgon", background: "#7c3aed", color: "#ffffff" }] : []),
+            { label: "Pakenham / Cranbourne / Sunbury", background: "#279FD5", color: "#ffffff" },
+          ]
+      : [];
+  const rawInterchangeRouteTags =
+    CROSS_INTERCHANGE_PILL_STATIONS.has(stationName)
+      ? getStationConnectionTags(stationName, { includeMajorInterchangeDetails: true, maxTags: 8 })
+      : [];
+  const interchangeRouteTags =
+    stationName === "Caulfield"
+      ? rawInterchangeRouteTags.filter((tag) => /^tram\b/i.test(tag)).slice(0, 2)
+      : rawInterchangeRouteTags;
+  const interchangeLineBadgesMarkup = interchangeLineBadges.length > 0
+    ? `<div style="
+          position:absolute;
+          left:50%;
+          top:39px;
+          display:flex;
+          flex-wrap:wrap;
+          justify-content:center;
+          gap:2px;
+          width:${stationName === "Caulfield" ? "172px" : "156px"};
+          transform:translateX(-50%);
+        ">
+          ${interchangeLineBadges.map((badge) => {
+            const isLongLineBadge = badge.label.includes("/");
+
+            return `<span style="
+            border-radius:9999px;
+            background:${badge.background};
+            border:1px solid rgba(255,255,255,0.26);
+            color:${badge.color};
+            flex:${isLongLineBadge ? "0 0 100%" : "0 0 auto"};
+            max-width:${isLongLineBadge ? "100%" : "none"};
+            text-align:center;
+            font-size:${isLongLineBadge ? "7px" : "8px"};
+            font-weight:950;
+            line-height:1;
+            padding:${isLongLineBadge ? "3px 5px" : "3px 6px"};
+            box-shadow:0 3px 8px rgba(0,0,0,0.3);
+            white-space:nowrap;
+          ">${escapeInlineMarkerHtml(badge.label)}</span>`;
+          }).join("")}
+        </div>`
+    : "";
+  const interchangeRouteTagsMarkup = interchangeRouteTags.length > 0
+    ? `<div style="
+          position:absolute;
+          left:50%;
+          top:${interchangeLineBadges.length > 0 ? "72px" : "40px"};
+          display:flex;
+          flex-wrap:wrap;
+          justify-content:center;
+          gap:2px;
+          width:120px;
+          transform:translateX(-50%);
+        ">
+          ${interchangeRouteTags.map((tag) => {
+            const tramRouteMatch = tag.match(/^tram\s+(.+)$/i);
+            const isBusTag = /^bus\b/i.test(tag);
+            const tramStyle = tramRouteMatch ? getTramRouteStyle(tramRouteMatch[1]) : null;
+            const tagBackground = tramStyle?.background ?? (isBusTag ? "#f59e0b" : "rgba(15,23,42,0.92)");
+            const tagBorder = tramStyle?.border ?? (isBusTag ? "rgba(251,191,36,0.82)" : "rgba(255,255,255,0.18)");
+            const tagColor = tramStyle?.color ?? (isBusTag ? "#111827" : "#f8fafc");
+
+            return `<span style="
+            border-radius:9999px;
+            background:${tagBackground};
+            border:1px solid ${tagBorder};
+            color:${tagColor};
+            font-size:8px;
+            font-weight:900;
+            line-height:1;
+            padding:3px 5px;
+            box-shadow:0 3px 8px rgba(0,0,0,0.3);
+            white-space:nowrap;
+          ">${escapeInlineMarkerHtml(tag)}</span>`;
+          }).join("")}
+        </div>`
+    : "";
+  const hasInterchangeRouteTags = interchangeRouteTags.length > 0;
+  const hasInterchangeLineBadges = interchangeLineBadges.length > 0;
   const isHorizontalPill =
     stationName === "Parliament" ||
     stationName === "Southern Cross" ||
@@ -131,22 +493,34 @@ function createCityLoopPillIcon(strokeColor: string, stationName: string) {
       ? "0deg"
       : "0deg";
 
-  if (stationName === "Caulfield") {
+  if (CROSS_INTERCHANGE_PILL_STATIONS.has(stationName)) {
+    const displayName = stationName === "Melbourne Central / State Library" ? "Melb Central" : stationName;
+    const labelWidth = Math.max(62, displayName.length * 6 + 24);
+    const minimumIconWidth = stationName === "Caulfield" ? 184 : 124;
+    const iconWidth = Math.max(minimumIconWidth, labelWidth + 16);
+    const labelLeft = Math.round((iconWidth - labelWidth) / 2);
+    const crossLeft = Math.round((iconWidth - 38) / 2);
+    const stemLeft = Math.round((iconWidth - 14) / 2);
+    const iconHeight = hasInterchangeLineBadges && hasInterchangeRouteTags ? 118 : hasInterchangeLineBadges || hasInterchangeRouteTags ? 90 : 62;
+    const iconAnchorY = hasInterchangeLineBadges && hasInterchangeRouteTags ? 45 : hasInterchangeLineBadges || hasInterchangeRouteTags ? 38 : 31;
     return L.divIcon({
       html: `
-        <div style="position:relative;width:70px;height:58px;display:flex;align-items:center;justify-content:center;">
-          <div style="position:absolute;left:15px;top:21px;width:34px;height:13px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 4px 10px rgba(0,0,0,0.36);overflow:hidden;">
+        <div style="position:relative;width:${iconWidth}px;height:${iconHeight}px;display:flex;align-items:center;justify-content:center;">
+          <div style="position:absolute;left:${crossLeft}px;top:23px;width:38px;height:13px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 4px 10px rgba(0,0,0,0.36);overflow:hidden;">
             <div style="position:absolute;left:4px;right:4px;top:4px;height:3px;border-radius:9999px;background:${strokeColor};opacity:0.92;"></div>
           </div>
-          <div style="position:absolute;left:28px;top:10px;width:14px;height:38px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 4px 10px rgba(0,0,0,0.36);overflow:hidden;">
-            <div style="position:absolute;top:5px;bottom:5px;left:4px;width:3px;border-radius:9999px;background:#22c55e;opacity:0.92;"></div>
+          <div style="position:absolute;left:${stemLeft}px;top:10px;width:14px;height:40px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 4px 10px rgba(0,0,0,0.36);overflow:hidden;">
+            <div style="position:absolute;top:5px;bottom:5px;left:4px;width:3px;border-radius:9999px;background:${strokeColor};opacity:0.92;"></div>
           </div>
-          <div style="position:absolute;right:0;top:14px;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);padding:3px 8px;font-size:10px;font-weight:800;color:#0f172a;box-shadow:0 4px 10px rgba(0,0,0,0.32);">Caulfield</div>
+          <div style="position:absolute;left:${labelLeft}px;top:16px;width:${labelWidth}px;text-align:center;border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);padding:3px 8px;font-size:10px;font-weight:850;color:#0f172a;box-shadow:0 4px 10px rgba(0,0,0,0.32);white-space:nowrap;">${escapeInlineMarkerHtml(displayName)}</div>
+          ${interchangeLineBadgesMarkup}
+          ${interchangeRouteTagsMarkup}
+          ${staffed ? `<div style="position:absolute;right:1px;top:2px;">${staffedBadgeMarkup}</div>` : ""}
         </div>
       `,
       className: "bg-transparent border-none",
-      iconSize: [70, 58],
-      iconAnchor: [35, 29],
+      iconSize: [iconWidth, iconHeight],
+      iconAnchor: [Math.round(iconWidth / 2), iconAnchorY],
       popupAnchor: [0, -14],
     });
   }
@@ -180,7 +554,8 @@ html: `
 
   return L.divIcon({
     html: `
-      <div style="display:flex;align-items:center;justify-content:center;width:${hitWidth}px;height:${hitHeight}px;">
+      <div style="position:relative;display:flex;align-items:center;justify-content:center;width:${hitWidth}px;height:${hitHeight}px;">
+        ${staffed ? `<div style="position:absolute;right:0;top:0;">${staffedBadgeMarkup}</div>` : ""}
         <div style="display:flex;align-items:center;justify-content:center;width:${isHorizontalPill ? (isCompactHorizontalPill ? "28px" : "34px") : "14px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "14px" : "16px") : "34px"};transform:rotate(${pillRotation});transform-origin:center;">
         <div style="width:${isHorizontalPill ? (isCompactHorizontalPill ? "22px" : "28px") : "8px"};height:${isHorizontalPill ? (isCompactHorizontalPill ? "7px" : "8px") : "28px"};border-radius:9999px;background:#f8fafc;border:2px solid rgba(15,23,42,0.96);box-shadow:0 3px 8px rgba(0,0,0,0.36);position:relative;overflow:hidden;">
           <div style="position:absolute;${isHorizontalPill ? `left:${isCompactHorizontalPill ? "2px" : "3px"};right:${isCompactHorizontalPill ? "2px" : "3px"};top:1px;height:2px;` : "top:3px;bottom:3px;left:1px;width:2px;"}border-radius:9999px;background:${strokeColor};opacity:0.95;"></div>
@@ -313,7 +688,6 @@ type FreightLocation = {
 
 interface MapProps {
   journeyRoute?: Station[];
-  busReplacementLineKeys?: string[];
   splitCrossCityGroup?: boolean;
   transportModes?: TransportMode[];
   onTransportModesChange?: (modes: TransportMode[]) => void;
@@ -895,7 +1269,7 @@ export const SERVICE_FILTERS: Array<{
     category: "metro",
     label: "Belgrave, Lilydale, Glen Waverley, Alamein",
     description: "Burnley group",
-    tone: "bg-blue-500/15 border-blue-400/30 text-blue-200",
+    tone: "bg-[linear-gradient(135deg,rgba(21,44,107,0.62),rgba(2,6,23,0.88))] border-[#4DA3FF]/45 text-[#DBEAFF] shadow-[0_0_18px_rgba(77,163,255,0.14)]",
   },
   {
     key: "cliftonHillGroup",
@@ -1767,6 +2141,7 @@ const CLIFTONHILL_LOOP: [number, number][] = [
   [-37.815823035935786, 144.97785563825553],
    // back to Jolimont
 ];
+const SANDRINGHAM_TRACK = SANDRINGHAM_STATIONS.map((station) => station.position);
 const CRAIGIEBURN_LINE = CRAIGIEBURN_STATIONS.map((station) => station.position);
 const UPFIELD_LINE = UPFIELD_STATIONS.map((station) => station.position);
 const WERRIBEE_LINE = WERRIBEE_STATIONS.map((station) => station.position);
@@ -5645,6 +6020,8 @@ function getStationDetails(station: Station): string {
   }
   if (station.zone) details.push(`Zone ${station.zone}`);
   if (FREIGHT_MOVEMENT_BOARD[station.name]?.length) details.push("Freight corridor");
+  const interchangeSummary = getStationInterchangeSummary(station.name);
+  if (interchangeSummary) details.push(interchangeSummary);
 
   return details.length ? details.join(" · ") : "Metro station";
 }
@@ -6467,6 +6844,7 @@ function renderStationMarkers(
     const isCityLoopPill =
       CITY_LOOP_PILL_STATIONS.has(resolvedStation.name) || SPECIAL_PILL_STATIONS.has(resolvedStation.name);
     const isSharedCaulfieldMetroStation = CAULFIELD_METRO_SHARED_STATIONS.has(resolvedStation.name);
+    const isFrankstonGreenSharedStation = FRANKSTON_GREEN_SHARED_STATIONS.has(resolvedStation.name);
     const isSharedNorthernStation = NORTHERN_SHARED_STATIONS.has(resolvedStation.name);
     const isCraigieburnLineStation = CRAIGIEBURN_LINE_STATION_NAMES.has(resolvedStation.name);
     const shouldRenderOnce =
@@ -6524,7 +6902,7 @@ function renderStationMarkers(
         <Marker
           key={`${station.name}-${station.position[0]}-${station.position[1]}`}
           position={markerPosition}
-          icon={createCityLoopPillIcon(strokeColor, markerName)}
+          icon={createCityLoopPillIcon(strokeColor, markerName, { staffed: resolvedStation.staffed === true })}
           pane="stationPane"
           zIndexOffset={3400}
           eventHandlers={{
@@ -6545,8 +6923,10 @@ function renderStationMarkers(
         pane="stationPane"
         icon={createInlineStationStopIcon(
           resolvedStation.name,
-          isSharedCaulfieldMetroStation || isCraigieburnLineStation ? "#ffffff" : strokeColor,
-          { endpoint: isEndpoint, compact: useCompactInlineStops },
+          isFrankstonGreenSharedStation
+            ? "#22c55e"
+            : strokeColor,
+          { endpoint: isEndpoint, compact: useCompactInlineStops, staffed: resolvedStation.staffed === true },
         )}
         zIndexOffset={3300}
         eventHandlers={{
@@ -6712,17 +7092,31 @@ function createInlineStationStopIcon(
   options?: {
     endpoint?: boolean;
     compact?: boolean;
+    staffed?: boolean;
   },
 ) {
   const endpoint = options?.endpoint ?? false;
   const compact = options?.compact ?? false;
+  const staffed = options?.staffed ?? false;
   const escapedName = escapeInlineMarkerHtml(stationName);
   const useRotatedPill = ROTATED_FRANKSTON_PILL_STATIONS.has(stationName);
-  const tickHeight = endpoint ? (compact ? 14 : 16) : compact ? 10 : 14;
-  const iconHeight = endpoint ? (compact ? 46 : 60) : compact ? 40 : 52;
-  const labelMargin = compact ? 2 : 4;
-  const translateY = compact ? -22 : -30;
-  const routeTags = STATION_SURFACE_ROUTE_TAGS[stationName] ?? [];
+  const routeTags = getStationConnectionTags(stationName);
+  const routeCard = STATION_SURFACE_ROUTE_CARDS[stationName] ?? [];
+  const tickHeight = useRotatedPill ? 0 : endpoint ? (compact ? 14 : 16) : compact ? 10 : 14;
+  const iconHeight = useRotatedPill
+    ? routeCard.length > 0
+      ? 62
+      : routeTags.length > 0
+        ? 58
+        : 34
+    : endpoint
+      ? compact ? 46 : 60
+      : compact ? 40 : 52;
+  const labelMargin = useRotatedPill ? 0 : compact ? 2 : 4;
+  const translateY = useRotatedPill ? 0 : compact ? -22 : -30;
+  const iconWidth = routeCard.length > 0 ? 190 : 136;
+  const iconAnchorX = Math.round(iconWidth / 2);
+  const iconAnchorY = routeCard.length > 0 ? 17 : useRotatedPill ? Math.round(iconHeight / 2) : iconHeight - 2;
   const routeTagsMarkup = routeTags.length > 0
     ? `<div style="
           margin-top:2px;
@@ -6733,28 +7127,158 @@ function createInlineStationStopIcon(
           gap:2px;
           max-width:132px;
         ">
-          ${routeTags.map((tag) => `<span style="
+          ${routeTags.map((tag) => {
+            const isBusTag = /^bus\b/i.test(tag);
+            const tramRouteMatch = tag.match(/^tram\s+(.+)$/i);
+            const tramStyle = tramRouteMatch ? getTramRouteStyle(tramRouteMatch[1]) : null;
+            const tagBackground = tramStyle?.background ?? (isBusTag ? "#f59e0b" : "rgba(15,23,42,0.82)");
+            const tagBorder = tramStyle?.border ?? (isBusTag ? "rgba(251,191,36,0.82)" : "rgba(255,255,255,0.16)");
+            const tagColor = tramStyle?.color ?? (isBusTag ? "#111827" : "#f8fafc");
+            const tagShadow = tramStyle ? "0 4px 10px rgba(0,0,0,0.32)" : isBusTag ? "0 4px 10px rgba(245,158,11,0.34)" : "0 2px 6px rgba(0,0,0,0.28)";
+
+            return `<span style="
             border-radius:9999px;
-            background:rgba(15,23,42,0.82);
-            border:1px solid rgba(255,255,255,0.16);
-            color:#f8fafc;
+            background:${tagBackground};
+            border:1px solid ${tagBorder};
+            color:${tagColor};
             font-size:9px;
-            font-weight:800;
+            font-weight:900;
             line-height:1;
             padding:3px 5px;
-            box-shadow:0 2px 6px rgba(0,0,0,0.28);
-          ">${escapeInlineMarkerHtml(tag)}</span>`).join("")}
+            box-shadow:${tagShadow};
+          ">${escapeInlineMarkerHtml(tag)}</span>`;
+          }).join("")}
         </div>`
     : "";
+  const routeCardMarkup = routeCard.length > 0
+    ? `<details style="
+          position:absolute;
+          left:50%;
+          top:34px;
+          width:146px;
+          border-radius:12px;
+          background:linear-gradient(135deg,rgba(3,7,18,0.96),rgba(13,30,54,0.94));
+          border:1px solid rgba(96,165,250,0.34);
+          box-shadow:0 8px 18px rgba(0,0,0,0.38),0 0 0 1px rgba(255,255,255,0.05) inset;
+          padding:4px 6px 5px;
+          color:#f8fafc;
+          text-align:left;
+          transform:translateX(-50%) rotate(0deg);
+          pointer-events:auto;
+          overflow:visible;
+        ">
+          <div style="
+            position:absolute;
+            left:50%;
+            top:-12px;
+            width:4px;
+            height:13px;
+            border-radius:9999px;
+            background:linear-gradient(180deg,${color},rgba(96,165,250,0.72));
+            box-shadow:0 0 12px rgba(34,197,94,0.38);
+            transform:translateX(-50%);
+          "></div>
+          <div style="
+            position:absolute;
+            left:50%;
+            top:-18px;
+            width:10px;
+            height:10px;
+            border-radius:9999px;
+            background:${color};
+            border:2px solid rgba(255,255,255,0.88);
+            box-shadow:0 4px 12px rgba(0,0,0,0.42);
+            transform:translateX(-50%);
+          "></div>
+          <summary style="
+            list-style:none;
+            cursor:pointer;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            gap:4px;
+            border-radius:9999px;
+            background:rgba(245,158,11,0.18);
+            border:1px solid rgba(251,191,36,0.46);
+            padding:3px 6px;
+            color:#fde68a;
+            font-size:9px;
+            font-weight:950;
+            line-height:1;
+            white-space:nowrap;
+          ">
+            <span style="color:#f59e0b;">Bus</span>
+            <span>625 + 630</span>
+            <span style="font-size:8px;color:rgba(253,230,138,0.74);">details</span>
+          </summary>
+          <div style="
+            margin-top:5px;
+            border-top:1px solid rgba(255,255,255,0.1);
+            padding-top:5px;
+          ">
+          ${routeCard.map((route, index) => `<div style="
+            display:grid;
+            grid-template-columns:28px 1fr;
+            gap:5px;
+            align-items:start;
+            padding:${index === 0 ? "0 0 4px" : "4px 0 0"};
+            ${index === 0 ? "border-bottom:1px solid rgba(255,255,255,0.08);" : ""}
+          ">
+            <span style="
+              display:inline-flex;
+              align-items:center;
+              justify-content:center;
+              min-width:25px;
+              border-radius:9999px;
+              background:#f59e0b;
+              color:#111827;
+              font-size:9px;
+              font-weight:950;
+              line-height:1;
+              padding:3px 5px;
+              box-shadow:0 5px 12px rgba(245,158,11,0.32);
+            ">${escapeInlineMarkerHtml(route.route)}</span>
+            <span>
+              <span style="display:block;font-size:8px;font-weight:900;line-height:1.15;color:#ffffff;">${route.destination}</span>
+              <span style="display:block;margin-top:1px;font-size:7px;font-weight:800;line-height:1.15;color:rgba(226,232,240,0.76);">${escapeInlineMarkerHtml(route.via)}</span>
+            </span>
+          </div>`).join("")}
+          </div>
+        </details>`
+    : "";
+  const staffedBadgeMarkup = staffed
+    ? `<span style="
+          display:inline-flex;
+          align-items:center;
+          justify-content:center;
+          width:13px;
+          height:13px;
+          border-radius:9999px;
+          background:#f8fafc;
+          color:#0f172a;
+          border:1px solid rgba(15,23,42,0.88);
+          font-size:9px;
+          font-weight:950;
+          line-height:1;
+          box-shadow:0 2px 6px rgba(0,0,0,0.35);
+        ">i</span>`
+    : "";
+  const stationNameMarkup = staffed
+    ? `<span style="display:inline-flex;align-items:center;justify-content:center;gap:4px;">${escapedName}${staffedBadgeMarkup}</span>`
+    : escapedName;
   const labelStyle = useRotatedPill
     ? `
-          margin-bottom:${labelMargin + 2}px;
+          margin-bottom:${labelMargin}px;
           color:#ffffff;
           font-size:12px;
           font-weight:800;
           line-height:1.1;
           white-space:nowrap;
           letter-spacing:0.01em;
+          display:inline-flex;
+          flex-direction:column;
+          align-items:center;
+          justify-content:center;
           padding:4px 10px 5px;
           border-radius:9999px;
           background:${color};
@@ -6773,22 +7297,9 @@ function createInlineStationStopIcon(
           text-shadow:0 2px 10px rgba(2,6,23,0.95), 0 0 6px rgba(2,6,23,0.85);
           letter-spacing:0.01em;
         `;
-
-  return L.divIcon({
-    html: `
-      <div style="
-        display:flex;
-        flex-direction:column;
-        align-items:center;
-        justify-content:flex-end;
-        min-width:136px;
-        transform:translateY(${translateY}px);
-      ">
-        <div style="${labelStyle}">
-          ${escapedName}
-          ${routeTagsMarkup}
-        </div>
-        <div style="
+  const stationTickMarkup = useRotatedPill
+    ? ""
+    : `<div style="
           width:3px;
           height:${tickHeight}px;
           background:${color};
@@ -6807,12 +7318,31 @@ function createInlineStationStopIcon(
                 box-shadow:0 0 0 2px rgba(15,23,42,0.92);
               "></div>`
             : ""
-        }
+        }`;
+
+  return L.divIcon({
+    html: `
+      <div style="
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:${routeCard.length > 0 ? "flex-start" : useRotatedPill ? "center" : "flex-end"};
+        position:relative;
+        min-width:${iconWidth}px;
+        ${routeCard.length > 0 ? "padding-top:4px;" : ""}
+        transform:translateY(${translateY}px);
+      ">
+        ${routeCardMarkup}
+        <div style="${labelStyle}">
+          ${stationNameMarkup}
+          ${routeTagsMarkup}
+        </div>
+        ${stationTickMarkup}
       </div>
     `,
     className: "bg-transparent border-none",
-    iconSize: [136, iconHeight],
-    iconAnchor: [68, iconHeight - 2],
+    iconSize: [iconWidth, iconHeight],
+    iconAnchor: [iconAnchorX, iconAnchorY],
   });
 }
 
@@ -7923,7 +8453,6 @@ label: "Werribee / Williamstown / Altona",
 // =========================
 export function Map({
   journeyRoute = [],
-  busReplacementLineKeys = [],
   splitCrossCityGroup = false,
   transportModes = [...DEFAULT_TRANSPORT_MODES],
   onTransportModesChange,
@@ -7959,8 +8488,6 @@ export function Map({
   );
   const [mapZoom, setMapZoom] = useState(13);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
-  const busReplacementLines = useMemo(() => new Set(busReplacementLineKeys), [busReplacementLineKeys]);
-  const isBusReplacementLine = useCallback((lineKey: string) => busReplacementLines.has(lineKey), [busReplacementLines]);
   const viewportBoundsQuery = useMemo(() => {
     const sourceBounds = mapBounds?.pad(aggressiveMobileProtectionEnabled ? 0.14 : 0.35) ?? L.latLngBounds([-38.25, 144.35], [-37.45, 145.55]);
     return {
@@ -9170,8 +9697,18 @@ export function Map({
           attribution='© <a href="https://carto.com">CARTO</a> © <a href="https://openstreetmap.org">OSM</a>'
           maxZoom={19}
         />
+        <Polyline
+          positions={ZONE_1_2_BOUNDARY}
+          pathOptions={{
+            color: "#f8fafc",
+            weight: 2,
+            opacity: 0.72,
+            dashArray: "2 6",
+            lineCap: "round",
+          }}
+        />
 
-{modeIsTrainVisible && layers.frankstonLine && !isBusReplacementLine("frankstonLine") && (
+{modeIsTrainVisible && layers.frankstonLine && (
   <>
   <Polyline
       positions={CAUFIELD_LOOP}
@@ -9181,7 +9718,7 @@ export function Map({
       positions={FRANKSTON_TRACK}
       pathOptions={{ color: "#22c55e", weight: 5, opacity: 0.9 }}
     />
-    {renderStationMarkers(renderedStationKeys, RENDERED_FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, FRANKSTON_STATIONS, "#22c55e", "#16a34a", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
   </>
 )}
 {modeIsTrainVisible && layers.merndaLine && (
@@ -9249,7 +9786,7 @@ export function Map({
   </>
 )}
 
-{modeIsTrainVisible && (layers.lilydaleLine || layers.belgraveLine || layers.alameinLine || layers.glenWaverleyLine || layers.burnleyLoop) && !isBusReplacementLine("burnleyLoop") && (
+{modeIsTrainVisible && (layers.lilydaleLine || layers.belgraveLine || layers.alameinLine || layers.glenWaverleyLine || layers.burnleyLoop) && (
   <>
     <Polyline
       positions={offsetPolylineCoordinates(BURNLEY_LOOP, "left", 0.45)}
@@ -9258,7 +9795,7 @@ export function Map({
     {renderStationMarkers(renderedStationKeys, RENDERED_BURNLEY_LOOP_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
-{modeIsTrainVisible && layers.lilydaleLine && !isBusReplacementLine("lilydaleLine") && (
+{modeIsTrainVisible && layers.lilydaleLine && (
   <>
     <Polyline
       positions={LILYDALE_LINE}
@@ -9272,7 +9809,7 @@ export function Map({
   </>
 )}
 
-{modeIsTrainVisible && layers.belgraveLine && !isBusReplacementLine("belgraveLine") && (
+{modeIsTrainVisible && layers.belgraveLine && (
   <>
     <Polyline
       positions={BELGRAVE_LINE}
@@ -9286,7 +9823,7 @@ export function Map({
   </>
 )}
 
-{modeIsTrainVisible && layers.alameinLine && !isBusReplacementLine("alameinLine") && (
+{modeIsTrainVisible && layers.alameinLine && (
   <>
     <Polyline
       positions={ALAMEIN_LINE}
@@ -9300,7 +9837,7 @@ export function Map({
   </>
 )}
 
-{modeIsTrainVisible && layers.glenWaverleyLine && !isBusReplacementLine("glenWaverleyLine") && (
+{modeIsTrainVisible && layers.glenWaverleyLine && (
   <>
     <Polyline
       positions={GLEN_WAVERLEY_LINE}
@@ -9333,7 +9870,7 @@ export function Map({
         }}
       />
     )}
-    {renderStationMarkers(renderedStationKeys, RENDERED_CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+    {renderStationMarkers(renderedStationKeys, CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
 
@@ -9366,7 +9903,7 @@ export function Map({
                 pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
               />
             )}
-            {renderStationMarkers(renderedStationKeys, RENDERED_CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
+            {renderStationMarkers(renderedStationKeys, CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9390,7 +9927,7 @@ export function Map({
               positions={offsetPolylineCoordinates(PAKENHAM_POST_CARNEGIE_LINE, "left", 0.38)}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, RENDERED_PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
+            {renderStationMarkers(renderedStationKeys, PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9406,7 +9943,7 @@ export function Map({
                 pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
               />
             )}
-            {renderStationMarkers(renderedStationKeys, RENDERED_SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+            {renderStationMarkers(renderedStationKeys, SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9422,10 +9959,10 @@ export function Map({
                 pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
               />
             )}
-            {renderStationMarkers(renderedStationKeys, RENDERED_METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+            {renderStationMarkers(renderedStationKeys, METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
-{modeIsTrainVisible && layers.werribeeLine && !isBusReplacementLine("werribeeLine") && (
+{modeIsTrainVisible && layers.werribeeLine && (
   <>
     {/* Werribee main line */}
     <Polyline
@@ -9483,17 +10020,13 @@ export function Map({
     {renderStationMarkers(renderedStationKeys, RENDERED_ALTONA_LOOP_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
-        {modeIsTrainVisible && layers.sandringhamLine && !isBusReplacementLine("sandringhamLine") && (
+        {modeIsTrainVisible && layers.sandringhamLine && (
           <>
             <Polyline
-              positions={offsetPolylineCoordinates(
-                SANDRINGHAM_LINE,
-                "right",
-                0.5
-              )}
+              positions={SANDRINGHAM_TRACK}
               pathOptions={{ color: "#F178AF", weight: 5, opacity: 0.85 }}
             />
-            {renderStationMarkers(renderedStationKeys, RENDERED_SANDRINGHAM_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
+            {renderStationMarkers(renderedStationKeys, SANDRINGHAM_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
 
@@ -9720,30 +10253,6 @@ export function Map({
               </div>
             </Popup>
           </Marker>
-        )}
-        {modeIsTrainVisible && isBusReplacementLine("werribeeLine") && layers.werribeeLine && (
-          <Polyline
-            positions={offsetPolylineCoordinates(WERRIBEE_LINE, "right", 1.1)}
-            pathOptions={{ color: "#FF8200", weight: 5, opacity: 0.9, dashArray: "10 8" }}
-          />
-        )}
-        {modeIsTrainVisible && isBusReplacementLine("sandringhamLine") && layers.sandringhamLine && (
-          <Polyline
-            positions={offsetPolylineCoordinates(SANDRINGHAM_LINE, "left", 1.1)}
-            pathOptions={{ color: "#FF8200", weight: 5, opacity: 0.9, dashArray: "10 8" }}
-          />
-        )}
-        {modeIsTrainVisible && isBusReplacementLine("frankstonLine") && layers.frankstonLine && (
-          <Polyline
-            positions={offsetPolylineCoordinates(FRANKSTON_TRACK, "right", 1.1)}
-            pathOptions={{ color: "#FF8200", weight: 5, opacity: 0.9, dashArray: "10 8" }}
-          />
-        )}
-        {modeIsTrainVisible && isBusReplacementLine("burnleyLoop") && (layers.lilydaleLine || layers.belgraveLine || layers.alameinLine || layers.glenWaverleyLine || layers.burnleyLoop) && (
-          <Polyline
-            positions={offsetPolylineCoordinates(BURNLEY_LOOP, "right", 1.1)}
-            pathOptions={{ color: "#FF8200", weight: 5, opacity: 0.9, dashArray: "10 8" }}
-          />
         )}
         {modeIsTrainVisible &&
           metroLiveVehicles.map((vehicle) => {
@@ -11327,16 +11836,6 @@ export function Map({
               </div>
               <p>
                 <span className="font-semibold text-white">Lift or ramp access</span> where accessible station access is available.
-              </p>
-            </div>
-
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 inline-flex h-5 items-center gap-1 rounded-md bg-black/70 px-1.5 text-white">
-                <BusFront className="h-3 w-3 text-red-300" />
-                <Plane className="h-3 w-3 text-white" />
-              </div>
-              <p>
-                <span className="font-semibold text-white">SkyBus / airport shuttle</span> interchange point or airport coach access.
               </p>
             </div>
 

@@ -48,6 +48,15 @@ type AlertGroup = {
   activeBadgeClassName?: string;
 };
 
+type AlertBundle = {
+  id: string;
+  primaryAlert: MetroNotifyAlert;
+  alerts: MetroNotifyAlert[];
+  displayLines: string[];
+  routeLabels: string[];
+  timeWindows: string[];
+};
+
 const ALERT_FILTERS: AlertFilter[] = [
   { id: "all", label: "All alerts" },
   { id: "trespasser", label: "Trespassers", keywords: ["trespasser", "trespass", "police request", "person near the tracks", "person on the tracks"] },
@@ -66,7 +75,7 @@ const ALERT_GROUPS: AlertGroup[] = [
   { id: "all", label: "All groups", activeClassName: "border-white/25 bg-white/12 text-white", inactiveBadgeClassName: "border-white/10 bg-white/5 text-white/70", activeBadgeClassName: "border-white/25 bg-white/12 text-white" },
   { id: "metro-tunnel", label: "Cranbourne, Pakenham and Sunbury", aliases: ["metro tunnel", "pakenham line", "cranbourne line", "sunbury line", "town hall", "state library", "anzac", "arden", "parkville", "watergardens", "st albans", "sunshine", "west footscray", "middle footscray", "footscray", "carnegie", "murrumbeena", "hughesdale", "oakleigh", "huntingdale", "clayton", "westall", "springvale", "sandown park", "noble park", "yarraman", "dandenong", "lynbrook", "merinda park", "cranbourne", "hallam", "narre warren", "berwick", "beaconsfield", "officer", "cardinia road", "pakenham", "east pakenham"], activeClassName: "border-cyan-400/35 bg-cyan-500/15 text-cyan-100", inactiveBadgeClassName: "border-cyan-400/15 bg-cyan-500/10 text-cyan-100/85", activeBadgeClassName: "border-cyan-400/35 bg-cyan-500/15 text-cyan-100" },
   { id: "cross-city", label: "Laverton, Werribee and Williamstown", aliases: ["laverton", "werribee line", "williamstown line", "altona loop", "north williamstown", "williamstown beach", "williamstown", "newport", "spotswood", "yarraville", "seddon", "south kensington", "aircraft", "williams landing", "hoppers crossing", "seaholme", "altona", "westona", "werribee", "point cook", "galvin", "paisley"], activeClassName: "border-[#F178AF]/45 bg-[#F178AF]/18 text-[#FFD8EA]", inactiveBadgeClassName: "border-[#F178AF]/25 bg-[#F178AF]/12 text-[#FFD8EA]", activeBadgeClassName: "border-[#F178AF]/45 bg-[#F178AF]/18 text-[#FFD8EA]" },
-  { id: "burnley", label: "Burnley group", aliases: ["belgrave line", "lilydale line", "glen waverley line", "alamein line", "burnley", "east richmond", "hawthorn", "glenferrie", "auburn", "camberwell", "east camberwell", "canterbury", "chatham", "surrey hills", "mont albert", "box hill", "laburnum", "blackburn", "nunawading", "mitcham", "heatherdale", "ringwood", "ringwood east", "croydon", "mooroolbark", "lilydale", "upper ferntree gully", "ferntree gully", "boronia", "bayswater", "heathmont", "tecoma", "belgrave", "riversdale", "willison", "hartwell", "burwood", "ashburton", "alamein", "heyington", "kooyong", "tooronga", "gardiner", "glen iris", "darling", "east malvern", "holmesglen", "jordanville", "mount waverley", "syndal", "glen waverley"], activeClassName: "border-[#152C6B]/60 bg-[#152C6B]/35 text-blue-100", inactiveBadgeClassName: "border-[#152C6B]/35 bg-[#152C6B]/20 text-blue-100/85", activeBadgeClassName: "border-[#152C6B]/60 bg-[#152C6B]/35 text-blue-100" },
+  { id: "burnley", label: "Burnley group", aliases: ["belgrave line", "lilydale line", "glen waverley line", "alamein line", "burnley", "east richmond", "hawthorn", "glenferrie", "auburn", "camberwell", "east camberwell", "canterbury", "chatham", "surrey hills", "mont albert", "box hill", "laburnum", "blackburn", "nunawading", "mitcham", "heatherdale", "ringwood", "ringwood east", "croydon", "mooroolbark", "lilydale", "upper ferntree gully", "ferntree gully", "boronia", "bayswater", "heathmont", "tecoma", "belgrave", "riversdale", "willison", "hartwell", "burwood", "ashburton", "alamein", "heyington", "kooyong", "tooronga", "gardiner", "glen iris", "darling", "east malvern", "holmesglen", "jordanville", "mount waverley", "syndal", "glen waverley"], activeClassName: "border-[#4DA3FF]/55 bg-[linear-gradient(135deg,rgba(21,44,107,0.72),rgba(2,6,23,0.92))] text-[#DBEAFF] shadow-[0_0_28px_rgba(77,163,255,0.18)]", inactiveBadgeClassName: "border-[#4DA3FF]/30 bg-[#152C6B]/28 text-[#C8DDFF]", activeBadgeClassName: "border-[#4DA3FF]/50 bg-[#4DA3FF]/16 text-[#EAF4FF]" },
   { id: "clifton-hill", label: "Clifton Hill", aliases: ["mernda line", "hurstbridge line", "jolimont", "west richmond", "north richmond", "collingwood", "victoria park", "clifton hill", "rushall", "merri", "northcote", "croxton", "thornbury", "bell", "preston", "regent", "reservoir", "ruthven", "keon park", "thomastown", "lalor", "epping", "south morang", "middle gorge", "hawkstowe", "mernda", "westgarth", "dennis", "fairfield", "alphington", "darebin", "ivanhoe", "eaglemont", "heidelberg", "rosanna", "macleod", "watsonia", "greensborough", "montmorency", "eltham", "diamond creek", "wattle glen", "hurstbridge"], activeClassName: "border-rose-400/35 bg-rose-500/15 text-rose-100", inactiveBadgeClassName: "border-rose-400/15 bg-rose-500/10 text-rose-100/85", activeBadgeClassName: "border-rose-400/35 bg-rose-500/15 text-rose-100" },
   { id: "northern", label: "Upfield and Craigieburn", aliases: ["upfield line", "craigieburn line", "north melbourne", "kensington", "newmarket", "ascot vale", "moonee ponds", "essendon", "glenbervie", "strathmore", "pascoe vale", "oak park", "glenroy", "jacana", "broadmeadows", "coolaroo", "roxburgh park", "craigieburn", "macaulay", "flemington bridge", "royal park", "jewell", "brunswick", "anstey", "moreland", "coburg", "batman", "merlynston", "fawkner", "gowrie", "upfield"], activeClassName: "border-amber-400/35 bg-amber-500/15 text-amber-100", inactiveBadgeClassName: "border-amber-400/15 bg-amber-500/10 text-amber-100/85", activeBadgeClassName: "border-amber-400/35 bg-amber-500/15 text-amber-100" },
   { id: "frankston", label: "Frankston", aliases: ["frankston line", "stony point line", "glen huntly", "ormond", "mckinnon", "bentleigh", "patterson", "moorabbin", "highett", "southland", "cheltenham", "mentone", "parkdale", "mordialloc", "aspendale", "edithvale", "chelsea", "bonbeach", "carrum", "seaford", "kananook", "frankston", "leeton", "tyabb", "hastings", "bittern", "morradoo", "crib point", "stony point"], activeClassName: "border-emerald-400/35 bg-emerald-500/15 text-emerald-100", inactiveBadgeClassName: "border-emerald-400/15 bg-emerald-500/10 text-emerald-100/85", activeBadgeClassName: "border-emerald-400/35 bg-emerald-500/15 text-emerald-100" },
@@ -101,7 +110,7 @@ function getAlertGroupStripTone(group: AlertGroup) {
     case "cross-city":
       return "bg-[#F178AF]";
     case "burnley":
-      return "bg-[#152C6B]";
+      return "bg-[linear-gradient(90deg,#152C6B,#4DA3FF,#152C6B)]";
     case "clifton-hill":
       return "bg-rose-400";
     case "northern":
@@ -474,6 +483,81 @@ function getAlertDetailUrl(alert: MetroNotifyAlert) {
   return alert.url || "https://transport.vic.gov.au/disruptions/disruptions-information";
 }
 
+function getAlertTimeWindow(alert: MetroNotifyAlert) {
+  const detail = getAlertFeedDetail(alert);
+  if (detail && detail !== "Check run details and plan ahead if your trip is affected.") {
+    return detail;
+  }
+
+  return cleanAlertCopy(alert.summary);
+}
+
+function getAlertBundleKey(alert: MetroNotifyAlert) {
+  const group = getAlertGroup(alert);
+  const filter = getAlertFilter(alert);
+  const searchable = `${cleanAlertCopy(alert.title)} ${cleanAlertCopy(alert.summary)} ${alert.lines.join(" ")}`.toLowerCase();
+  const isReplacementBus =
+    /buses replace trains|replacement buses|bus replacement|coach replacement/.test(searchable) ||
+    filter.id === "bus-replacement";
+
+  if (isReplacementBus) {
+    let corridor = getAlertDisplayLines(alert)[0] ?? group.label;
+
+    if (searchable.includes("williamstown")) {
+      corridor = "Williamstown corridor";
+    } else if (searchable.includes("werribee")) {
+      corridor = "Werribee corridor";
+    } else if (searchable.includes("frankston")) {
+      corridor = "Frankston Line";
+    } else if (searchable.includes("sandringham")) {
+      corridor = "Sandringham Line";
+    }
+
+    return `${group.id}:${filter.id}:replacement:${corridor.toLowerCase()}`;
+  }
+
+  return `${alert.id}`;
+}
+
+function uniqueAlertValues(values: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  return values
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function bundleSimilarAlerts(alerts: MetroNotifyAlert[]): AlertBundle[] {
+  const bundles = new Map<string, MetroNotifyAlert[]>();
+
+  for (const alert of alerts) {
+    const key = getAlertBundleKey(alert);
+    const existing = bundles.get(key);
+    if (existing) {
+      existing.push(alert);
+    } else {
+      bundles.set(key, [alert]);
+    }
+  }
+
+  return [...bundles.entries()].map(([id, bundleAlerts]) => {
+    const primaryAlert = bundleAlerts[0];
+    return {
+      id,
+      primaryAlert,
+      alerts: bundleAlerts,
+      displayLines: uniqueAlertValues(bundleAlerts.flatMap((alert) => getAlertDisplayLines(alert))),
+      routeLabels: uniqueAlertValues(bundleAlerts.map((alert) => getAlertRouteLabel(alert))),
+      timeWindows: uniqueAlertValues(bundleAlerts.map((alert) => getAlertTimeWindow(alert))),
+    };
+  });
+}
+
 export default function TodaysAlerts() {
   const [selectedFilter, setSelectedFilter] = useState<AlertFilterId>("all");
   const [selectedGroup, setSelectedGroup] = useState<AlertGroupId>("all");
@@ -534,7 +618,7 @@ export default function TodaysAlerts() {
         return {
           group,
           count: alerts.length,
-          latestAlert: alerts[0],
+          previewAlerts: alerts.slice(0, 3),
         };
       }),
     [sortedMetroAlerts],
@@ -545,6 +629,14 @@ export default function TodaysAlerts() {
   const expandedGroupAlerts = expandedGroup
     ? sortedMetroAlerts.filter((alert) => getAlertGroups(alert).some((group) => group.id === expandedGroup.id))
     : [];
+  const filteredMetroAlertBundles = useMemo(
+    () => bundleSimilarAlerts(filteredMetroAlerts),
+    [filteredMetroAlerts],
+  );
+  const expandedGroupAlertBundles = useMemo(
+    () => bundleSimilarAlerts(expandedGroupAlerts),
+    [expandedGroupAlerts],
+  );
   const featuredAlert = filteredMetroAlerts[0] ?? sortedMetroAlerts[0] ?? prominentMetroAlerts[0] ?? communityAlerts[0];
   const operationCards = filteredMetroAlerts.slice(0, 3);
   const activeFilterLabel = ALERT_FILTERS.find((filter) => filter.id === selectedFilter)?.label ?? "All alerts";
@@ -762,8 +854,9 @@ export default function TodaysAlerts() {
           </div>
 
           <div className="mt-5 grid gap-3 lg:grid-cols-2">
-            {groupedAlertSummaries.map(({ group, count, latestAlert }) => {
+            {groupedAlertSummaries.map(({ group, count, previewAlerts }) => {
               const isActive = selectedGroup === group.id;
+              const remainingAlertCount = Math.max(0, count - previewAlerts.length);
 
               return (
                 <button
@@ -792,19 +885,39 @@ export default function TodaysAlerts() {
                     </span>
                   </div>
 
-                  <div className="mt-3 rounded-2xl border border-white/10 bg-black/10 p-3">
-                    {latestAlert ? (
-                      <>
-                        <p className="text-sm font-semibold leading-snug text-white">
-                          {getAlertFeedHeadline(latestAlert)}
-                        </p>
-                        <p className="mt-1 text-xs leading-relaxed text-white/60">
-                          {getAlertFeedDetail(latestAlert)}
-                        </p>
-                      </>
+                  <div className="mt-3 space-y-2 rounded-2xl border border-white/10 bg-black/10 p-3">
+                    {previewAlerts.length > 0 ? (
+                      previewAlerts.map((alert, index) => (
+                        <div
+                          key={`group-summary-${group.id}-${alert.id}`}
+                          className={index === 0 ? "" : "border-t border-white/10 pt-2"}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-white/65">
+                              {getAlertCategory(alert)}
+                            </span>
+                            {getAlertDisplayLines(alert).slice(0, 2).map((line) => (
+                              <span key={`${alert.id}-${line}`} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getAlertGroupPillTone(group)}`}>
+                                {line}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="mt-1.5 text-sm font-semibold leading-snug text-white">
+                            {getAlertFeedHeadline(alert)}
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-white/60">
+                            {getAlertFeedDetail(alert)}
+                          </p>
+                        </div>
+                      ))
                     ) : (
                       <p className="text-sm text-white/45">
                         Nothing major is showing for this group right now.
+                      </p>
+                    )}
+                    {remainingAlertCount > 0 && (
+                      <p className="border-t border-white/10 pt-2 text-xs font-semibold text-white/55">
+                        +{remainingAlertCount} more active {remainingAlertCount === 1 ? "update" : "updates"} on this group
                       </p>
                     )}
                   </div>
@@ -914,19 +1027,19 @@ export default function TodaysAlerts() {
             </div>
 
             <div className="space-y-3">
-              {filteredMetroAlerts.length === 0 ? (
+              {filteredMetroAlertBundles.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-5 text-sm text-white/55">
                   No Metro service alerts match the current filter right now.
                 </div>
               ) : (
-                filteredMetroAlerts.map((alert) => {
+                filteredMetroAlertBundles.map((bundle) => {
+                  const alert = bundle.primaryAlert;
                   const alertGroup = getAlertGroup(alert);
-                  const displayLines = getAlertDisplayLines(alert);
-                  const routeLabel = getAlertRouteLabel(alert);
+                  const displayLines = bundle.displayLines;
                   const pillTone = getAlertGroupPillTone(alertGroup);
 
                   return (
-                  <article key={alert.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <article key={bundle.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -934,6 +1047,11 @@ export default function TodaysAlerts() {
                           <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${getAlertGroupBadgeTone(alertGroup)}`}>
                             {alertGroup.label}
                           </span>
+                          {bundle.alerts.length > 1 && (
+                            <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+                              {bundle.alerts.length} windows
+                            </span>
+                          )}
                         </div>
                         <h3 className="mt-2 text-base font-semibold leading-snug text-white">
                           {getAlertFeedHeadline(alert)}
@@ -947,18 +1065,31 @@ export default function TodaysAlerts() {
                       </p>
                     </div>
 
-                    {(displayLines.length > 0 || routeLabel) && (
+                    {(displayLines.length > 0 || bundle.routeLabels.length > 0) && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {displayLines.map((line) => (
-                          <span key={`${alert.id}-${line}`} className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
+                          <span key={`${bundle.id}-${line}`} className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
                             {line}
                           </span>
                         ))}
-                        {routeLabel ? (
-                          <span className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
+                        {bundle.routeLabels.map((routeLabel) => (
+                          <span key={`${bundle.id}-${routeLabel}`} className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
                             {routeLabel}
                           </span>
-                        ) : null}
+                        ))}
+                      </div>
+                    )}
+
+                    {bundle.timeWindows.length > 1 && (
+                      <div className="mt-3 rounded-2xl border border-white/10 bg-black/15 p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">Affected times</p>
+                        <div className="mt-2 space-y-1.5">
+                          {bundle.timeWindows.map((timeWindow) => (
+                            <p key={`${bundle.id}-${timeWindow}`} className="text-xs leading-relaxed text-white/70">
+                              {timeWindow}
+                            </p>
+                          ))}
+                        </div>
                       </div>
                     )}
 
@@ -1062,18 +1193,18 @@ export default function TodaysAlerts() {
             </div>
 
             <div className="mt-6 space-y-3">
-              {expandedGroupAlerts.length === 0 ? (
+              {expandedGroupAlertBundles.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-5 text-sm text-white/55">
                   Nothing major is showing for this group right now.
                 </div>
               ) : (
-                expandedGroupAlerts.map((alert) => {
-                  const displayLines = getAlertDisplayLines(alert);
-                  const routeLabel = getAlertRouteLabel(alert);
+                expandedGroupAlertBundles.map((bundle) => {
+                  const alert = bundle.primaryAlert;
+                  const displayLines = bundle.displayLines;
                   const pillTone = getAlertGroupPillTone(expandedGroup);
 
                   return (
-                  <article key={`expanded-${alert.id}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <article key={`expanded-${bundle.id}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -1081,6 +1212,11 @@ export default function TodaysAlerts() {
                           <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${getAlertGroupBadgeTone(expandedGroup)}`}>
                             {expandedGroup.label}
                           </span>
+                          {bundle.alerts.length > 1 && (
+                            <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+                              {bundle.alerts.length} windows
+                            </span>
+                          )}
                         </div>
                         <h3 className="mt-2 text-base font-semibold leading-snug text-white">
                           {getAlertFeedHeadline(alert)}
@@ -1094,18 +1230,31 @@ export default function TodaysAlerts() {
                       </p>
                     </div>
 
-                    {(displayLines.length > 0 || routeLabel) && (
+                    {(displayLines.length > 0 || bundle.routeLabels.length > 0) && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {displayLines.map((line) => (
-                          <span key={`${alert.id}-expanded-${line}`} className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
+                          <span key={`${bundle.id}-expanded-${line}`} className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
                             {line}
                           </span>
                         ))}
-                        {routeLabel ? (
-                          <span className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
+                        {bundle.routeLabels.map((routeLabel) => (
+                          <span key={`${bundle.id}-expanded-${routeLabel}`} className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
                             {routeLabel}
                           </span>
-                        ) : null}
+                        ))}
+                      </div>
+                    )}
+
+                    {bundle.timeWindows.length > 1 && (
+                      <div className="mt-3 rounded-2xl border border-white/10 bg-black/15 p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">Affected times</p>
+                        <div className="mt-2 space-y-1.5">
+                          {bundle.timeWindows.map((timeWindow) => (
+                            <p key={`${bundle.id}-expanded-${timeWindow}`} className="text-xs leading-relaxed text-white/70">
+                              {timeWindow}
+                            </p>
+                          ))}
+                        </div>
                       </div>
                     )}
 

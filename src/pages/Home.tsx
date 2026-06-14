@@ -137,8 +137,20 @@ type FleetTypeKey =
   | "ns-comeng"
   | "n-class"
   | "vlocity"
-  | "xpt";
-type FleetFilterKey = "all" | "suburban" | "vline" | "sydney-xpt" | FleetTypeKey;
+  | "xpt"
+  | "tangara"
+  | "waratah-a"
+  | "waratah-b"
+  | "millennium"
+  | "k-set"
+  | "oscar"
+  | "mariyung"
+  | "v-set"
+  | "endeavour"
+  | "hunter"
+  | "xplorer"
+  | "metropolis";
+type FleetFilterKey = "all" | FleetTypeKey;
 type HomeTabKey = "map" | "fleets" | "pid" | "admin";
 
 type FleetTripStatus = "running" | "upcoming";
@@ -148,6 +160,11 @@ type FleetTypeConfig = {
   label: string;
   emoji: string;
   total: number;
+};
+
+type FleetFilterGroup = {
+  label: string;
+  filters: Array<{ key: FleetFilterKey; label: string }>;
 };
 
 type FleetTrip = {
@@ -227,22 +244,71 @@ type ChangelogEntry = {
 
 const FLEET_TYPES: FleetTypeConfig[] = [
   { key: "hcmt", label: "HCMT", emoji: "Train", total: 37 },
-  { key: "xtrapolis", label: "X'Trapolis", emoji: "Train", total: 32 },
+  { key: "xtrapolis", label: "X'Trapolis 100", emoji: "Train", total: 32 },
   { key: "siemens", label: "Siemens", emoji: "Train", total: 20 },
   { key: "ss-comeng", label: "EDI Comeng", emoji: "Train", total: 12 },
   { key: "ns-comeng", label: "Alstom Comeng", emoji: "Train", total: 7 },
   { key: "n-class", label: "N Class", emoji: "Train", total: 1 },
   { key: "vlocity", label: "VLocity", emoji: "Train", total: 25 },
   { key: "xpt", label: "XPT", emoji: "Train", total: 1 },
+  { key: "tangara", label: "Tangara (T Set)", emoji: "Train", total: 0 },
+  { key: "waratah-a", label: "Waratah A Set", emoji: "Train", total: 0 },
+  { key: "waratah-b", label: "Waratah B Set", emoji: "Train", total: 0 },
+  { key: "millennium", label: "Millennium (M Set)", emoji: "Train", total: 0 },
+  { key: "k-set", label: "K Set", emoji: "Train", total: 0 },
+  { key: "oscar", label: "Oscar (H Set)", emoji: "Train", total: 0 },
+  { key: "mariyung", label: "Mariyung (D Set)", emoji: "Train", total: 0 },
+  { key: "v-set", label: "V Set", emoji: "Train", total: 0 },
+  { key: "endeavour", label: "Endeavour", emoji: "Train", total: 0 },
+  { key: "hunter", label: "Hunter", emoji: "Train", total: 0 },
+  { key: "xplorer", label: "Xplorer", emoji: "Train", total: 0 },
+  { key: "metropolis", label: "Metropolis", emoji: "Train", total: 0 },
 ];
 
-const FLEET_FILTERS: Array<{ key: FleetFilterKey; label: string }> = [
-  { key: "all", label: "All" },
-  { key: "suburban", label: "Melbourne Suburban" },
-  { key: "vline", label: "V/Line" },
-  { key: "sydney-xpt", label: "Sydney / XPT" },
-  ...FLEET_TYPES.map((fleet) => ({ key: fleet.key, label: fleet.label })),
+const FLEET_FILTER_GROUPS: FleetFilterGroup[] = [
+  {
+    label: "Victoria",
+    filters: [
+      { key: "all", label: "All" },
+      { key: "hcmt", label: "HCMT" },
+      { key: "xtrapolis", label: "X'Trapolis 100" },
+      { key: "siemens", label: "Siemens" },
+      { key: "ss-comeng", label: "EDI Comeng" },
+      { key: "ns-comeng", label: "Alstom Comeng" },
+      { key: "n-class", label: "N Class" },
+      { key: "vlocity", label: "VLocity" },
+    ],
+  },
+  {
+    label: "Sydney Trains",
+    filters: [
+      { key: "tangara", label: "Tangara (T Set)" },
+      { key: "waratah-a", label: "Waratah A Set" },
+      { key: "waratah-b", label: "Waratah B Set" },
+      { key: "millennium", label: "Millennium (M Set)" },
+      { key: "k-set", label: "K Set" },
+      { key: "oscar", label: "Oscar (H Set)" },
+    ],
+  },
+  {
+    label: "NSW TrainLink",
+    filters: [
+      { key: "mariyung", label: "Mariyung (D Set)" },
+      { key: "v-set", label: "V Set" },
+      { key: "endeavour", label: "Endeavour" },
+      { key: "hunter", label: "Hunter" },
+      { key: "xplorer", label: "Xplorer" },
+      { key: "xpt", label: "XPT" },
+    ],
+  },
+  {
+    label: "Sydney Metro",
+    filters: [
+      { key: "metropolis", label: "Metropolis" },
+    ],
+  },
 ];
+const FLEET_FILTERS = FLEET_FILTER_GROUPS.flatMap((group) => group.filters);
 
 const PID_STATIONS = [
   "Flinders Street",
@@ -283,49 +349,6 @@ const PID_FONTS = ["Inter", "Arial", "Helvetica", "DIN-style", "Mono operations"
 const PID_RESOLUTIONS = ["1920x1080", "1366x768", "1280x720", "1080x1920", "3840x2160"] as const;
 const PID_DENSITIES: PidDisplayDensity[] = ["comfortable", "standard", "dense"];
 const PID_THEMES: PidThemeMode[] = ["dark", "light"];
-
-const FLEET_TYPE_GUIDE: Array<{ title: string; subtitle: string; detail: string }> = [
-  {
-    title: "HCMT",
-    subtitle: "High Capacity Metro Train",
-    detail: "7-car sets used on the Metro Tunnel, Cranbourne, Pakenham, and Sunbury corridors. Wider walkthrough interiors and newer passenger screens make them easy to spot.",
-  },
-  {
-    title: "X'Trapolis 100",
-    subtitle: "Older X'Trapolis fleet",
-    detail: "Common on Burnley and Clifton Hill lines. Look for the sharper silver front, side destination displays, and the familiar motor sound on departure.",
-  },
-  {
-    title: "X'Trapolis 2.0",
-    subtitle: "Next-generation X'Trapolis",
-    detail: "Newer design for future Metro service. The app keeps this separate from X'Trapolis 100 when data starts identifying it clearly.",
-  },
-  {
-    title: "Siemens Nexas",
-    subtitle: "Bayside and western workhorse",
-    detail: "Usually seen on Sandringham, Werribee, Williamstown, and Frankston group services. Rounded cab front and smooth silver body panels.",
-  },
-  {
-    title: "EDI Comeng",
-    subtitle: "Southside Comeng",
-    detail: "Comeng trains refurbished by EDI. Often treated separately from Alstom Comeng because the front, interior fittings, and operating areas differ.",
-  },
-  {
-    title: "Alstom Comeng",
-    subtitle: "Northside Comeng",
-    detail: "Comeng trains refurbished by Alstom. Similar base fleet to EDI Comeng, but with different cab styling, interior details, and line allocation history.",
-  },
-  {
-    title: "VLocity / N Class",
-    subtitle: "Regional V/Line trains",
-    detail: "VLocity sets are DMUs usually shown as 3-car or 6-car. N Class services are locomotive-hauled sets, so the app labels them as loco sets or special movements.",
-  },
-  {
-    title: "XPT",
-    subtitle: "NSW TrainLink interstate",
-    detail: "Long-distance NSW TrainLink services on the standard-gauge corridor. TransitAlert treats XPT separately from V/Line so interstate trips can be tracked and filtered cleanly.",
-  },
-];
 
 const VERSION_LOG: ChangelogEntry[] = [
   {
@@ -511,27 +534,6 @@ function metroAlertMatchesJourneyCorridor(alert: MetroNotifyAlert, corridorLabel
   });
 }
 
-function getBusReplacementLineKeys(alerts: MetroNotifyAlert[]) {
-  const keys = new Set<string>();
-  for (const alert of alerts) {
-    if (!isAlertCurrent(alert)) continue;
-    const searchable = `${alert.title} ${alert.summary} ${alert.lines.join(" ")}`.toLowerCase();
-    if (!/buses replace trains|replacement buses|bus replacement|coach replacement/.test(searchable)) continue;
-
-    if (/werribee|williamstown|laverton|newport|altona/.test(searchable)) keys.add("werribeeLine");
-    if (/sandringham|brighton beach|hampton|elsternwick/.test(searchable)) keys.add("sandringhamLine");
-    if (/frankston|caulfield|glen huntly|ormond|moorabbin/.test(searchable)) keys.add("frankstonLine");
-    if (/belgrave|lilydale|glen waverley|alamein|burnley|ringwood/.test(searchable)) {
-      keys.add("burnleyLoop");
-      keys.add("lilydaleLine");
-      keys.add("belgraveLine");
-      keys.add("glenWaverleyLine");
-      keys.add("alameinLine");
-    }
-  }
-  return [...keys];
-}
-
 const STATUS_STYLES: Record<FleetTripStatus, string> = {
   running: "bg-emerald-500/15 text-emerald-300",
   upcoming: "bg-slate-500/15 text-slate-300",
@@ -591,6 +593,11 @@ function resolveMetroFleetKey(vehicle: LiveTrain, explicitFleet: FleetTypeKey | 
 function getRegionalFleetKey(vehicle: LiveTrain): FleetTypeKey {
   const family = getRegionalFleetTrainFamily(vehicle).toLowerCase();
   const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  if (/mariyung|d\s*set|\bd-set\b/.test(joined)) return "mariyung";
+  if (/\bv\s*set\b|\bv-set\b/.test(joined)) return "v-set";
+  if (/endeavour/.test(joined)) return "endeavour";
+  if (/\bhunter\b/.test(joined)) return "hunter";
+  if (/xplorer/.test(joined)) return "xplorer";
   if (family.includes("xpt") || /xpt|nsw trainlink/.test(joined)) return "xpt";
   if (family.includes("vlocity") || /\bv\d{3,4}\b/.test(joined)) return "vlocity";
   if (family.includes("n class") || /n\s*class|n-?set|loco|locomotive|swan hill|bairnsdale|albury/.test(joined)) return "n-class";
@@ -601,6 +608,13 @@ function inferFleetTypeKey(vehicle: LiveTrain): FleetTypeKey {
   if (isVlineLiveTrain(vehicle)) return getRegionalFleetKey(vehicle);
 
   const searchable = `${vehicle.consist} ${vehicle.trainType} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  if (/metropolis|sydney metro|metro north west/.test(searchable)) return "metropolis";
+  if (/tangara|\bt\s*set\b|\bt-set\b/.test(searchable)) return "tangara";
+  if (/waratah\s*a|a\s*set|\ba-set\b/.test(searchable)) return "waratah-a";
+  if (/waratah\s*b|b\s*set|\bb-set\b/.test(searchable)) return "waratah-b";
+  if (/millennium|\bm\s*set\b|\bm-set\b/.test(searchable)) return "millennium";
+  if (/\bk\s*set\b|\bk-set\b/.test(searchable)) return "k-set";
+  if (/oscar|\bh\s*set\b|\bh-set\b/.test(searchable)) return "oscar";
   if (/(hcmt)/i.test(searchable)) return "hcmt";
   if (/(x'?trapolis)/i.test(searchable)) return "xtrapolis";
   let explicitFleet: FleetTypeKey | null = null;
@@ -1353,16 +1367,29 @@ export default function Home() {
           "n-class": 0,
           vlocity: 0,
           xpt: 0,
+          tangara: 0,
+          "waratah-a": 0,
+          "waratah-b": 0,
+          millennium: 0,
+          "k-set": 0,
+          oscar: 0,
+          mariyung: 0,
+          "v-set": 0,
+          endeavour: 0,
+          hunter: 0,
+          xplorer: 0,
+          metropolis: 0,
         },
       ),
     [liveFleetTrips],
   );
+  const getFleetFilterCount = useCallback(
+    (fleetKey: FleetFilterKey) => (fleetKey === "all" ? liveFleetTrips.length : fleetCountByType[fleetKey]),
+    [fleetCountByType, liveFleetTrips.length],
+  );
   const fleetTripsForSelection = useMemo(
     () => {
       if (selectedFleetType === "all") return liveFleetTrips;
-      if (selectedFleetType === "suburban") return liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class" && trip.fleet !== "xpt");
-      if (selectedFleetType === "vline") return liveFleetTrips.filter((trip) => trip.fleet === "vlocity" || trip.fleet === "n-class" || trip.fleet === "xpt");
-      if (selectedFleetType === "sydney-xpt") return liveFleetTrips.filter((trip) => trip.fleet === "xpt");
       return liveFleetTrips.filter((trip) => trip.fleet === selectedFleetType);
     },
     [liveFleetTrips, selectedFleetType],
@@ -1457,11 +1484,6 @@ export default function Home() {
       matchingAlerts,
     };
   }, [journeyRoute, metroJourneyAlerts]);
-  const busReplacementLineKeys = useMemo(
-    () => getBusReplacementLineKeys(metroJourneyAlerts),
-    [metroJourneyAlerts],
-  );
-
   const openLiveTrainOnMap = useCallback((trip: FleetTrip) => {
     setFocusedVehicleKey(trip.focusKey);
     setActiveTab("map");
@@ -1829,8 +1851,8 @@ export default function Home() {
           title: "Start from home",
           from: "15 Louise St, Brighton East",
           to: nearestHomeStation.name,
-          detail: "Use your nearest rail interchange as the handoff into the network.",
-          badge: "Walk",
+          detail: `Go to ${nearestHomeStation.name} first, then TransitAlert will attach the best rail leg.`,
+          badge: "Access",
         };
       }
     } else if (isCurrentLocationOrigin && currentLocationCoords) {
@@ -1842,7 +1864,7 @@ export default function Home() {
           title: "Start from current location",
           from: journeyOrigin,
           to: nearestGpsStation.name,
-          detail: "GPS start attached to the nearest station before the rail leg begins.",
+          detail: `Go to ${nearestGpsStation.name} first, then continue from the best matching train line.`,
           badge: "GPS",
         };
       }
@@ -1932,14 +1954,20 @@ export default function Home() {
       
 
       const journeyLegs = [...(accessLeg ? [accessLeg] : []), ...trainLegs];
+      if (accessLeg && trainLegs[0]) {
+        accessLeg.detail = `Go to ${resolvedOrigin.name} first. Then take the ${trainLegs[0].title} from ${trainLegs[0].from} toward ${trainLegs[0].to}.`;
+      }
       const changeStations = trainLegs
         .slice(0, -1)
         .map((leg) => leg.to)
         .filter(Boolean);
-      const summary =
+      const railSummary =
         trainLegs.length <= 1
           ? `Direct journey via the ${trainLegs[0]?.title ?? "rail network"} (${Math.max(routeStations.length - 1, 0)} stops).`
           : `Stay on board, then change at ${changeStations.join(", ")} to finish the trip to ${destination.name}.`;
+      const summary = accessLeg
+        ? `Start from your location by heading to ${resolvedOrigin.name}. ${railSummary}`
+        : railSummary;
       const pattern =
         trainLegs.length <= 1
           ? trainLegs[0]?.title ?? "Direct service"
@@ -2595,7 +2623,6 @@ export default function Home() {
 
       <TransitMap
         journeyRoute={journeyRoute}
-        busReplacementLineKeys={busReplacementLineKeys}
         splitCrossCityGroup={splitCrossCityGroup}
         transportModes={preferences.transportModes as Array<"train" | "tram" | "bus" | "vline">}
         onTransportModesChange={(transportModes) => updatePreferences({ transportModes })}
@@ -2633,7 +2660,7 @@ export default function Home() {
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="block">
-                    <span className="mb-1 block text-xs font-medium text-white/60">From</span>
+                    <span className="mb-1 block text-xs font-medium text-white/60">From your location or chosen station</span>
                     <button
                       type="button"
                       onClick={() => setIsOriginPickerOpen(true)}
@@ -2981,55 +3008,43 @@ export default function Home() {
                     ))}
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {FLEET_FILTERS.map((fleet) => {
-                      const isSelected = selectedFleetType === fleet.key;
-                      const count = fleet.key === "all"
-                        ? liveFleetTrips.length
-                        : fleet.key === "suburban"
-                          ? liveFleetTrips.filter((trip) => trip.fleet !== "vlocity" && trip.fleet !== "n-class" && trip.fleet !== "xpt").length
-                          : fleet.key === "vline"
-                            ? liveFleetTrips.filter((trip) => trip.fleet === "vlocity" || trip.fleet === "n-class" || trip.fleet === "xpt").length
-                            : fleet.key === "sydney-xpt"
-                              ? liveFleetTrips.filter((trip) => trip.fleet === "xpt").length
-                            : fleetCountByType[fleet.key];
-                      return (
-                        <button
-                          key={fleet.key}
-                          type="button"
-                          onClick={() => setSelectedFleetType(fleet.key)}
-                          className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition ${
-                            isSelected
-                              ? "border-cyan-300/70 bg-cyan-400/10 shadow-[0_0_20px_rgba(34,211,238,0.18)]"
-                              : "border-white/10 bg-black/25 hover:border-white/20 hover:bg-white/5"
-                          }`}
-                        >
-                          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-white">{fleet.label}</span>
-                          <span className="font-mono text-sm font-semibold text-cyan-200">{count}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="rounded-[1.7rem] border border-white/10 bg-white/[0.04] p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-300/85">Train type guide</p>
-                        <h3 className="mt-2 text-lg font-semibold text-white">What the fleet labels mean</h3>
-                      </div>
-                      <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-semibold text-white/60">
-                        For new riders and testers
-                      </span>
-                    </div>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      {FLEET_TYPE_GUIDE.map((fleet) => (
-                        <div key={fleet.title} className="rounded-[1.25rem] border border-white/10 bg-black/20 p-3">
-                          <p className="text-sm font-semibold text-white">{fleet.title}</p>
-                          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-blue-200/75">{fleet.subtitle}</p>
-                          <p className="mt-2 text-sm leading-6 text-white/65">{fleet.detail}</p>
+                  <div className="space-y-2.5">
+                      {FLEET_FILTER_GROUPS.map((group) => (
+                        <div key={group.label} className="rounded-[1rem] border border-white/10 bg-black/18 p-2">
+                          <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-200/55">
+                            {group.label}
+                          </p>
+                          <div className="overflow-x-auto pb-1">
+                            <div className="flex min-w-max flex-wrap gap-1.5 pr-2">
+                              {group.filters.map((fleet) => {
+                                const isSelected = selectedFleetType === fleet.key;
+                                const count = getFleetFilterCount(fleet.key);
+                                return (
+                                  <button
+                                    key={fleet.key}
+                                    type="button"
+                                    onClick={() => setSelectedFleetType(fleet.key)}
+                                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.12em] transition duration-200 active:scale-95 ${
+                                      isSelected
+                                        ? "border-cyan-300/80 bg-cyan-400/15 text-white shadow-[0_0_18px_rgba(34,211,238,0.22)]"
+                                        : "border-white/10 bg-slate-950/70 text-white/78 hover:-translate-y-0.5 hover:border-cyan-300/35 hover:bg-white/[0.07] hover:text-white"
+                                    }`}
+                                  >
+                                    <span>{fleet.label}</span>
+                                    {count > 0 && (
+                                      <span className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] ${
+                                        isSelected ? "bg-cyan-300/20 text-cyan-100" : "bg-cyan-300/10 text-cyan-200"
+                                      }`}>
+                                        {count}
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         </div>
                       ))}
-                    </div>
                   </div>
 
                   {fleetTripsToDisplay.length > 0 ? (

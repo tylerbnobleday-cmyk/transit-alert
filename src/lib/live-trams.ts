@@ -1,3 +1,5 @@
+import { readJsonErrorMessage, readJsonResponse, responseIsJson } from "@/lib/http-json";
+
 export type LiveTram = {
   id: string;
   label: string;
@@ -157,19 +159,15 @@ export async function fetchLiveTrams(bounds?: LiveViewportBounds): Promise<LiveT
   }
 
   if (!response.ok) {
-    let message = `Failed to load live trams (${response.status})`;
-    try {
-      const payload = (await response.json()) as { error?: string };
-      if (payload?.error) {
-        message = payload.error;
-      }
-    } catch {
-      // Keep the generic message if the endpoint did not return JSON.
-    }
+    const message = await readJsonErrorMessage(response, `Failed to load live trams (${response.status})`);
     throw new Error(message);
   }
 
-  const payload = (await response.json()) as LiveTramResponse;
+  if (!responseIsJson(response)) {
+    return [];
+  }
+
+  const payload = await readJsonResponse<LiveTramResponse>(response, "Live trams API");
   const trams = Array.isArray(payload) ? payload : payload.trams ?? [];
 
   return trams
