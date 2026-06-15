@@ -1716,6 +1716,9 @@ export default defineConfig(async ({ mode }) => {
       dedupe: ["react", "react-dom"],
     },
     root: path.resolve(import.meta.dirname),
+    build: {
+      chunkSizeWarningLimit: 1600,
+    },
     server: {
       port,
       host: "0.0.0.0",

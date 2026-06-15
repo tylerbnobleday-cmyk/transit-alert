@@ -359,8 +359,35 @@ function getAlertDisplayLines(alert: MetroNotifyAlert) {
   const group = getAlertGroup(alert);
 
   if (group.id === "metro-tunnel") {
+    if (
+      searchable.includes("caulfield") ||
+      searchable.includes("westall") ||
+      searchable.includes("carnegie") ||
+      searchable.includes("murrumbeena") ||
+      searchable.includes("hughesdale") ||
+      searchable.includes("oakleigh") ||
+      searchable.includes("huntingdale") ||
+      searchable.includes("clayton")
+    ) {
+      return ["Cranbourne and Pakenham"];
+    }
+    if (
+      searchable.includes("north melbourne") ||
+      searchable.includes("sunshine") ||
+      searchable.includes("footscray") ||
+      searchable.includes("middle footscray") ||
+      searchable.includes("west footscray") ||
+      searchable.includes("tottenham") ||
+      searchable.includes("albion") ||
+      searchable.includes("ginifer") ||
+      searchable.includes("st albans") ||
+      searchable.includes("keilor plains") ||
+      searchable.includes("watergardens")
+    ) {
+      return ["Sunbury Line"];
+    }
     if (searchable.includes("dandenong")) {
-      return ["Dandenong Line"];
+      return ["Cranbourne and Pakenham"];
     }
     if (searchable.includes("cranbourne")) {
       return ["Cranbourne Line"];
