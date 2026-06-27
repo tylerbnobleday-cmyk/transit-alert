@@ -202,12 +202,8 @@ Rewrites:
   - /* → /index.html (SPA)
 ```
 
-### 3. **Vercel.json** (Vercel Deployment)
-```json
-Rewrites:
-  - /api/(.*) → /api/$1
-  - /((?!api/).*) → /
-```
+### 3. Vercel (deprecated)
+Vercel deployment configuration removed from this repository. The primary deployment options are Render and Netlify; Vercel-specific files (e.g. `vercel.json`) have been removed.
 
 ---
 
@@ -367,7 +363,7 @@ pnpm run start
 3. **SPA Frontend:** React with Vite, served by backend fallback to index.html
 4. **Type Safety:** TypeScript throughout, with Zod validation
 5. **Database:** PostgreSQL with Drizzle ORM, migrations-based schema
-6. **Deployment Ready:** Multiple platform configs (Render, Netlify, Vercel)
+6. **Deployment Ready:** Multiple platform configs (Render, Netlify)
 7. **Real-time Data:** GTFS Realtime feeds for live transport data
 8. **Component Library:** Shadcn/ui for consistent, accessible UI
 
@@ -381,7 +377,7 @@ pnpm run start
 - `src/lib/db/drizzle.config.ts` - Database ORM configuration
 - `render.yaml` - Render deployment config
 - `netlify.toml` - Netlify deployment config
-- `vercel.json` - Vercel deployment config
+-- (removed) `vercel.json` - Vercel deployment config (deleted)
 
 ### Core Communication Files
 - `src/lib/http-json.ts` - Response parsing utilities

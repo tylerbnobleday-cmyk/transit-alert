@@ -9,8 +9,8 @@ export default function handler(req, res) {
     next_trip: null,
     network_alerts: [],
     _meta: {
-      source: "vercel-fallback",
-      note: "Live consist tracking is not configured in this deployment yet.",
+      source: "render-fallback",
+      note: "Live consist tracking is not configured in this deployment. Using fallback response.",
     },
   });
 }
