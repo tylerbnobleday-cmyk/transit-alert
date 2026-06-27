@@ -5,6 +5,11 @@ on:
     branches:
       - master
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -22,15 +27,24 @@ jobs:
 
       - name: Build
         env:
-          # Set the base path Vite should use for GitHub Pages (repo name)
           BASE_PATH: "/transit-alert/"
-          # Backend URL (set this secret to your Render service URL, e.g. https://transit-alert.onrender.com)
           VITE_API_BASE_URL: ${{ secrets.RENDER_BACKEND_URL }}
         run: pnpm build
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Configure Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v1
         with:
-          publish_dir: ./dist
-          publish_branch: gh-pages
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          path: ./dist
+
+  deploy:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v1
