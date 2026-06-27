@@ -1,3 +1,5 @@
+import { getApiUrl } from "@/lib/api-config";
+
 export type RuntimeSourceConfig = {
   environment: "production" | "staging" | "local" | "custom";
   url: string;
@@ -22,7 +24,7 @@ export type ApprovedDebugTesterRecord = {
 };
 
 export async function fetchAdminConfig() {
-  const response = await fetch("/api/admin/settings");
+  const response = await fetch(getApiUrl("/api/admin/settings"));
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({ error: "Failed to load admin settings" }))) as { error?: string };
     throw new Error(payload.error || "Failed to load admin settings");
@@ -32,7 +34,7 @@ export async function fetchAdminConfig() {
 }
 
 export async function saveAdminConfig(config: AdminRuntimeConfig) {
-  const response = await fetch("/api/admin/settings", {
+  const response = await fetch(getApiUrl("/api/admin/settings"), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ config }),
@@ -46,7 +48,7 @@ export async function saveAdminConfig(config: AdminRuntimeConfig) {
 }
 
 export async function fetchAdminAccounts() {
-  const response = await fetch("/api/admin/accounts");
+  const response = await fetch(getApiUrl("/api/admin/accounts"));
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({ error: "Failed to load accounts" }))) as { error?: string };
     throw new Error(payload.error || "Failed to load accounts");
@@ -65,7 +67,7 @@ export async function updateAdminAccount(
   accountId: string,
   patch: Pick<AdminAccountRecord, "role" | "isAdmin" | "isPremium">,
 ) {
-  const response = await fetch("/api/admin/accounts", {
+  const response = await fetch(getApiUrl("/api/admin/accounts"), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ accountId, patch }),

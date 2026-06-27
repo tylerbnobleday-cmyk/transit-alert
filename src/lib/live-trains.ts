@@ -1,6 +1,7 @@
 import { findStationCoordinate } from "@/lib/station-coordinates";
 import { readJsonErrorMessage, readJsonResponse, responseIsJson } from "@/lib/http-json";
 import { fetchConsistSnapshot } from "@/lib/transportvic-bot";
+import { getApiUrl } from "@/lib/api-config";
 
 export type LiveTrain = {
   tdn: string;
@@ -271,7 +272,7 @@ export async function fetchLiveTrains(bounds?: LiveViewportBounds): Promise<Live
   }
   let response: Response;
   try {
-    response = await fetch(`/api/ptv/live-trains${searchParams.size ? `?${searchParams.toString()}` : ""}`);
+    response = await fetch(getApiUrl(`/api/ptv/live-trains${searchParams.size ? `?${searchParams.toString()}` : ""}`));
   } catch (error) {
     if (error instanceof TypeError) {
       return [];

@@ -1,0 +1,36 @@
+name: Deploy Frontend to GitHub Pages
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        env:
+          # Set the base path Vite should use for GitHub Pages (repo name)
+          BASE_PATH: "/transit-alert/"
+          # Backend URL (set this secret to your Render service URL, e.g. https://transit-alert.onrender.com)
+          VITE_API_BASE_URL: ${{ secrets.RENDER_BACKEND_URL }}
+        run: pnpm build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          github_token: ${{ secrets.GITHUB_TOKEN }}

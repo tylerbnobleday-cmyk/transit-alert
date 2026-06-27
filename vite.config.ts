@@ -1663,7 +1663,7 @@ function ptvRealtimePlugin(runtimeConfig: RuntimeConfig): Plugin {
 export default defineConfig(async ({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const port = Number(env.PORT || process.env.PORT || 5173);
-  const basePath = env.BASE_PATH || process.env.BASE_PATH || "/";
+  const basePath = env.BASE_PATH || process.env.BASE_PATH || (mode === "production" ? "/transit-alert/" : "/");
   const runtimeConfig: RuntimeConfig = {
     ptvSubscriptionKey:
       env.PTV_SUBSCRIPTION_KEY ||

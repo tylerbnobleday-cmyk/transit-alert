@@ -143,6 +143,37 @@ async function serveSpa(urlObject, res) {
 }
 
 const server = createServer(async (req, res) => {
+  // Enable CORS for frontend (GitHub Pages) and local dev.
+  try {
+    const origin = req.headers.origin;
+    const allowed = (process.env.ALLOWED_ORIGINS || "https://*.github.io https://transit-alert.onrender.com http://localhost:5173 http://localhost:3000").split(/\s*,\s*/);
+    function originMatches(pattern, origin) {
+      if (!pattern) return false;
+      if (pattern === "*") return true;
+      // simple wildcard support
+      if (pattern.includes("*")) {
+        const regex = new RegExp("^" + pattern.replace(/\*/g, ".*") + "$", "i");
+        return regex.test(origin);
+      }
+      return pattern.toLowerCase() === origin.toLowerCase();
+    }
+
+    if (origin && allowed.some((p) => originMatches(p, origin))) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+  } catch (e) {
+    // Non-fatal: continue to request handling
+  }
+
   const urlObject = new URL(req.url || "/", `http://${req.headers.host || `127.0.0.1:${PORT}`}`);
   const resolvedApi = getApiResolution(urlObject);
 

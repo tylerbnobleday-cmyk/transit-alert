@@ -1,4 +1,5 @@
 import type { Report } from "@/lib/api-client-react/src/generated/api.schemas";
+import { getApiUrl } from "@/lib/api-config";
 
 export type MetroNotifyAlert = {
   id: string;
@@ -458,7 +459,7 @@ export function isHeadlineAlert(alert: MetroNotifyAlert) {
 }
 
 export async function fetchMetroNotifyAlerts(): Promise<MetroNotifyAlert[]> {
-  const response = await fetch("/api/metro-notify/alerts");
+  const response = await fetch(getApiUrl("/api/metro-notify/alerts"));
 
   if (response.status === 404) {
     return [];

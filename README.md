@@ -105,3 +105,29 @@ TransitAlert is intended to stay:
 - more stable on mobile while remaining full-featured on desktop
 
 See the internal policy note at [`docs/ORIGINAL_ASSETS_PRIVACY_AND_OPERATIONS.md`](docs/ORIGINAL_ASSETS_PRIVACY_AND_OPERATIONS.md).
+
+## Split deployment: Frontend on GitHub Pages, Backend on Render
+
+This repository can be deployed with the frontend as a static site on GitHub Pages and the Node.js backend running on Render. Key steps and notes:
+
+- **Frontend build configuration**: Vite reads `BASE_PATH` (or `process.env.BASE_PATH`) to set the `base` path used for assets and routing. The GitHub Actions workflow sets `BASE_PATH` to `/transit-alert/` for the repo.
+- **API base URL**: The frontend uses the environment variable `VITE_API_BASE_URL` at build time to point API requests to the Render backend. Set the secret `RENDER_BACKEND_URL` in GitHub to your Render service URL (e.g. `https://transit-alert.onrender.com`).
+- **CORS**: The backend enables CORS. You can configure allowed origins with the `ALLOWED_ORIGINS` environment variable on Render (comma-separated patterns, supports `*` and `*.github.io`). Default allows `https://*.github.io`, `https://transit-alert.onrender.com`, and localhost dev ports.
+- **GitHub Actions**: A workflow at `.github/workflows/deploy-frontend.yml` will build the frontend and publish the `dist/` output to the `gh-pages` branch when you push to `master`.
+
+Quick checklist:
+
+- On Render: keep the existing service (`render.yaml`) for the backend. Ensure `DATABASE_URL`, `AUTH_SESSION_SECRET`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD` remain configured.
+- On GitHub: add repository secret `RENDER_BACKEND_URL` set to your Render URL (for production builds).
+- Optionally set `ALLOWED_ORIGINS` on Render to restrict CORS to your site.
+- If you want to build the frontend locally for GitHub Pages, run `pnpm run build:github-pages`.
+
+Local development:
+
+- Run `pnpm install` then `pnpm dev`. The frontend will default to using `http://localhost:3000` as a development backend if available.
+- To test against your Render backend locally, set `VITE_API_BASE_URL` in your local environment before building or running.
+
+If you'd like, I can now:
+
+- Add an `.env.example` documenting the frontend build env variables.
+- Add a small script to `package.json` to build with the correct `BASE_PATH` for GitHub Pages.

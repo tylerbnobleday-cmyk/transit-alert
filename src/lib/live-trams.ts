@@ -1,4 +1,5 @@
 import { readJsonErrorMessage, readJsonResponse, responseIsJson } from "@/lib/http-json";
+import { getApiUrl } from "@/lib/api-config";
 
 export type LiveTram = {
   id: string;
@@ -146,7 +147,7 @@ export async function fetchLiveTrams(bounds?: LiveViewportBounds): Promise<LiveT
           maxLng: String(bounds.maxLng),
         }).toString()}`
       : "";
-    response = await fetch(`/api/ptv/live-trams${search}`);
+    response = await fetch(getApiUrl(`/api/ptv/live-trams${search}`));
   } catch (error) {
     if (error instanceof TypeError) {
       return [];

@@ -305,6 +305,13 @@ export const INTERCHANGE_DATABASE: TransitInterchange[] = [
     tramRoutes: [],
     busRoutes: ["708", "811", "812", "825"],
   },
+  {
+    name: "Malvern",
+    type: "local_interchange",
+    trainLines: ["Glen Waverley"],
+    tramRoutes: ["16"],
+    busRoutes: [],
+  },
 ];
 
 function normaliseStationName(value: string) {

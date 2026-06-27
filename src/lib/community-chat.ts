@@ -1,3 +1,5 @@
+import { getApiUrl } from "@/lib/api-config";
+
 export type CommunityChatMessage = {
   id: string;
   text: string;
@@ -15,7 +17,7 @@ type CommunityChatResponse = {
 };
 
 export async function fetchCommunityMessages(): Promise<CommunityChatMessage[]> {
-  const response = await fetch("/api/chat/messages");
+  const response = await fetch(getApiUrl("/api/chat/messages"));
   if (!response.ok) {
     throw new Error(`Failed to load community chat (${response.status})`);
   }
@@ -28,7 +30,7 @@ export async function postCommunityMessage(input: {
   text: string;
   topic?: string | null;
 }): Promise<CommunityChatMessage> {
-  const response = await fetch("/api/chat/messages", {
+  const response = await fetch(getApiUrl("/api/chat/messages"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

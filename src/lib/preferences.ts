@@ -1,3 +1,5 @@
+import { getApiUrl } from "@/lib/api-config";
+
 export type UserPreferences = {
   favouriteStops: string[];
   favouriteRoutes: string[];
@@ -101,7 +103,7 @@ export function clearLocalPreferences() {
 
 export async function fetchAccountPreferences() {
   try {
-    const response = await fetch("/api/preferences");
+    const response = await fetch(getApiUrl("/api/preferences"));
     if (!response.ok) {
       throw new Error(`Failed to load preferences (${response.status})`);
     }
@@ -126,7 +128,7 @@ export async function fetchAccountPreferences() {
 
 export async function saveAccountPreferences(preferences: Partial<UserPreferences>) {
   try {
-    const response = await fetch("/api/preferences", {
+    const response = await fetch(getApiUrl("/api/preferences"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(preferences),
@@ -150,7 +152,7 @@ export async function saveAccountPreferences(preferences: Partial<UserPreference
 
 export async function mergeLocalPreferences(preferences: UserPreferences) {
   try {
-    const response = await fetch("/api/preferences/merge", {
+    const response = await fetch(getApiUrl("/api/preferences/merge"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(preferences),

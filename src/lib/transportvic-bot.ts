@@ -1,3 +1,5 @@
+import { getApiUrl } from "@/lib/api-config";
+
 export type ConsistSnapshot = {
   consist: string;
   as_of: string;
@@ -38,7 +40,7 @@ export type ConsistSnapshot = {
 };
 
 export async function fetchConsistSnapshot(consist = "430M"): Promise<ConsistSnapshot> {
-  const response = await fetch(`/api/consist/${encodeURIComponent(consist)}`);
+  const response = await fetch(getApiUrl(`/api/consist/${encodeURIComponent(consist)}`));
 
   if (!response.ok) {
     let message = `Failed to load consist ${consist} (${response.status})`;

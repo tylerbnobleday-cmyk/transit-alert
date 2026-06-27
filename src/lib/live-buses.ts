@@ -1,4 +1,5 @@
 import { readJsonErrorMessage, readJsonResponse, responseIsJson } from "@/lib/http-json";
+import { getApiUrl } from "@/lib/api-config";
 
 export type LiveBus = {
   id: string;
@@ -135,7 +136,7 @@ export async function fetchLiveBuses(bounds?: LiveViewportBounds): Promise<LiveB
           maxLng: String(bounds.maxLng),
         }).toString()}`
       : "";
-    response = await fetch(`/api/ptv/live-buses${search}`);
+    response = await fetch(getApiUrl(`/api/ptv/live-buses${search}`));
   } catch (error) {
     if (error instanceof TypeError) {
       return [];

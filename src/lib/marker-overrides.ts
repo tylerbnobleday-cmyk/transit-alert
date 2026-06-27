@@ -1,3 +1,5 @@
+import { getApiUrl } from "@/lib/api-config";
+
 export type MarkerOverride = {
   markerName: string;
   markerType?: string;
@@ -7,7 +9,7 @@ export type MarkerOverride = {
 };
 
 export async function fetchMarkerOverrides() {
-  const response = await fetch("/api/admin/markers");
+  const response = await fetch(getApiUrl("/api/admin/markers"));
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({ error: "Failed to load marker overrides" }))) as { error?: string };
     throw new Error(payload.error || "Failed to load marker overrides");
@@ -17,7 +19,7 @@ export async function fetchMarkerOverrides() {
 }
 
 export async function saveMarkerOverrides(overrides: MarkerOverride[]) {
-  const response = await fetch("/api/admin/markers", {
+  const response = await fetch(getApiUrl("/api/admin/markers"), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ overrides }),
