@@ -41,7 +41,9 @@ async function readAuthPayload(response: Response) {
 }
 
 export async function fetchAuthSession(): Promise<AuthSession> {
-  const response = await fetch(getApiUrl("/api/auth/session"));
+  const response = await fetch(getApiUrl("/api/auth/session"), {
+    credentials: "include",
+  });
   if (!response.ok) {
     throw new Error(`Failed to load auth session (${response.status})`);
   }
@@ -52,6 +54,7 @@ export async function loginWithPassword(username: string, password: string): Pro
   const response = await fetch(getApiUrl("/api/auth/login"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ username, password }),
   });
 
@@ -72,6 +75,7 @@ export async function registerAccount(
   const response = await fetch(getApiUrl("/api/auth/register"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ username, email, password, role }),
   });
 
@@ -86,6 +90,7 @@ export async function registerAccount(
 export async function continueAsGuest(): Promise<AuthSession> {
   const response = await fetch(getApiUrl("/api/auth/guest"), {
     method: "POST",
+    credentials: "include",
   });
 
   const payload = await readAuthPayload(response);
@@ -121,7 +126,9 @@ export function hasGuestIntent() {
 }
 
 export async function fetchRoles(): Promise<RolesPayload> {
-  const response = await fetch(getApiUrl("/api/auth/roles"));
+  const response = await fetch(getApiUrl("/api/auth/roles"), {
+    credentials: "include",
+  });
   if (!response.ok) {
     throw new Error(`Failed to load roles (${response.status})`);
   }
@@ -138,6 +145,7 @@ export async function fetchRoles(): Promise<RolesPayload> {
 export async function logoutSession(): Promise<void> {
   const response = await fetch(getApiUrl("/api/auth/logout"), {
     method: "POST",
+    credentials: "include",
   });
 
   if (!response.ok) {

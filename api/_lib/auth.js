@@ -379,14 +379,14 @@ export function setSessionCookie(res, user, maxAgeSeconds = 60 * 60 * 24 * 7) {
   const token = createSignedSession(user);
   res.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}; Secure`,
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=None; Max-Age=${maxAgeSeconds}; Secure`,
   );
 }
 
 export function clearSessionCookie(res) {
   res.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`,
+    `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure`,
   );
 }
 

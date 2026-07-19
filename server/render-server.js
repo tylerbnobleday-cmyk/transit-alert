@@ -41,13 +41,14 @@ const CONTENT_TYPES = {
 function createResponseShim(res) {
   return {
     statusCode: 200,
-    headers: {},
+    headers: { ...res.getHeaders() },
     status(code) {
       this.statusCode = code;
       return this;
     },
     setHeader(name, value) {
       this.headers[name] = value;
+      res.setHeader(name, value);
       return this;
     },
     json(payload) {
@@ -62,7 +63,7 @@ function createResponseShim(res) {
         typeof payload === "string" || Buffer.isBuffer(payload)
           ? payload
           : JSON.stringify(payload);
-      res.writeHead(this.statusCode, this.headers);
+      res.writeHead(this.statusCode, { ...res.getHeaders(), ...this.headers });
       res.end(body);
       return this;
     },
@@ -146,23 +147,12 @@ const server = createServer(async (req, res) => {
   // Enable CORS for frontend (GitHub Pages) and local dev.
   try {
     const origin = req.headers.origin;
-    const allowed = (process.env.ALLOWED_ORIGINS || "https://*.github.io https://transit-alert.onrender.com http://localhost:5173 http://localhost:3000").split(/\s*,\s*/);
-    function originMatches(pattern, origin) {
-      if (!pattern) return false;
-      if (pattern === "*") return true;
-      // simple wildcard support
-      if (pattern.includes("*")) {
-        const regex = new RegExp("^" + pattern.replace(/\*/g, ".*") + "$", "i");
-        return regex.test(origin);
-      }
-      return pattern.toLowerCase() === origin.toLowerCase();
-    }
-
-    if (origin && allowed.some((p) => originMatches(p, origin))) {
+    if (origin) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
       res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Vary", "Origin");
     }
 
     if (req.method === "OPTIONS") {
