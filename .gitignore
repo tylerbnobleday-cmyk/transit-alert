@@ -50,6 +50,8 @@ Thumbs.db
 .env.*
 .env
 .codex-temp/
+.local-host/
+.local-public/
 .tmp-bus-gtfs/
 .tmp-tram-gtfs/
 gtfs.zip

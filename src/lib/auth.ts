@@ -1,4 +1,5 @@
 import { getApiUrl } from "@/lib/api-config";
+import { buildSessionHeaders, clearSessionToken, readSessionToken, writeSessionToken } from "@/lib/session-token";
 
 export type AuthUser = {
   id?: string;
@@ -14,6 +15,7 @@ export type AuthSession = {
   roles?: string[];
   databaseConfigured?: boolean;
   accountStorage?: "database" | "fallback";
+  sessionToken?: string;
 };
 
 export type RolesPayload = {
@@ -43,17 +45,24 @@ async function readAuthPayload(response: Response) {
 export async function fetchAuthSession(): Promise<AuthSession> {
   const response = await fetch(getApiUrl("/api/auth/session"), {
     credentials: "include",
+    headers: buildSessionHeaders(),
   });
   if (!response.ok) {
     throw new Error(`Failed to load auth session (${response.status})`);
   }
-  return (await response.json()) as AuthSession;
+  const payload = (await response.json()) as AuthSession;
+  if (payload.sessionToken) {
+    writeSessionToken(payload.sessionToken);
+  } else if (!payload.authenticated && readSessionToken()) {
+    clearSessionToken();
+  }
+  return payload;
 }
 
 export async function loginWithPassword(username: string, password: string): Promise<AuthSession> {
   const response = await fetch(getApiUrl("/api/auth/login"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildSessionHeaders({ "Content-Type": "application/json" }),
     credentials: "include",
     body: JSON.stringify({ username, password }),
   });
@@ -61,6 +70,10 @@ export async function loginWithPassword(username: string, password: string): Pro
   const payload = await readAuthPayload(response);
   if (!response.ok) {
     throw new Error(payload.error || "Login failed");
+  }
+
+  if (payload.sessionToken) {
+    writeSessionToken(payload.sessionToken);
   }
 
   return payload;
@@ -74,7 +87,7 @@ export async function registerAccount(
 ): Promise<AuthSession> {
   const response = await fetch(getApiUrl("/api/auth/register"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildSessionHeaders({ "Content-Type": "application/json" }),
     credentials: "include",
     body: JSON.stringify({ username, email, password, role }),
   });
@@ -84,6 +97,10 @@ export async function registerAccount(
     throw new Error(payload.error || "Registration failed");
   }
 
+  if (payload.sessionToken) {
+    writeSessionToken(payload.sessionToken);
+  }
+
   return payload;
 }
 
@@ -91,11 +108,16 @@ export async function continueAsGuest(): Promise<AuthSession> {
   const response = await fetch(getApiUrl("/api/auth/guest"), {
     method: "POST",
     credentials: "include",
+    headers: buildSessionHeaders(),
   });
 
   const payload = await readAuthPayload(response);
   if (!response.ok) {
     throw new Error(payload.error || "Guest access failed");
+  }
+
+  if (payload.sessionToken) {
+    writeSessionToken(payload.sessionToken);
   }
 
   return payload;
@@ -128,6 +150,7 @@ export function hasGuestIntent() {
 export async function fetchRoles(): Promise<RolesPayload> {
   const response = await fetch(getApiUrl("/api/auth/roles"), {
     credentials: "include",
+    headers: buildSessionHeaders(),
   });
   if (!response.ok) {
     throw new Error(`Failed to load roles (${response.status})`);
@@ -146,9 +169,12 @@ export async function logoutSession(): Promise<void> {
   const response = await fetch(getApiUrl("/api/auth/logout"), {
     method: "POST",
     credentials: "include",
+    headers: buildSessionHeaders(),
   });
 
   if (!response.ok) {
     throw new Error(`Failed to sign out (${response.status})`);
   }
+
+  clearSessionToken();
 }

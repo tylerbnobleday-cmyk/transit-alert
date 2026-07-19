@@ -146,14 +146,12 @@ async function serveSpa(urlObject, res) {
 const server = createServer(async (req, res) => {
   // Enable CORS for frontend (GitHub Pages) and local dev.
   try {
-    const origin = req.headers.origin;
-    if (origin) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-      res.setHeader("Vary", "Origin");
-    }
+    const origin = req.headers.origin || "https://tylerbnobleday-cmyk.github.io";
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Vary", "Origin");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -174,6 +172,7 @@ const server = createServer(async (req, res) => {
     try {
       await resolvedApi.handler(req, createResponseShim(res));
     } catch (error) {
+      console.error("[transitalert-api] Request failed", urlObject.pathname, error);
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
       res.end(JSON.stringify({ error: "Unexpected server error" }));
     }

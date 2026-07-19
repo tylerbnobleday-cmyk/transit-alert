@@ -13,11 +13,24 @@ import {
   registerUser,
   sendJson,
   setSessionCookie,
+  getSignedSessionToken,
 } from "../_lib/auth.js";
 
 export default async function handler(req, res) {
   const action = Array.isArray(req.query?.action) ? req.query.action[0] : req.query?.action;
   const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]{3,32}$/;
+  const origin = req.headers?.origin || "https://tylerbnobleday-cmyk.github.io";
+
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Vary", "Origin");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
 
   const rejectIfRateLimited = (scope, options) => {
     const result = consumeAuthRateLimit(req, scope, options);
@@ -38,6 +51,7 @@ export default async function handler(req, res) {
       roles: ROLE_OPTIONS,
       databaseConfigured: storageStatus.databaseConfigured,
       accountStorage: storageStatus.accountStorage,
+      sessionToken: user ? getSignedSessionToken(user) : null,
     });
     return;
   }
@@ -74,6 +88,7 @@ export default async function handler(req, res) {
       authenticated: true,
       user: guestUser,
       roles: ROLE_OPTIONS,
+      sessionToken: getSignedSessionToken(guestUser),
     });
     return;
   }
@@ -127,6 +142,7 @@ export default async function handler(req, res) {
       authenticated: true,
       user,
       roles: ROLE_OPTIONS,
+      sessionToken: getSignedSessionToken(user),
     });
     return;
   }
@@ -220,6 +236,7 @@ export default async function handler(req, res) {
       authenticated: true,
       user,
       roles: ROLE_OPTIONS,
+      sessionToken: getSignedSessionToken(user),
     });
     return;
   }

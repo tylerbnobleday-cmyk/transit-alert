@@ -323,6 +323,20 @@ function createSignedSession(user) {
   return `${encoded}.${sign(encoded)}`;
 }
 
+function readSessionTokenFromHeaders(req) {
+  const authorization = req.headers?.authorization;
+  if (typeof authorization === "string" && authorization.startsWith("Bearer ")) {
+    return authorization.slice("Bearer ".length).trim();
+  }
+
+  const customHeader = req.headers?.["x-transitalert-session"];
+  if (typeof customHeader === "string" && customHeader.trim()) {
+    return customHeader.trim();
+  }
+
+  return "";
+}
+
 function readSignedSession(rawCookie) {
   if (!rawCookie || typeof rawCookie !== "string") return null;
   const [encoded, signature] = rawCookie.split(".");
@@ -381,6 +395,10 @@ export function setSessionCookie(res, user, maxAgeSeconds = 60 * 60 * 24 * 7) {
     "Set-Cookie",
     `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=None; Max-Age=${maxAgeSeconds}; Secure`,
   );
+}
+
+export function getSignedSessionToken(user) {
+  return createSignedSession(user);
 }
 
 export function clearSessionCookie(res) {
@@ -487,7 +505,8 @@ export async function ensureAdminAccount() {
 export async function getSessionUser(req) {
   await ensureAdminAccount();
   const cookies = parseCookies(req);
-  const parsed = readSignedSession(cookies[SESSION_COOKIE] || "");
+  const token = readSessionTokenFromHeaders(req) || cookies[SESSION_COOKIE] || "";
+  const parsed = readSignedSession(token);
   if (!parsed?.id) return null;
 
   try {
