@@ -51,6 +51,7 @@ Thumbs.db
 .env
 .codex-temp/
 .local-host/
+.local-db/
 .local-public/
 .tmp-bus-gtfs/
 .tmp-tram-gtfs/

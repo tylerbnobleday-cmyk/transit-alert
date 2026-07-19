@@ -353,15 +353,15 @@ const PID_THEMES: PidThemeMode[] = ["dark", "light"];
 const VERSION_LOG: ChangelogEntry[] = [
   {
     version: TRANSITALERT_WEB_VERSION,
-    date: "14/05/2026",
+    date: "19/07/2026",
     notes: [
-      "V/Line realtime trips now show a public service label with time, route, consist length, and train family instead of exposing raw trip IDs.",
-      "Journey planning now includes a disruption brief that explains delays, track work, service changes, and incidents against your planned corridor.",
-      "Special regional train movements are called out more clearly when they appear in live tracking.",
-      "Debug notes now call out station marker and position bugs to verify, including the Sandringham line geometry pass.",
-      "Admin tools now show the approved debug-tester whitelist beside the account list for faster tester management.",
-      "Tyler admin defaults were cleaned up with the correct email + premium access, and public-facing TDN labels are now masked behind premium.",
-      "Database-first Render account handling was refined again so persistence, tester sign-up, and release tracking are easier to manage.",
+      "Version 0.90 is now the public guest release, with guest browsing framed as the main first-time app experience.",
+      "Real account storage now runs against the embedded database path used by the local host so sign-in, registration, and relaunch persistence work for live tests.",
+      "Jack Miller was added as the first built-in debug tester alias set so tester-only account registration is easier to verify end-to-end.",
+      "NSW TrainLink regional classification now prefers XPT labelling when the feed is generic, which avoids misreading those services as VLocity or other regional stock.",
+      "Mobile login and account surfaces were tightened up with smaller spacing, lighter cards, and less cramped controls on narrow screens.",
+      "Admin account notes now describe the real server allowlist instead of older Netlify wording.",
+      "Guest guardrails, account messaging, and release board copy were refreshed to match the 0.90 public guest launch.",
     ],
   },
   {
@@ -483,16 +483,16 @@ const TRANSITALERT_SYSTEM_NOTES = [
 
 const VERSION_HIGHLIGHT_CARDS = [
   {
-    title: "What’s new in 0.89",
-    body: "V/Line realtime cards now show time, route, consist size, train family, and special-train context alongside tester and account polish.",
+    title: "What’s new in 0.90",
+    body: "TransitAlert 0.90 is the guest version, with public browsing on the map and planner while real accounts persist through the live embedded database.",
   },
   {
-    title: "Journey planning",
-    body: "Active journeys now get a disruption brief so alerts read as delays, track work, service changes, or incidents for the corridor you are using.",
+    title: "Guest + accounts",
+    body: "Guest mode stays quick for casual browsing, while tester sign-up, sign-in, and remembered account data now run against the same real local database host.",
   },
   {
-    title: "Privacy and assets",
-    body: "The app icon, fleet icons, and release notes were refreshed to stay original, independent, and clearer about data and security expectations.",
+    title: "Regional live tracking",
+    body: "NSW TrainLink services are labelled more cleanly as XPT or Xplorer in the regional fleet layer, which reduces the old generic-service confusion.",
   },
 ] as const;
 
@@ -735,6 +735,7 @@ function getRegionalFleetTrainFamily(vehicle: LiveTrain) {
   const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
   if (/XPT/.test(joined)) return "XPT";
   if (/XPLORER/.test(joined)) return "Xplorer";
+  if (/NSW TRAINLINK/.test(joined)) return "XPT";
   if (/SPRINTER/.test(joined)) return "Sprinter";
   if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "N class";
   if (/VLOCITY|\bV\d{3,4}\b/.test(joined)) return "VLocity";
@@ -3463,8 +3464,8 @@ export default function Home() {
                           <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
                             <p className="text-xs uppercase tracking-[0.18em] text-white/45">Sign-up gate</p>
                             <p className="mt-2 text-white">
-                              Registration is currently limited to approved debug testers from the Netlify env var <span className="font-semibold text-blue-200">APPROVED_DEBUG_TESTERS</span>.
-                              Version 1.0 is where normal public traveller sign-up is meant to open.
+                              Registration is currently limited to approved debug testers from the server allowlist <span className="font-semibold text-blue-200">APPROVED_DEBUG_TESTERS</span>.
+                              Version 0.90 is the guest release, and version 1.0 is where normal public traveller sign-up is meant to open.
                             </p>
                           </div>
                           <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
@@ -3704,7 +3705,7 @@ export default function Home() {
             }
             setIsAddDrawerOpen(true);
           }}
-          className="pointer-events-auto group flex min-h-12 max-w-[calc(100vw-7.5rem)] items-center justify-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-bold text-black shadow-[0_10px_40px_rgba(255,255,255,0.3)] transition-all hover:scale-105 active:scale-95 max-[430px]:max-w-[calc(100vw-6.5rem)] max-[430px]:px-4 sm:px-6 sm:text-base"
+          className="pointer-events-auto group flex min-h-11 max-w-[calc(100vw-8rem)] items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-bold text-black shadow-[0_10px_40px_rgba(255,255,255,0.3)] transition-all hover:scale-105 active:scale-95 max-[430px]:max-w-[calc(100vw-6rem)] max-[430px]:px-3.5 sm:min-h-12 sm:px-6 sm:py-3 sm:text-base"
         >
           <div className="rounded-full bg-black p-1 text-white transition-transform duration-300 group-hover:rotate-90">
             <Plus className="h-4 w-4" />
@@ -3713,7 +3714,7 @@ export default function Home() {
         </button>
       </div>
 
-      <div className="pointer-events-none absolute bottom-20 left-3 z-30 max-w-[12.5rem] rounded-2xl border border-white/10 bg-slate-950/78 px-3 py-2.5 text-[10px] leading-4 text-white/75 shadow-xl backdrop-blur-xl sm:bottom-6 sm:left-6 sm:max-w-xs sm:text-xs sm:leading-4">
+      <div className="pointer-events-none absolute bottom-[4.4rem] left-2.5 z-30 max-w-[10.75rem] rounded-[1.1rem] border border-white/10 bg-slate-950/78 px-2.5 py-2 text-[9px] leading-3.5 text-white/75 shadow-xl backdrop-blur-xl sm:bottom-6 sm:left-6 sm:max-w-xs sm:rounded-2xl sm:px-3 sm:py-2.5 sm:text-xs sm:leading-4">
         <p className="font-semibold text-white/85">Copyright 2026 Tyler Rose. TransitAlert.</p>
         <p className="mt-1">
           TransitAlert is an independent project. We are not operated by, affiliated with, or endorsed by the Department of Transport and Planning, Transport Victoria, PTV, or Metro Trains Melbourne.

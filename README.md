@@ -1,16 +1,28 @@
 # TransitAlert
 
-TransitAlert is an independent Melbourne public transport map and tracking app focused on trains, trams, buses, V/Line, selected freight overlays, and tester/admin tools for validating live transport features.
+TransitAlert is an independent Melbourne public transport map and tracking app focused on trains, trams, buses, V/Line, selected freight overlays, guest browsing, and tester/admin tools for validating live transport features.
 
 ## Current release
 
-- Web version: `0.89`
-- Host target: Render
+- Web version: `0.90`
+- Public guest frontend: [GitHub Pages](https://tylerbnobleday-cmyk.github.io/transit-alert/)
+- Local/live backend host target: local Node server with optional tunnel or Render-style deployment
 - Frontend: Vite + React + TypeScript
 - Backend/API style: local Node server with API handlers under [`api/`](api/)
 
+## Guest version 0.90
+
+Version `0.90` is the public guest release.
+
+- Guest users can browse the map and planner without making an account
+- Signed-in tester/admin accounts now persist in the real embedded database configured through `DATABASE_URL`
+- Tester registration is still gated through `APPROVED_DEBUG_TESTERS`
+- NSW TrainLink/XPT regional labelling was cleaned up to reduce generic fleet confusion
+- Mobile account screens were tightened up so they feel less cramped on narrow phones
+
 ## Main features
 
+- Guest map + planner access for public browsing
 - Live Metro, tram, bus, and V/Line map layers
 - Premium-gated train lookup tools
 - Journey planner with saved active journey state
@@ -20,6 +32,7 @@ TransitAlert is an independent Melbourne public transport map and tracking app f
   - marker overrides
   - approved debug tester visibility
 - Freight overlay and selected interstate/XPT support
+- Embedded local database hosting via `pglite://...` for self-hosted account persistence
 
 ## Copyright
 
@@ -35,6 +48,7 @@ Right now the app is still in a tester/admin phase rather than open public regis
 - Approved debug testers can register while tester mode is active
 - Admins can manage roles, premium access, and tester visibility from the app
 - A real `DATABASE_URL` is required for proper account persistence
+- The local self-host path can use `pglite://.local-db/transit-alert`
 
 ## Important environment variables
 
@@ -47,7 +61,7 @@ Right now the app is still in a tester/admin phase rather than open public regis
 - `PTV_SUBSCRIPTION_KEY`
 - `NSW_TRANSPORT_API_KEY` (optional for NSW/XPT live support)
 
-Set `NSW_TRANSPORT_API_KEY` in Render environment variables for NSW TrainLink/XPT live tracking. Do not commit the token into the repo.
+Set `NSW_TRANSPORT_API_KEY` on the live host for NSW TrainLink/XPT realtime support. Do not commit the token into the repo.
 
 ## Local development
 
@@ -75,9 +89,34 @@ Run the production-style server locally:
 pnpm start
 ```
 
+## Self-host / local background host
+
+This repo can run as its own background host on your PC.
+
+Recommended commands:
+
+- Build:
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/local-host-build.ps1
+```
+
+- Start local background host:
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/local-host-start.ps1
+```
+
+The local host config lives at `.local-host/host-config.ps1` and now supports:
+
+- `DATABASE_URL=pglite://.local-db/transit-alert`
+- `APPROVED_DEBUG_TESTERS`
+- `PTV_SUBSCRIPTION_KEY`
+- `NSW_TRANSPORT_API_KEY`
+
 ## Render deployment
 
-The repo is set up to run on Render.
+The repo can still be deployed on Render if you want a cloud backend later.
 
 Recommended commands:
 

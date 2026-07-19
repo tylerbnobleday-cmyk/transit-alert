@@ -6,11 +6,10 @@ import {
   serial,
   text,
   timestamp,
-  uuid,
 } from "drizzle-orm/pg-core";
 
 export const appUsersTable = pgTable("app_users", {
-  id: uuid("id").defaultRandom().primaryKey(),
+  id: text("id").primaryKey(),
   username: text("username").notNull().unique(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
@@ -21,7 +20,7 @@ export const appUsersTable = pgTable("app_users", {
 });
 
 export const userPreferencesTable = pgTable("user_preferences", {
-  userId: uuid("user_id")
+  userId: text("user_id")
     .primaryKey()
     .references(() => appUsersTable.id, { onDelete: "cascade" }),
   favouriteStops: jsonb("favourite_stops").$type<string[]>().notNull().default([]),
@@ -35,7 +34,7 @@ export const userPreferencesTable = pgTable("user_preferences", {
 export const appConfigTable = pgTable("app_config", {
   key: text("key").primaryKey(),
   value: jsonb("value").$type<Record<string, unknown>>().notNull().default({}),
-  updatedBy: uuid("updated_by").references(() => appUsersTable.id, { onDelete: "set null" }),
+  updatedBy: text("updated_by").references(() => appUsersTable.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -46,6 +45,6 @@ export const markerOverridesTable = pgTable("marker_overrides", {
   lat: doublePrecision("lat").notNull(),
   lng: doublePrecision("lng").notNull(),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
-  updatedBy: uuid("updated_by").references(() => appUsersTable.id, { onDelete: "set null" }),
+  updatedBy: text("updated_by").references(() => appUsersTable.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

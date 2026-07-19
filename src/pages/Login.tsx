@@ -140,9 +140,9 @@ export default function Login() {
     <main className="relative min-h-[100dvh] overflow-hidden bg-background text-white">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_34%),radial-gradient(circle_at_bottom,_rgba(15,23,42,0.95),_rgba(2,6,23,1)_60%)]" />
 
-      <div className="relative mx-auto flex min-h-[100dvh] max-w-6xl items-start px-4 py-5 sm:px-6 sm:py-8">
-        <div className="grid w-full gap-5 lg:grid-cols-[1.02fr_0.98fr]">
-          <section className="order-2 rounded-[2rem] border border-white/10 bg-card/70 p-5 shadow-2xl backdrop-blur-2xl sm:p-8 lg:order-1">
+      <div className="relative mx-auto flex min-h-[100dvh] max-w-6xl items-start px-3 py-4 sm:px-6 sm:py-8">
+        <div className="grid w-full gap-4 lg:grid-cols-[1.02fr_0.98fr]">
+          <section className="order-2 rounded-[1.7rem] border border-white/10 bg-card/70 p-4 shadow-2xl backdrop-blur-2xl sm:rounded-[2rem] sm:p-8 lg:order-1">
             <div className="hidden lg:block">
               <div className="inline-flex items-center gap-3 rounded-full border border-blue-400/20 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-200">
                 <img
@@ -164,7 +164,7 @@ export default function Login() {
               </p>
             </div>
 
-            <div className="mt-6 rounded-[1.55rem] border border-white/10 bg-gradient-to-br from-blue-500/10 to-white/5 p-4 sm:p-5">
+            <div className="mt-5 rounded-[1.35rem] border border-white/10 bg-gradient-to-br from-blue-500/10 to-white/5 p-3.5 sm:mt-6 sm:rounded-[1.55rem] sm:p-5">
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Sparkles className="h-4 w-4 text-blue-300" />
                 What signing in unlocks
@@ -187,7 +187,7 @@ export default function Login() {
               </div>
             </div>
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="mt-5 grid gap-2.5 sm:mt-6 sm:gap-3 sm:grid-cols-2">
               {[
                 {
                   title: "Real-Time Train Tracking",
@@ -222,7 +222,7 @@ export default function Login() {
               ].map((feature) => (
                 <div
                   key={feature.title}
-                  className="rounded-[1.1rem] border border-white/10 bg-white/5 px-4 py-3"
+                  className="rounded-[1rem] border border-white/10 bg-white/5 px-3.5 py-3 sm:rounded-[1.1rem] sm:px-4"
                 >
                   <p className="text-sm font-semibold leading-tight text-white">{feature.title}</p>
                   <p className="mt-1 text-xs leading-5 text-white/60">{feature.description}</p>
@@ -231,8 +231,8 @@ export default function Login() {
             </div>
           </section>
 
-          <section className="order-1 rounded-[2rem] border border-white/10 bg-slate-950/85 p-5 shadow-2xl backdrop-blur-2xl sm:p-8 lg:order-2">
-            <div className="mb-5 lg:hidden">
+          <section className="order-1 rounded-[1.7rem] border border-white/10 bg-slate-950/85 p-4 shadow-2xl backdrop-blur-2xl sm:rounded-[2rem] sm:p-8 lg:order-2">
+            <div className="mb-4 lg:hidden">
               <div className="inline-flex items-center gap-3 rounded-full border border-blue-400/20 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-200">
                 <img
                   src={`${import.meta.env.BASE_URL}app-logo.svg`}
@@ -242,15 +242,15 @@ export default function Login() {
                 TransitAlert Melbourne
               </div>
 
-              <p className="mt-6 text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/80">
+              <p className="mt-5 text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/80">
                 Accounts
               </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">
-                Sign in or register before entering the network app.
+              <h1 className="mt-3 text-[1.85rem] font-semibold tracking-tight text-white sm:text-3xl">
+                Guest version 0.90 is live with slimmer mobile auth screens.
               </h1>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-white/5 p-1">
+            <div className="grid grid-cols-2 gap-2 rounded-[1.15rem] border border-white/10 bg-white/5 p-1">
               <button
                 type="button"
                 onClick={() => setMode("sign-in")}
@@ -272,7 +272,7 @@ export default function Login() {
             </div>
 
             {!databaseConfigured && (
-              <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+              <div className="mt-4 rounded-[1.15rem] border border-amber-400/20 bg-amber-500/10 px-3.5 py-3 text-sm text-amber-100 sm:px-4">
                 The account database is not configured yet. Guest browsing still works, but sign-in and new account persistence
                 need the live database connected first.
               </div>
@@ -280,16 +280,16 @@ export default function Login() {
 
             {mode === "sign-in" ? (
               <div>
-                <p className="mt-6 text-xs font-semibold uppercase tracking-[0.24em] text-white/45">
+                <p className="mt-5 text-xs font-semibold uppercase tracking-[0.24em] text-white/45">
                   Sign In
                 </p>
                 <h2 className="mt-3 text-2xl font-semibold text-white">Welcome back</h2>
                 <p className="mt-2 text-sm text-white/60">
-                  Sign in to open the live map, planner, and saved account tools.
+                  Sign in to open the live map, planner, and saved account tools, or use guest mode for the public 0.90 browse experience.
                 </p>
 
                 <form
-                  className="mt-8 space-y-4"
+                  className="mt-6 space-y-3.5 sm:mt-8 sm:space-y-4"
                   onSubmit={(event) => {
                     event.preventDefault();
                     loginMutation.mutate({ username, password });
@@ -304,7 +304,7 @@ export default function Login() {
                       onChange={(event) => setUsername(event.target.value)}
                       autoComplete="username"
                       placeholder="Enter username"
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-blue-400/60"
+                      className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-blue-400/60 sm:rounded-2xl sm:py-3"
                     />
                   </label>
 
@@ -318,11 +318,11 @@ export default function Login() {
                       onChange={(event) => setPassword(event.target.value)}
                       autoComplete="current-password"
                       placeholder="Enter password"
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-blue-400/60"
+                      className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-blue-400/60 sm:rounded-2xl sm:py-3"
                     />
                   </label>
 
-                  <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/75">
+                  <label className="flex items-center gap-3 rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/75 sm:rounded-2xl sm:py-3">
                     <input
                       type="checkbox"
                       checked={rememberUser}
@@ -333,7 +333,7 @@ export default function Login() {
                   </label>
 
                   {loginMutation.error instanceof Error && (
-                    <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    <div className="rounded-[1.15rem] border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 sm:rounded-2xl">
                       {loginMutation.error.message}
                     </div>
                   )}
@@ -341,7 +341,7 @@ export default function Login() {
                   <button
                     type="submit"
                     disabled={loginMutation.isPending}
-                    className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-base font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
+                    className="w-full rounded-[1.15rem] bg-blue-600 px-4 py-2.5 text-base font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70 sm:rounded-2xl sm:py-3"
                   >
                     {loginMutation.isPending ? "Signing in..." : "Sign in"}
                   </button>
@@ -350,25 +350,25 @@ export default function Login() {
                     type="button"
                     onClick={() => guestMutation.mutate()}
                     disabled={guestMutation.isPending}
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
+                    className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-base font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70 sm:rounded-2xl sm:py-3"
                   >
                     {guestMutation.isPending ? "Entering as guest..." : "Continue as guest"}
                   </button>
 
                   {(guestMutation.error instanceof Error) && (
-                    <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    <div className="rounded-[1.15rem] border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 sm:rounded-2xl">
                       {guestMutation.error.message}
                     </div>
                   )}
 
                   <p className="text-xs leading-5 text-white/50">
-                    Guest mode lets people browse the map and planner without registering, but live tools and account-only features stay restricted until they sign up.
+                    Guest mode in version 0.90 lets people browse the map and planner without registering, while live tools and account-only features stay restricted until they sign up.
                   </p>
                 </form>
               </div>
             ) : (
               <div>
-                <p className="mt-6 text-xs font-semibold uppercase tracking-[0.24em] text-white/45">
+                <p className="mt-5 text-xs font-semibold uppercase tracking-[0.24em] text-white/45">
                   Register
                 </p>
                 <h2 className="mt-3 flex items-center gap-2 text-2xl font-semibold text-white">
@@ -376,11 +376,11 @@ export default function Login() {
                   Create an account
                 </h2>
                 <p className="mt-2 text-sm text-white/60">
-                  Registration is currently for approved debug testers only. Public Traveller sign-ups open in version 1.0, and premium or staff-style roles are added manually after approval.
+                  Registration is currently for approved debug testers only. Guest version 0.90 keeps public browsing open, and public Traveller sign-ups open in version 1.0.
                 </p>
 
                 <form
-                  className="mt-8 space-y-4"
+                  className="mt-6 space-y-3.5 sm:mt-8 sm:space-y-4"
                   onSubmit={(event) => {
                     event.preventDefault();
                     registerMutation.mutate({
@@ -399,7 +399,7 @@ export default function Login() {
                       value={registerUsername}
                       onChange={(event) => setRegisterUsername(event.target.value)}
                       autoComplete="username"
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-blue-400/60"
+                      className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-blue-400/60 sm:rounded-2xl sm:py-3"
                     />
                   </label>
 
@@ -412,7 +412,7 @@ export default function Login() {
                       value={registerPassword}
                       onChange={(event) => setRegisterPassword(event.target.value)}
                       autoComplete="new-password"
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-blue-400/60"
+                      className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-blue-400/60 sm:rounded-2xl sm:py-3"
                     />
                   </label>
 
@@ -426,23 +426,24 @@ export default function Login() {
                       onChange={(event) => setRegisterEmail(event.target.value)}
                       autoComplete="email"
                       placeholder="name@example.com"
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-blue-400/60"
+                      className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-blue-400/60 sm:rounded-2xl sm:py-3"
                     />
                   </label>
 
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                  <div className="rounded-[1.15rem] border border-white/10 bg-white/5 p-3 sm:rounded-2xl">
                     <p className="text-xs font-medium uppercase tracking-[0.18em] text-white/45">
                       Registration access
                     </p>
                     <div className="mt-3 space-y-2 text-sm text-white/70">
                       <p>Approved debug testers can create accounts right now after you add them to the tester approval list.</p>
+                      <p>Jack Miller is included as the first built-in debug tester for database verification and sign-up testing.</p>
                       <p>When version 1.0 opens public sign-ups, new accounts will start as <span className="font-semibold text-white">Traveller</span>.</p>
                       <p>Premium access and any extra roles are granted manually by you or another approved admin.</p>
                     </div>
                   </div>
 
                   {registerMutation.error instanceof Error && (
-                    <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    <div className="rounded-[1.15rem] border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 sm:rounded-2xl">
                       {registerMutation.error.message}
                     </div>
                   )}
@@ -450,7 +451,7 @@ export default function Login() {
                   <button
                     type="submit"
                     disabled={registerMutation.isPending}
-                    className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-base font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
+                    className="w-full rounded-[1.15rem] bg-blue-600 px-4 py-2.5 text-base font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70 sm:rounded-2xl sm:py-3"
                   >
                     {registerMutation.isPending ? "Checking tester approval..." : "Create tester account"}
                   </button>
@@ -458,8 +459,8 @@ export default function Login() {
               </div>
             )}
 
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
-              Guest mode still works for browsing, but live tools and saved account features stay limited until sign-in.
+            <div className="mt-4 rounded-[1.15rem] border border-white/10 bg-white/5 px-3.5 py-3 text-sm text-white/60 sm:rounded-2xl sm:px-4">
+              Guest mode is the public 0.90 experience for browsing. Live tools and saved account features still stay limited until sign-in.
             </div>
           </section>
         </div>

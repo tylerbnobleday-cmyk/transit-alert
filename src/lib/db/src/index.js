@@ -1,28 +1,54 @@
-import { drizzle } from "drizzle-orm/node-postgres";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
+import { drizzle as drizzleNodePostgres } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema/index.js";
 
 const { Pool } = pg;
+const databaseUrl = String(process.env.DATABASE_URL || "").trim();
+const isPgliteUrl = databaseUrl.startsWith("pglite://");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 
-export const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL })
+function resolvePgliteDataDir(connectionString) {
+  const relativePath = connectionString.slice("pglite://".length).replace(/^\/+/, "").trim() || ".local-db/transit-alert";
+  return path.resolve(repoRoot, relativePath);
+}
+
+function ensurePgliteDataDir(connectionString) {
+  const dataDir = resolvePgliteDataDir(connectionString);
+  fs.mkdirSync(path.dirname(dataDir), { recursive: true });
+  return dataDir;
+}
+
+export const pool = databaseUrl && !isPgliteUrl
+  ? new Pool({ connectionString: databaseUrl })
   : null;
-export const db = pool ? drizzle(pool, { schema }) : null;
-export const isDatabaseConfigured = Boolean(process.env.DATABASE_URL);
+export const pglite = isPgliteUrl
+  ? new PGlite(ensurePgliteDataDir(databaseUrl))
+  : null;
+export const db = pglite
+  ? drizzlePglite({ client: pglite, schema })
+  : pool
+    ? drizzleNodePostgres(pool, { schema })
+    : null;
+export const isDatabaseConfigured = Boolean(databaseUrl);
 
 let databaseReadyPromise = null;
 
 export async function ensureDatabaseReady() {
-  if (!pool) {
+  if (!pool && !pglite) {
     return false;
   }
 
   if (!databaseReadyPromise) {
     databaseReadyPromise = (async () => {
-      await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
-      await pool.query(`
+      const bootstrapStatements = [
+        `
         CREATE TABLE IF NOT EXISTS app_users (
-          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          id text PRIMARY KEY,
           username text NOT NULL UNIQUE,
           email text NOT NULL UNIQUE,
           password_hash text NOT NULL,
@@ -31,10 +57,10 @@ export async function ensureDatabaseReady() {
           created_at timestamp NOT NULL DEFAULT now(),
           updated_at timestamp NOT NULL DEFAULT now()
         );
-      `);
-      await pool.query(`
+      `,
+        `
         CREATE TABLE IF NOT EXISTS user_preferences (
-          user_id uuid PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+          user_id text PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
           favourite_stops jsonb NOT NULL DEFAULT '[]'::jsonb,
           favourite_routes jsonb NOT NULL DEFAULT '[]'::jsonb,
           selected_map_filters jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -42,16 +68,16 @@ export async function ensureDatabaseReady() {
           app_preferences jsonb NOT NULL DEFAULT '{}'::jsonb,
           updated_at timestamp NOT NULL DEFAULT now()
         );
-      `);
-      await pool.query(`
+      `,
+        `
         CREATE TABLE IF NOT EXISTS app_config (
           key text PRIMARY KEY,
           value jsonb NOT NULL DEFAULT '{}'::jsonb,
-          updated_by uuid REFERENCES app_users(id) ON DELETE SET NULL,
+          updated_by text REFERENCES app_users(id) ON DELETE SET NULL,
           updated_at timestamp NOT NULL DEFAULT now()
         );
-      `);
-      await pool.query(`
+      `,
+        `
         CREATE TABLE IF NOT EXISTS marker_overrides (
           id serial PRIMARY KEY,
           marker_type text NOT NULL DEFAULT 'station',
@@ -59,14 +85,24 @@ export async function ensureDatabaseReady() {
           lat double precision NOT NULL,
           lng double precision NOT NULL,
           metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-          updated_by uuid REFERENCES app_users(id) ON DELETE SET NULL,
+          updated_by text REFERENCES app_users(id) ON DELETE SET NULL,
           updated_at timestamp NOT NULL DEFAULT now()
         );
-      `);
-      await pool.query(`
+      `,
+        `
         ALTER TABLE user_preferences
         ALTER COLUMN transport_modes SET DEFAULT '["train","vline"]'::jsonb;
-      `);
+      `,
+      ];
+
+      if (pglite) {
+        await pglite.exec(bootstrapStatements.join("\n"));
+        return true;
+      }
+
+      for (const statement of bootstrapStatements) {
+        await pool.query(statement);
+      }
       return true;
     })().catch((error) => {
       databaseReadyPromise = null;

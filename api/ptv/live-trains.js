@@ -162,7 +162,7 @@ function inferNswTrainLinkServiceLabel(...values) {
 
   if (joined.includes("xpt")) return "NSW TrainLink XPT";
   if (joined.includes("xplorer")) return "NSW TrainLink Xplorer";
-  return "NSW TrainLink";
+  return "NSW TrainLink XPT";
 }
 
 function inferNswTrainLinkDestination(...values) {

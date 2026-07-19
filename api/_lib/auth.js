@@ -30,10 +30,10 @@ const REGISTRATION_PHASE = (process.env.REGISTRATION_PHASE || "debug-testers").t
 const APPROVED_DEBUG_TESTERS = new Set(
   (process.env.APPROVED_DEBUG_TESTERS || process.env.DEBUG_TESTER_APPROVALS || "")
     .split(/[,\n;]/)
-    .map((value) => value.trim().toLowerCase())
+    .map((value) => value.trim())
     .filter(Boolean),
 );
-const FALLBACK_APPROVED_DEBUG_TESTERS = new Set(["jackzilla110", "testdebuger123"]);
+const FALLBACK_APPROVED_DEBUG_TESTERS = new Set(["Jack Miller", "jackmiller", "jackzilla110", "testdebuger123"]);
 const FALLBACK_USERS = [
   {
     id: "ashton",
@@ -53,6 +53,51 @@ function createFallbackUserId(username) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "user"}`;
+}
+
+function normalizeTesterValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeTesterAlias(value) {
+  return normalizeTesterValue(value).replace(/[^a-z0-9]+/g, "");
+}
+
+function buildTesterCandidateKeys(username, email) {
+  const keys = new Set();
+  const normalizedUsername = normalizeTesterValue(username);
+  const normalizedEmail = normalizeTesterValue(email);
+
+  if (normalizedUsername) {
+    keys.add(normalizedUsername);
+    keys.add(normalizeTesterAlias(normalizedUsername));
+  }
+
+  if (normalizedEmail) {
+    keys.add(normalizedEmail);
+    keys.add(normalizeTesterAlias(normalizedEmail));
+
+    const [emailUser] = normalizedEmail.split("@");
+    if (emailUser) {
+      keys.add(emailUser);
+      keys.add(normalizeTesterAlias(emailUser));
+    }
+  }
+
+  return [...keys].filter(Boolean);
+}
+
+function approvalEntriesMatch(entries, username, email) {
+  const candidateKeys = buildTesterCandidateKeys(username, email);
+  if (candidateKeys.length === 0) {
+    return false;
+  }
+
+  return [...entries].some((entry) => {
+    const normalizedEntry = normalizeTesterValue(entry);
+    const aliasEntry = normalizeTesterAlias(entry);
+    return candidateKeys.includes(normalizedEntry) || candidateKeys.includes(aliasEntry);
+  });
 }
 let cachedDbContext = undefined;
 const loggedDbFallbackScopes = new Set();
@@ -131,17 +176,16 @@ function sanitizeFallbackUser(user) {
 }
 
 export function isApprovedDebugTester(username, email) {
-  const normalizedUsername = String(username || "").trim().toLowerCase();
-  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const normalizedUsername = normalizeTesterValue(username);
+  const normalizedEmail = normalizeTesterValue(email);
 
   if (!normalizedUsername && !normalizedEmail) {
     return false;
   }
 
   return (
-    APPROVED_DEBUG_TESTERS.has(normalizedUsername) ||
-    APPROVED_DEBUG_TESTERS.has(normalizedEmail) ||
-    FALLBACK_APPROVED_DEBUG_TESTERS.has(normalizedUsername) ||
+    approvalEntriesMatch(APPROVED_DEBUG_TESTERS, normalizedUsername, normalizedEmail) ||
+    approvalEntriesMatch(FALLBACK_APPROVED_DEBUG_TESTERS, normalizedUsername, normalizedEmail) ||
     FALLBACK_USERS.some(
       (user) =>
         user.username.toLowerCase() === normalizedUsername || user.email.toLowerCase() === normalizedEmail,
@@ -323,6 +367,10 @@ function createSignedSession(user) {
   return `${encoded}.${sign(encoded)}`;
 }
 
+function createDatabaseUserId() {
+  return crypto.randomUUID();
+}
+
 function readSessionTokenFromHeaders(req) {
   const authorization = req.headers?.authorization;
   if (typeof authorization === "string" && authorization.startsWith("Bearer ")) {
@@ -430,6 +478,7 @@ export async function ensureAdminAccount() {
 
     if (!existing) {
       const [created] = await db.insert(appUsersTable).values({
+        id: createDatabaseUserId(),
         username: adminUsername,
         email: adminEmail,
         passwordHash: createPasswordHash(adminPassword),
@@ -580,6 +629,7 @@ export async function registerUser(input) {
   const [user] = await db
     .insert(appUsersTable)
     .values({
+      id: createDatabaseUserId(),
       username: input.username,
       email: input.email,
       passwordHash: createPasswordHash(input.password),

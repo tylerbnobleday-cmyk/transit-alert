@@ -23,7 +23,8 @@ if (!(Test-Path $configPath)) {
     "https://tylerbnobleday-cmyk.github.io",
     "https://tylerbnobleday-cmyk.github.io/transit-alert/"
   )
-  DatabaseUrl = ""
+  DatabaseUrl = "pglite://.local-db/transit-alert"
+  ApprovedDebugTesters = "Jack Miller,jackmiller"
   PtvSubscriptionKey = ""
   NswTransportApiKey = ""
 }
@@ -43,6 +44,7 @@ set ADMIN_PASSWORD=$($HostConfig.AdminPassword)
 set AUTH_SESSION_SECRET=$($HostConfig.AuthSessionSecret)
 set ALLOWED_ORIGINS=$allowedOrigins
 set DATABASE_URL=$($HostConfig.DatabaseUrl)
+set APPROVED_DEBUG_TESTERS=$($HostConfig.ApprovedDebugTesters)
 set PTV_SUBSCRIPTION_KEY=$($HostConfig.PtvSubscriptionKey)
 set NSW_TRANSPORT_API_KEY=$($HostConfig.NswTransportApiKey)
 node .\server\render-server.js 1>> ".\.local-host\server.out.log" 2>> ".\.local-host\server.err.log"
