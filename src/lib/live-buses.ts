@@ -4,10 +4,17 @@ import { getApiUrl } from "@/lib/api-config";
 export type LiveBus = {
   id: string;
   label: string;
+  vehicleId?: string;
+  fleetNumber?: string;
+  registration?: string;
+  tripId?: string;
   lat: number;
   lng: number;
   route: string;
   destination?: string;
+  stopId?: string;
+  stopStatus?: "incoming" | "stopped" | "in_transit";
+  stopSequence?: number;
   status?: "live";
   timestamp?: string;
   heading?: number;
@@ -39,6 +46,11 @@ function normaliseRouteLabel(value: unknown) {
   const trimmed = value.trim();
   if (!trimmed) {
     return "Bus";
+  }
+
+  const ptvRouteMatch = trimmed.match(/vic-02-([A-Z]?\d{1,4}[A-Z]?)(?::|-|$)/i);
+  if (ptvRouteMatch) {
+    return ptvRouteMatch[1].toUpperCase();
   }
 
   const plainRouteMatch = trimmed.match(/\b([A-Z]?\d{1,4}[A-Z]?)\b/i);
@@ -107,10 +119,20 @@ function normaliseLiveBus(raw: Partial<LiveBus> & Record<string, unknown>, index
   return {
     id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `bus-${index}`,
     label,
+    vehicleId: normaliseLabel(raw.vehicleId),
+    fleetNumber: normaliseLabel(raw.fleetNumber),
+    registration: normaliseLabel(raw.registration),
+    tripId: normaliseLabel(raw.tripId),
     lat: raw.lat,
     lng: raw.lng,
     route,
     destination: normaliseDestination(raw.destination),
+    stopId: normaliseLabel(raw.stopId),
+    stopStatus:
+      raw.stopStatus === "incoming" || raw.stopStatus === "stopped" || raw.stopStatus === "in_transit"
+        ? raw.stopStatus
+        : undefined,
+    stopSequence: typeof raw.stopSequence === "number" ? raw.stopSequence : undefined,
     status: "live",
     timestamp: typeof raw.timestamp === "string" ? raw.timestamp : undefined,
     heading: typeof raw.heading === "number" ? raw.heading : undefined,

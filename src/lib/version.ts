@@ -1,2 +1,2 @@
-export const TRANSITALERT_WEB_VERSION = "0.90";
+export const TRANSITALERT_WEB_VERSION = "0.91";
 export const TRANSITALERT_VERSION_LABEL = `Melbourne - Web Version ${TRANSITALERT_WEB_VERSION}`;

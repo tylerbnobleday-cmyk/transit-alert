@@ -30,6 +30,11 @@ function normaliseBusRoute(routeId, fallback = "Bus") {
     return fallback;
   }
 
+  const ptvRouteMatch = trimmed.match(/vic-02-([A-Z]?\d{1,4}[A-Z]?)(?::|-|$)/i);
+  if (ptvRouteMatch) {
+    return ptvRouteMatch[1].toUpperCase();
+  }
+
   const routeMatch = trimmed.match(/\b([A-Z]?\d{1,4}[A-Z]?)\b/i);
   if (routeMatch) {
     return routeMatch[1].toUpperCase();
@@ -63,6 +68,14 @@ function normaliseDestination(...values) {
   return undefined;
 }
 
+function normaliseStopStatus(value) {
+  const status = toNumber(value);
+  if (status === 0) return "incoming";
+  if (status === 1) return "stopped";
+  if (status === 2) return "in_transit";
+  return undefined;
+}
+
 function buildPtvLiveBuses(feed) {
   return (feed.entity ?? [])
     .map((entity) => {
@@ -86,10 +99,17 @@ function buildPtvLiveBuses(feed) {
       return {
         id: entity.id || vehicle.vehicle?.id || `${route}-${latitude}-${longitude}`,
         label,
+        vehicleId: vehicle.vehicle?.id,
+        fleetNumber: vehicle.vehicle?.label,
+        registration: vehicle.vehicle?.licensePlate,
+        tripId: vehicle.trip?.tripId,
         lat: latitude,
         lng: longitude,
         route,
         destination,
+        stopId: vehicle.stopId,
+        stopStatus: normaliseStopStatus(vehicle.currentStatus),
+        stopSequence: toNumber(vehicle.currentStopSequence),
         status: "live",
         timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
         heading: typeof position.bearing === "number" ? position.bearing : undefined,

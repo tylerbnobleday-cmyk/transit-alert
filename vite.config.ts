@@ -1129,6 +1129,11 @@ function normaliseSurfaceRoute(routeId: string | undefined, fallback: string) {
     return fallback;
   }
 
+  const prefixedPtvRouteIdMatch = trimmed.match(/vic-02-([A-Z]?\d{1,4}[A-Z]?)(?::|-|$)/i);
+  if (prefixedPtvRouteIdMatch?.[1]) {
+    return prefixedPtvRouteIdMatch[1].toUpperCase();
+  }
+
   const ptvRouteIdMatch = trimmed.match(/^\d{2}-([A-Z]?\d{1,4}[A-Z]?)(?:-|$)/i);
   if (ptvRouteIdMatch?.[1]) {
     return ptvRouteIdMatch[1].toUpperCase();
@@ -1167,6 +1172,14 @@ function normaliseSurfaceDestination(...values: Array<string | undefined>) {
   return undefined;
 }
 
+function normaliseSurfaceStopStatus(value: unknown) {
+  const status = toNumber(value);
+  if (status === 0) return "incoming";
+  if (status === 1) return "stopped";
+  if (status === 2) return "in_transit";
+  return undefined;
+}
+
 function buildPtvLiveSurfaceVehicles(
   feed: Awaited<ReturnType<typeof fetchFeed>>,
   options: { fallbackRoute: string; operator: string },
@@ -1200,10 +1213,17 @@ function buildPtvLiveSurfaceVehicles(
       return {
         id: entity.id || vehicle.vehicle?.id || `${route}-${latitude}-${longitude}`,
         label,
+        vehicleId: vehicle.vehicle?.id,
+        fleetNumber: vehicle.vehicle?.label,
+        registration: vehicle.vehicle?.licensePlate,
+        tripId: vehicle.trip?.tripId,
         lat: latitude,
         lng: longitude,
         route,
         destination,
+        stopId: vehicle.stopId,
+        stopStatus: normaliseSurfaceStopStatus(vehicle.currentStatus),
+        stopSequence: toNumber(vehicle.currentStopSequence),
         status: "live",
         timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
         heading: typeof position.bearing === "number" ? position.bearing : undefined,

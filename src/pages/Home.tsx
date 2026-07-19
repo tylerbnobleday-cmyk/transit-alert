@@ -364,13 +364,15 @@ const VERSION_LOG: ChangelogEntry[] = [
     version: TRANSITALERT_WEB_VERSION,
     date: "19/07/2026",
     notes: [
-      "Version 0.90 is now the public guest release, with guest browsing framed as the main first-time app experience.",
+      "Version 0.91 restores in-range mobile station labels and expands live PTV bus identity, route, and stop details.",
+      "Reported by Jack Miller: V/Line corridor alignment and generic regional service classification were corrected so Maryborough-area trains are not shown as Geelong services.",
+      "Frankston-line station boards now use the 2026 City Loop pattern, removing incorrect Town Hall, State Library, and non-stopping Metro Tunnel departures from Armadale and Malvern.",
       "Real account storage now runs against the embedded database path used by the local host so sign-in, registration, and relaunch persistence work for live tests.",
       "Jack Miller was added as the first built-in debug tester alias set so tester-only account registration is easier to verify end-to-end.",
       "NSW TrainLink regional classification now prefers XPT labelling when the feed is generic, which avoids misreading those services as VLocity or other regional stock.",
       "Mobile login and account surfaces were tightened up with smaller spacing, lighter cards, and less cramped controls on narrow screens.",
       "Admin account notes now describe the real server allowlist instead of older Netlify wording.",
-      "Guest guardrails, account messaging, and release board copy were refreshed to match the 0.90 public guest launch.",
+      "Guest guardrails, account messaging, and release board copy remain aligned with the public guest launch.",
     ],
   },
   {
@@ -492,8 +494,8 @@ const TRANSITALERT_SYSTEM_NOTES = [
 
 const VERSION_HIGHLIGHT_CARDS = [
   {
-    title: "What’s new in 0.90",
-    body: "TransitAlert 0.90 is the guest version, with public browsing on the map and planner while real accounts persist through the live embedded database.",
+    title: "What’s new in 0.91",
+    body: "TransitAlert 0.91 keeps the public guest release and adds clearer mobile stations, richer live bus details, and corrected V/Line corridor matching.",
   },
   {
     title: "Guest + accounts",
@@ -2355,7 +2357,7 @@ export default function Home() {
 
   const handleTabChange = (value: string) => {
     if (isGuest && value !== "map" && value !== "fleets") {
-      setUserMenuMessage("Guest access includes the live map and fleet board in version 0.90. Register to unlock account tools, station PID, and admin controls.");
+      setUserMenuMessage("Guest access includes the live map and fleet board in version 0.91. Register to unlock account tools, station PID, and admin controls.");
       setIsUserMenuOpen(true);
       return;
     }
@@ -3503,7 +3505,7 @@ export default function Home() {
                             <p className="text-xs uppercase tracking-[0.18em] text-white/45">Sign-up gate</p>
                             <p className="mt-2 text-white">
                               Registration is currently limited to approved debug testers from the server allowlist <span className="font-semibold text-blue-200">APPROVED_DEBUG_TESTERS</span>.
-                              Version 0.90 is the guest release, and version 1.0 is where normal public traveller sign-up is meant to open.
+                              Version 0.91 is the current guest release, and version 1.0 is where normal public traveller sign-up is meant to open.
                             </p>
                           </div>
                           <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">

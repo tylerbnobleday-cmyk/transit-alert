@@ -1096,12 +1096,17 @@ function createLiveTrainIcon(
 }
 
 function createLiveBusIcon(bus: LiveBus) {
-  const routeLabel = bus.route.slice(0, 6);
+  const routeLabel = escapeInlineMarkerHtml(bus.route.slice(0, 6));
   const destinationLabel = (bus.destination ?? "Live bus")
     .replace(/^route\s+/i, "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 18);
+  const escapedDestinationLabel = escapeInlineMarkerHtml(destinationLabel);
+  const vehicleLabel = bus.fleetNumber ?? bus.registration ?? bus.vehicleId;
+  const escapedVehicleLabel = vehicleLabel
+    ? escapeInlineMarkerHtml(vehicleLabel.replace(/\s+/g, " ").trim().slice(0, 18))
+    : "";
   const rotation = typeof bus.heading === "number" && Number.isFinite(bus.heading) ? bus.heading : 0;
 
   return L.divIcon({
@@ -1157,7 +1162,7 @@ function createLiveBusIcon(bus: LiveBus) {
           overflow:hidden;
           text-overflow:ellipsis;
         ">
-          ${destinationLabel}
+          ${escapedVehicleLabel || escapedDestinationLabel}
         </div>
       </div>
     `,
@@ -1178,7 +1183,7 @@ const TRANSPORT_EMOJI: Record<string, string> = {
   stop: "🚏",
 };
 
-const APP_VERSION = "0.90"; const GUEST_PREVIEW_VERSION = "0.85"; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
+const APP_VERSION = "0.91"; const GUEST_PREVIEW_VERSION = "0.85"; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
   inspector: "#e11d48",
   delay: "#f59e0b",
   incident: "#3b82f6",
@@ -1880,8 +1885,8 @@ const BALLARAT_REGIONAL_STATIONS: Station[] = [
   { name: "Melton", position: [-37.68490447367019, 144.58866263023615], vline: true, zone: "2" },
   { name: "Ballarat", position: [-37.55861757585211, 143.85946145441608], vline: true },
   { name: "Wendouree", position: [-37.5309, 143.8487], vline: true },
-  { name: "Ararat", position: [-37.2867, 142.9479], vline: true },
-  { name: "Maryborough", position: [-37.0462, 143.7397], vline: true },
+  { name: "Ararat", position: [-37.2823, 142.9367], vline: true },
+  { name: "Maryborough", position: [-37.0510, 143.7426], vline: true },
 ];
 
 const SEYMOUR_REGIONAL_STATIONS: Station[] = [
@@ -2511,6 +2516,22 @@ const SEYMOUR_REGIONAL_LINE: [number, number][] = [
   [-37.2452, 145.0418],
   [-37.0264, 145.1337], // Seymour
 ];
+const BENDIGO_REGIONAL_LINE: [number, number][] = [
+  [-37.81767225337158, 144.950639128634], // Southern Cross
+  [-37.801696124765726, 144.90150029345793], // Footscray
+  [-37.78812106172095, 144.83237218696007], // Sunshine
+  [-37.5792, 144.7282], // Sunbury
+  [-37.4978, 144.7452], // Clarkefield
+  [-37.4640, 144.6805], // Riddells Creek
+  [-37.4591, 144.5994], // Gisborne
+  [-37.4235, 144.5628], // Macedon
+  [-37.3572, 144.5261], // Woodend
+  [-37.2581, 144.4503], // Kyneton
+  [-37.1894, 144.3741], // Malmsbury
+  [-37.0631, 144.2138], // Castlemaine
+  [-36.7964, 144.2493], // Kangaroo Flat
+  [-36.7652, 144.2830], // Bendigo
+];
 const RENDERED_SEYMOUR_REGIONAL_STATIONS = alignStationsToPolyline(SEYMOUR_REGIONAL_STATIONS, SEYMOUR_REGIONAL_LINE);
 const RENDERED_SEYMOUR_REGIONAL_OFFSET_STATIONS = alignStationsToRenderedPolyline(
   SEYMOUR_REGIONAL_STATIONS,
@@ -2548,13 +2569,19 @@ const BALLARAT_LINE: [number, number][] = [
 ];
 const ARARAT_BRANCH_LINE: [number, number][] = [
   [-37.55861757585211, 143.85946145441608], // Ballarat
-  [-37.7268, 143.6925], // Beaufort
-  [-37.2867, 142.9479], // Ararat
+  [-37.5309, 143.8487], // Wendouree
+  [-37.4730, 143.6578], // Burrumbeet corridor
+  [-37.42768, 143.38232], // Beaufort
+  [-37.4372, 143.2820], // Trawalla corridor
+  [-37.3663, 143.1640], // Buangor corridor
+  [-37.2823, 142.9367], // Ararat
 ];
 const MARYBOROUGH_BRANCH_LINE: [number, number][] = [
   [-37.55861757585211, 143.85946145441608], // Ballarat
-  [-37.4084, 143.7954], // Creswick
-  [-37.0462, 143.7397], // Maryborough
+  [-37.4240, 143.8950], // Creswick
+  [-37.2940, 143.7870], // Clunes
+  [-37.1720, 143.7060], // Talbot
+  [-37.0510, 143.7426], // Maryborough
 ];
 const FREIGHT_LOCATIONS: FreightLocation[] = [
   { name: "Appleton Dock", kind: "Dock terminal", position: [-37.8261, 144.9159] },
@@ -2569,7 +2596,7 @@ const FREIGHT_LOCATIONS: FreightLocation[] = [
   { name: "Benalla", kind: "Freight corridor", position: [-36.5515, 145.9843] },
   { name: "Wodonga", kind: "Freight corridor", position: [-36.1212, 146.8879] },
   { name: "Ballarat", kind: "Freight corridor", position: [-37.55861757585211, 143.85946145441608] },
-  { name: "Maryborough", kind: "Freight corridor", position: [-37.0462, 143.7397] },
+  { name: "Maryborough", kind: "Freight corridor", position: [-37.0510, 143.7426] },
 ];
 const FREIGHT_PORT_TERMINAL_LINE: [number, number][] = [
   [-37.8261, 144.9159], // Appleton Dock
@@ -2590,7 +2617,7 @@ const FREIGHT_WESTERN_CORRIDOR_LINE: [number, number][] = [
   [-38.2213, 144.2054], // Gheringhap Loop
   [-37.4364, 142.8823], // Maroona Loop
   [-37.55861757585211, 143.85946145441608], // Ballarat
-  [-37.0462, 143.7397], // Maryborough
+  [-37.0510, 143.7426], // Maryborough
 ];
 const FREIGHT_NORTH_CORRIDOR_LINE: [number, number][] = [
   [-37.8189, 144.9305], // South Dynon
@@ -4569,6 +4596,45 @@ const ANYTRIP_SURFACE_STOPS: SurfaceStop[] = [
   ...GENERATED_TRAM_SURFACE_STOPS,
 ];
 
+function getNearestKnownBusStop(bus: LiveBus) {
+  let nearest: { stop: SurfaceStop; distanceMetres: number } | null = null;
+
+  for (const stop of ANYTRIP_SURFACE_STOPS) {
+    if (!stop.modes.includes("bus") || stop.routeLabel !== bus.route) continue;
+    const distanceMetres = getDistanceInMetres([bus.lat, bus.lng], stop.position);
+    if (!nearest || distanceMetres < nearest.distanceMetres) {
+      nearest = { stop, distanceMetres };
+    }
+  }
+
+  return nearest && nearest.distanceMetres <= 1200 ? nearest : null;
+}
+
+function getLiveBusStopLabel(bus: LiveBus) {
+  const nearest = getNearestKnownBusStop(bus);
+  if (nearest) {
+    const prefix =
+      bus.stopStatus === "stopped"
+        ? "At"
+        : bus.stopStatus === "incoming"
+          ? "Approaching"
+          : "Near";
+    return `${prefix} ${nearest.stop.name}`;
+  }
+
+  if (bus.stopId) {
+    const prefix =
+      bus.stopStatus === "stopped"
+        ? "At PTV stop"
+        : bus.stopStatus === "incoming"
+          ? "Approaching PTV stop"
+          : "Next/current PTV stop";
+    return `${prefix} ${bus.stopId}`;
+  }
+
+  return null;
+}
+
 function getPrimarySurfaceDestination(stop: SurfaceStop) {
   return stop.departures[0]?.destination?.trim() ?? "";
 }
@@ -4896,20 +4962,20 @@ const MALVERN_PLATFORM_BOARD: PlatformBoardEntry[] = [
     tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
     services: [
       {
-        destination: "Town Hall",
+        destination: "City Loop",
         etaLabel: "10:06",
         tdnLabel: "TDN Z458 → C471",
         statusLabel: "On Time",
-        originLabel: "Origin Cranbourne",
-        viaLabel: "Metro Tunnel",
+        originLabel: "Origin Frankston",
+        viaLabel: "Via Flinders Street",
       },
       {
-        destination: "City Loop",
+        destination: "Flinders Street",
         etaLabel: "10:15",
         tdnLabel: "TDN 4858 → 4375",
         statusLabel: "3m late",
         originLabel: "Origin Frankston",
-        viaLabel: "Stops all via City Loop",
+        viaLabel: "Frankston line",
       },
     ],
   },
@@ -5888,7 +5954,7 @@ const LINE_PLATFORM_PRESETS: Record<
   },
   frankston: {
     inboundLabel: "Platform 1 · City bound",
-    inboundServices: ["Town Hall", "State Library"],
+    inboundServices: ["City Loop", "Flinders Street"],
     outboundLabel: "Platform 2 · Frankston bound",
     outboundServices: ["Frankston", "Mordialloc"],
     tone: "bg-emerald-500/12 border-emerald-400/20 text-emerald-100",
@@ -6119,7 +6185,7 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
     return FOOTSCRAY_PLATFORM_BOARD;
   }
   if (station.name === "Malvern") {
-    return MALVERN_PLATFORM_BOARD;
+    return MALVERN_PLATFORM_BOARD.filter((platform) => platform.platform !== "3");
   }
   if (station.name === "Caulfield") {
     return CAULFIELD_PLATFORM_BOARD;
@@ -6866,14 +6932,20 @@ function renderStationMarkers(
       : resolvedStation.name;
     const isEndpoint = index === 0 || index === stations.length - 1;
     const isMobileBoundedMarkerSet = Boolean(visibleBounds && stations.length > 10);
+    // Viewport bounds already cap the marker set. Only thin labels at city-wide
+    // zooms; suburban views need every station to remain discoverable.
+    const hasSuburbanStationDetail =
+      !visibleBounds || visibleBounds.getNorth() - visibleBounds.getSouth() <= 0.17;
     const shouldThinMobileStationMarker =
       isMobileBoundedMarkerSet &&
+      !hasSuburbanStationDetail &&
       !isEndpoint &&
       !isCityLoopPill &&
       !shouldRenderOnce &&
       index % 2 === 1;
     const shouldHideDenseMobileStationMarker =
       isMobileBoundedMarkerSet &&
+      !hasSuburbanStationDetail &&
       stations.length > 16 &&
       !isEndpoint &&
       !isCityLoopPill &&
@@ -7625,7 +7697,16 @@ function isGenericRegionalPlaceholder(value?: string | null) {
 }
 
 function getPolylinePointDistanceMetres(position: [number, number], line: [number, number][]) {
-  return line.reduce((closest, point) => Math.min(closest, getDistanceInMetres(position, point)), Number.POSITIVE_INFINITY);
+  if (line.length < 2) {
+    return line.length === 1 ? getDistanceInMetres(position, line[0]) : Number.POSITIVE_INFINITY;
+  }
+
+  let closest = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < line.length - 1; index += 1) {
+    const projected = projectPointToSegment(position, line[index], line[index + 1]);
+    closest = Math.min(closest, getDistanceInMetres(position, projected));
+  }
+  return closest;
 }
 
 function getRegionalFallbackMeta(
@@ -7675,16 +7756,40 @@ function getRegionalFallbackMeta(
       distance: getPolylinePointDistanceMetres(position, GEELONG_LINE),
     },
     {
+      outbound: "Ballarat",
+      inbound: "Southern Cross",
+      serviceLabel: "Ballarat line",
+      distance: getPolylinePointDistanceMetres(position, BALLARAT_LINE),
+    },
+    {
+      outbound: "Maryborough",
+      inbound: "Southern Cross",
+      serviceLabel: "Maryborough line",
+      distance: getPolylinePointDistanceMetres(position, MARYBOROUGH_BRANCH_LINE),
+    },
+    {
+      outbound: "Ararat",
+      inbound: "Southern Cross",
+      serviceLabel: "Ararat line",
+      distance: getPolylinePointDistanceMetres(position, ARARAT_BRANCH_LINE),
+    },
+    {
+      outbound: "Bendigo",
+      inbound: "Southern Cross",
+      serviceLabel: "Bendigo line",
+      distance: getPolylinePointDistanceMetres(position, BENDIGO_REGIONAL_LINE),
+    },
+    {
+      outbound: "Seymour",
+      inbound: "Southern Cross",
+      serviceLabel: "Seymour line",
+      distance: getPolylinePointDistanceMetres(position, SEYMOUR_REGIONAL_LINE),
+    },
+    {
       outbound: "Bairnsdale",
       inbound: "Southern Cross",
       serviceLabel: "Gippsland line",
       distance: getPolylinePointDistanceMetres(position, GIPPSLAND_LINE),
-    },
-    {
-      outbound: "Ballarat / Bendigo / Seymour",
-      inbound: "Southern Cross",
-      serviceLabel: "Regional west line",
-      distance: getPolylinePointDistanceMetres(position, BALLARAT_SHARED_VLINE_TRUNK),
     },
   ];
 
@@ -10049,6 +10154,12 @@ export function Map({
                 pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
               />
             )}
+            {layers.bendigoRegional && (
+              <Polyline
+                positions={BENDIGO_REGIONAL_LINE}
+                pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
+              />
+            )}
             {layers.seymourRegional && (
               <>
                 <Polyline
@@ -10318,7 +10429,38 @@ export function Map({
                       Live
                     </span>
                   </div>
-                  <p className="mt-2 text-sm text-white/85">{bus.destination ?? "Live vehicle position"}</p>
+                  <p className="mt-2 text-sm font-semibold text-white/90">
+                    {bus.destination ? `To ${bus.destination}` : "Destination not supplied by PTV"}
+                  </p>
+                  {getLiveBusStopLabel(bus) ? (
+                    <p className="mt-1.5 text-xs font-medium text-sky-200">{getLiveBusStopLabel(bus)}</p>
+                  ) : null}
+                  <div className="mt-2 grid grid-cols-2 gap-1.5 text-[11px]">
+                    {bus.fleetNumber ? (
+                      <div className="rounded-lg bg-white/5 px-2 py-1.5 text-white/70">
+                        <span className="block text-[9px] font-bold uppercase tracking-wider text-white/40">Fleet</span>
+                        {bus.fleetNumber}
+                      </div>
+                    ) : null}
+                    {bus.registration ? (
+                      <div className="rounded-lg bg-white/5 px-2 py-1.5 text-white/70">
+                        <span className="block text-[9px] font-bold uppercase tracking-wider text-white/40">Registration</span>
+                        {bus.registration}
+                      </div>
+                    ) : null}
+                    {bus.vehicleId && bus.vehicleId !== bus.fleetNumber ? (
+                      <div className="rounded-lg bg-white/5 px-2 py-1.5 text-white/70">
+                        <span className="block text-[9px] font-bold uppercase tracking-wider text-white/40">Vehicle ID</span>
+                        {bus.vehicleId}
+                      </div>
+                    ) : null}
+                    {bus.tripId ? (
+                      <div className="rounded-lg bg-white/5 px-2 py-1.5 text-white/70">
+                        <span className="block text-[9px] font-bold uppercase tracking-wider text-white/40">PTV run</span>
+                        <span className="block truncate">{bus.tripId}</span>
+                      </div>
+                    ) : null}
+                  </div>
                   <p className="mt-2 text-xs text-white/55">
                     {bus.timestamp
                       ? `Last reported ${formatDistanceToNow(new Date(bus.timestamp), { addSuffix: true })}`

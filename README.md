@@ -4,21 +4,30 @@ TransitAlert is an independent Melbourne public transport map and tracking app f
 
 ## Current release
 
-- Web version: `0.90`
+- Web version: `0.91`
 - Public guest frontend: [GitHub Pages](https://tylerbnobleday-cmyk.github.io/transit-alert/)
 - Local/live backend host target: local Node server with optional tunnel or Render-style deployment
 - Frontend: Vite + React + TypeScript
 - Backend/API style: local Node server with API handlers under [`api/`](api/)
 
-## Guest version 0.90
+## Guest version 0.91
 
-Version `0.90` is the public guest release.
+Version `0.91` is the current public guest release.
 
 - Guest users can browse the map and planner without making an account
 - Signed-in tester/admin accounts now persist in the real embedded database configured through `DATABASE_URL`
 - Tester registration is still gated through `APPROVED_DEBUG_TESTERS`
 - NSW TrainLink/XPT regional labelling was cleaned up to reduce generic fleet confusion
 - Mobile account screens were tightened up so they feel less cramped on narrow phones
+
+### 0.91 bug fixes
+
+- Restored Glen Huntly, Ormond, McKinnon, and other in-range station markers that mobile map thinning hid too aggressively.
+- Added live bus route, PTV run, vehicle/fleet ID, registration, and current stop fields whenever those values are published by the PTV feed.
+- Corrected regional corridor inference so a Maryborough-area train cannot be presented as a Geelong service simply because PTV supplied a generic V/Line label.
+- Improved Ballarat, Ararat, Maryborough, and Bendigo regional line alignment and added the missing Bendigo map corridor.
+- Corrected Frankston-line platform boards so Armadale and Malvern no longer advertise Town Hall, State Library, or non-stopping Metro Tunnel services.
+- Reported by Jack Miller: missing mobile station labels and inaccurate V/Line alignment/service classification.
 
 ## Main features
 
