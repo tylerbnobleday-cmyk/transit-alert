@@ -7,6 +7,7 @@ import {
   continueAsGuest,
   fetchAuthSession,
   fetchRoles,
+  hasGuestIntent,
   loginWithPassword,
   markGuestIntent,
   registerAccount,
@@ -68,6 +69,10 @@ export default function Login() {
   useEffect(() => {
     if (session?.authenticated) {
       if (session.user?.role === "Guest") {
+        if (hasGuestIntent()) {
+          setLocation("/app");
+          return;
+        }
         if (clearGuestSessionMutation.isIdle) {
           clearGuestSessionMutation.mutate();
         }
