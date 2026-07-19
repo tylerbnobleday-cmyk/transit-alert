@@ -89,15 +89,24 @@ const SIMPLE_SURFACE_ROUTES = [
   {
     name: "Route 64 tram",
     mode: "tram" as const,
-    stops: ["Melbourne University", "Domain Interchange", "Balaclava Junction", "Caulfield Junction", "East Brighton"],
+    stops: ["Melbourne University", "Anzac", "Balaclava Junction", "Caulfield Junction", "East Brighton"],
     summary: "Good cross-city tram link via Domain, St Kilda Road, and Hawthorn Road.",
   },
   {
     name: "Route 630 bus",
     mode: "bus" as const,
-    stops: ["Elwood", "Elsternwick Station", "Ormond Station", "Huntingdale Station", "Monash University"],
+    stops: ["Elwood", "Elsternwick", "Ormond", "Huntingdale", "Monash University"],
     summary: "Useful orbital bus for rail interchanges between the bayside and Monash corridor.",
   },
+];
+
+const SURFACE_PLANNER_STATIONS: Station[] = [
+  { name: "Melbourne University", position: [-37.7982, 144.9605] },
+  { name: "Balaclava Junction", position: [-37.8693, 144.9952] },
+  { name: "Caulfield Junction", position: [-37.8772, 145.0242] },
+  { name: "East Brighton", position: [-37.9152, 145.0165] },
+  { name: "Elwood", position: [-37.8842, 144.9853] },
+  { name: "Monash University", position: [-37.9105, 145.1362] },
 ];
 
 const HOME_ORIGIN_LABEL = "Home Â· 15 Louise St, Brighton East";
@@ -1308,14 +1317,14 @@ export default function Home() {
     },
   });
 
-  const stationOptions = useMemo(() => ALL_STATIONS.map((station) => station.name).sort(), []);
   const uniqueStations = useMemo(() => {
     const seen = new Map<string, Station>();
-    for (const station of ALL_STATIONS) {
+    for (const station of [...ALL_STATIONS, ...SURFACE_PLANNER_STATIONS]) {
       if (!seen.has(station.name)) seen.set(station.name, station);
     }
     return [...seen.values()];
   }, []);
+  const stationOptions = useMemo(() => uniqueStations.map((station) => station.name).sort(), [uniqueStations]);
   const stationByName = useMemo(
     () => new Map(uniqueStations.map((station) => [station.name, station])),
     [uniqueStations],
@@ -1325,26 +1334,39 @@ export default function Home() {
     [uniqueStations],
   );
   const plannerNetwork = useMemo(() => {
-    const graph = new Map<string, Array<{ to: string; line: string }>>();
+    const graph = new Map<string, Array<{ to: string; line: string; mode: JourneyLeg["mode"] }>>();
 
-    for (const line of PLANNER_LINES) {
-      for (let index = 0; index < line.stations.length - 1; index += 1) {
-        const current = line.stations[index];
-        const next = line.stations[index + 1];
+    const addConnection = (from: string, to: string, line: string, mode: JourneyLeg["mode"]) => {
+      const edges = graph.get(from) ?? [];
+      edges.push({ to, line, mode });
+      graph.set(from, edges);
+    };
+
+    if ((preferences.transportModes as TransportMode[]).includes("train")) {
+      for (const line of PLANNER_LINES) {
+        for (let index = 0; index < line.stations.length - 1; index += 1) {
+          const current = line.stations[index];
+          const next = line.stations[index + 1];
+          if (!current || !next) continue;
+          addConnection(current.name, next.name, line.name, "train");
+          addConnection(next.name, current.name, line.name, "train");
+        }
+      }
+    }
+
+    for (const route of SIMPLE_SURFACE_ROUTES) {
+      if (!(preferences.transportModes as TransportMode[]).includes(route.mode)) continue;
+      for (let index = 0; index < route.stops.length - 1; index += 1) {
+        const current = route.stops[index];
+        const next = route.stops[index + 1];
         if (!current || !next) continue;
-
-        const currentEdges = graph.get(current.name) ?? [];
-        currentEdges.push({ to: next.name, line: line.name });
-        graph.set(current.name, currentEdges);
-
-        const nextEdges = graph.get(next.name) ?? [];
-        nextEdges.push({ to: current.name, line: line.name });
-        graph.set(next.name, nextEdges);
+        addConnection(current, next, route.name, route.mode);
+        addConnection(next, current, route.name, route.mode);
       }
     }
 
     return graph;
-  }, []);
+  }, [preferences.transportModes]);
   const lineKeys = useMemo(() => Object.keys(LINES), []);
 
   const selectedFleetFilterLabel = useMemo(
@@ -1740,12 +1762,12 @@ export default function Home() {
   const buildJourneyPath = useCallback(
     (originName: string, destinationName: string) => {
       if (originName === destinationName) {
-        return { stationNames: [originName], edgeLines: [] as string[] };
+        return { stationNames: [originName], edges: [] as Array<{ line: string; mode: JourneyLeg["mode"] }> };
       }
 
       const visited = new Set<string>([originName]);
       const queue = [originName];
-      const previous = new Map<string, { station: string; line: string }>();
+      const previous = new Map<string, { station: string; line: string; mode: JourneyLeg["mode"] }>();
 
       while (queue.length > 0) {
         const current = queue.shift();
@@ -1755,7 +1777,7 @@ export default function Home() {
         for (const edge of plannerNetwork.get(current) ?? []) {
           if (visited.has(edge.to)) continue;
           visited.add(edge.to);
-          previous.set(edge.to, { station: current, line: edge.line });
+          previous.set(edge.to, { station: current, line: edge.line, mode: edge.mode });
           queue.push(edge.to);
         }
       }
@@ -1763,18 +1785,18 @@ export default function Home() {
       if (!visited.has(destinationName)) return null;
 
       const stationNames: string[] = [destinationName];
-      const edgeLines: string[] = [];
+      const edges: Array<{ line: string; mode: JourneyLeg["mode"] }> = [];
       let cursor = destinationName;
 
       while (cursor !== originName) {
         const step = previous.get(cursor);
         if (!step) return null;
-        edgeLines.unshift(step.line);
+        edges.unshift({ line: step.line, mode: step.mode });
         stationNames.unshift(step.station);
         cursor = step.station;
       }
 
-      return { stationNames, edgeLines };
+      return { stationNames, edges };
     },
     [plannerNetwork],
   );
@@ -1926,52 +1948,53 @@ export default function Home() {
       const routeStations = path.stationNames
         .map((stationName) => stationByName.get(stationName))
         .filter((station): station is Station => Boolean(station));
-      const trainLegs: JourneyLeg[] = [];
+      const transitLegs: JourneyLeg[] = [];
 
-      if (path.edgeLines.length > 0) {
+      if (path.edges.length > 0) {
         let segmentStartIndex = 0;
-        let activeLine = path.edgeLines[0] ?? "";
+        let activeEdge = path.edges[0];
 
-        for (let index = 1; index <= path.edgeLines.length; index += 1) {
-          const lineAtIndex = path.edgeLines[index];
-          if (lineAtIndex === activeLine) continue;
+        for (let index = 1; index <= path.edges.length; index += 1) {
+          const edgeAtIndex = path.edges[index];
+          if (edgeAtIndex?.line === activeEdge?.line && edgeAtIndex.mode === activeEdge.mode) continue;
 
           const from = path.stationNames[segmentStartIndex] ?? resolvedOrigin.name;
           const to = path.stationNames[index] ?? destination.name;
           const stopCount = Math.max(index - segmentStartIndex, 0);
-          trainLegs.push({
-            mode: "train",
-            title: `${activeLine} line`,
+          const mode = activeEdge?.mode ?? "train";
+          transitLegs.push({
+            mode,
+            title: mode === "train" ? `${activeEdge?.line ?? "Rail"} line` : activeEdge?.line ?? mode,
             from,
             to,
             detail: `${stopCount} stop${stopCount === 1 ? "" : "s"}${index < path.stationNames.length - 1 ? " before changing" : ""}`,
-            badge: "Train",
+            badge: mode === "tram" ? "Tram" : mode === "bus" ? "Bus" : "Train",
           });
 
           segmentStartIndex = index;
-          activeLine = lineAtIndex ?? "";
+          activeEdge = edgeAtIndex;
         }
       }
       
 
-      const journeyLegs = [...(accessLeg ? [accessLeg] : []), ...trainLegs];
-      if (accessLeg && trainLegs[0]) {
-        accessLeg.detail = `Go to ${resolvedOrigin.name} first. Then take the ${trainLegs[0].title} from ${trainLegs[0].from} toward ${trainLegs[0].to}.`;
+      const journeyLegs = [...(accessLeg ? [accessLeg] : []), ...transitLegs];
+      if (accessLeg && transitLegs[0]) {
+        accessLeg.detail = `Go to ${resolvedOrigin.name} first. Then take the ${transitLegs[0].title} from ${transitLegs[0].from} toward ${transitLegs[0].to}.`;
       }
-      const changeStations = trainLegs
+      const changeStations = transitLegs
         .slice(0, -1)
         .map((leg) => leg.to)
         .filter(Boolean);
       const railSummary =
-        trainLegs.length <= 1
-          ? `Direct journey via the ${trainLegs[0]?.title ?? "rail network"} (${Math.max(routeStations.length - 1, 0)} stops).`
+        transitLegs.length <= 1
+          ? `Direct journey via ${transitLegs[0]?.title ?? "the selected network"} (${Math.max(routeStations.length - 1, 0)} stops).`
           : `Stay on board, then change at ${changeStations.join(", ")} to finish the trip to ${destination.name}.`;
       const summary = accessLeg
         ? `Start from your location by heading to ${resolvedOrigin.name}. ${railSummary}`
         : railSummary;
       const pattern =
-        trainLegs.length <= 1
-          ? trainLegs[0]?.title ?? "Direct service"
+        transitLegs.length <= 1
+          ? transitLegs[0]?.title ?? "Direct service"
           : `Change at ${changeStations.join(" + ")}`;
 
       applyJourneyPlan(
@@ -1982,7 +2005,7 @@ export default function Home() {
           summary,
           journeyLegs,
           pattern,
-          accessLeg ? "Multi-stage journey" : "Rail journey",
+          accessLeg || transitLegs.some((leg) => leg.mode !== "train") ? "Mixed-mode journey" : "Rail journey",
         ),
       );
     } catch (error) {
@@ -2080,6 +2103,21 @@ export default function Home() {
       appPreferences: {
         ...appPreferences,
         transportModesMigrated: true,
+      },
+    });
+  }, [preferences.appPreferences, preferences.transportModes, updatePreferences]);
+
+  useEffect(() => {
+    const appPreferences = preferences.appPreferences ?? {};
+    if (appPreferences.surfaceModesMigrated === true) return;
+
+    const currentModes = Array.isArray(preferences.transportModes) ? preferences.transportModes : [];
+    const nextModes = [...new Set([...currentModes, "tram", "bus"])] as TransportMode[];
+    updatePreferences({
+      transportModes: nextModes,
+      appPreferences: {
+        ...appPreferences,
+        surfaceModesMigrated: true,
       },
     });
   }, [preferences.appPreferences, preferences.transportModes, updatePreferences]);
@@ -3477,7 +3515,7 @@ export default function Home() {
                           <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
                             <p className="text-xs uppercase tracking-[0.18em] text-white/45">Login + live APIs</p>
                             <p className="mt-2 text-white">
-                              Login creates a signed session cookie. Guests can browse the base map and planner, but live train, tram, bus, and consist feeds stay hidden until a real account signs in.
+                              Login creates a signed session cookie. Guests can browse viewport-scoped live trains, trams, buses, regional services, and the mixed-mode journey planner.
                               Premium access is controlled from this admin screen and unlocks things like consist favourites and consist-based search.
                             </p>
                           </div>

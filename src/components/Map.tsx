@@ -8206,18 +8206,6 @@ function createCustomIcon(report: Report) {
 // =========================
 // Small Components
 // =========================
-function LocationCenterer({ loc }: { loc: [number, number] | null }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (loc) {
-      map.setView(loc, 13, { animate: true });
-    }
-  }, [loc, map]);
-
-  return null;
-}
-
 function ViewportListener({
   onViewportChange,
 }: {
@@ -8478,7 +8466,6 @@ export function Map({
   const mobilePerformanceEnabled =
     mobilePerformanceMode === "on" || (mobilePerformanceMode === "auto" && isMobile);
   const aggressiveMobileProtectionEnabled = mobilePerformanceEnabled || isIos;
-  const disableLiveMapOverlaysForIos = isIos && mobilePerformanceMode !== "off";
   const iosLeanMapEnabled = isIos && mobilePerformanceMode !== "off";
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
@@ -8500,16 +8487,12 @@ export function Map({
       maxLng: Number(sourceBounds.getEast().toFixed(5)),
     };
   }, [aggressiveMobileProtectionEnabled, mapBounds]);
-  const allowMobileHeavySurfaceTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 15.25;
+  const allowMobileHeavySurfaceTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 12.5;
   const allowMobileHeavyTrainTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 12.5;
   const allowIosSurfaceStops = !iosLeanMapEnabled || mapZoom >= 15.8;
   const allowIosFreightLayer = !iosLeanMapEnabled || mapZoom >= 13.2;
   const allowIosReportLayer = !iosLeanMapEnabled || mapZoom >= 14.8;
   const allowIosParallelTrackCopies = !iosLeanMapEnabled || mapZoom >= 13.8;
-  const shouldDeferSurfaceLiveOnMobile =
-    aggressiveMobileProtectionEnabled &&
-    (transportModes.includes("train") || transportModes.includes("vline")) &&
-    mapZoom < 15.8;
   const visibleViewportBounds = useMemo(
     () =>
       L.latLngBounds(
@@ -8561,10 +8544,7 @@ export function Map({
     queryKey: ["/api/ptv/live-buses", viewportBoundsQuery],
     queryFn: () => fetchLiveBuses(viewportBoundsQuery),
     enabled:
-      !isGuest &&
-      !disableLiveMapOverlaysForIos &&
       transportModes.includes("bus") &&
-      !shouldDeferSurfaceLiveOnMobile &&
       allowMobileHeavySurfaceTracking,
     refetchInterval: aggressiveMobileProtectionEnabled ? 45_000 : 15_000,
     staleTime: aggressiveMobileProtectionEnabled ? 30_000 : 5_000,
@@ -8577,10 +8557,7 @@ export function Map({
     queryKey: ["/api/ptv/live-trams", viewportBoundsQuery],
     queryFn: () => fetchLiveTrams(viewportBoundsQuery),
     enabled:
-      !isGuest &&
-      !disableLiveMapOverlaysForIos &&
       transportModes.includes("tram") &&
-      !shouldDeferSurfaceLiveOnMobile &&
       allowMobileHeavySurfaceTracking,
     refetchInterval: aggressiveMobileProtectionEnabled ? 45_000 : 15_000,
     staleTime: aggressiveMobileProtectionEnabled ? 30_000 : 5_000,
@@ -9283,7 +9260,7 @@ export function Map({
         return filtered;
       }
 
-      const cap = mapZoom >= 14 ? 90 : mapZoom >= 13.25 ? 50 : 0;
+      const cap = mapZoom >= 14 ? 90 : mapZoom >= 13.25 ? 50 : 18;
       return sortVehiclesByViewportDistance(filtered, visibleViewportBounds).slice(0, cap);
     },
     [isMobile, isSurfaceRouteVisible, liveBuses, mapZoom, visibleViewportBounds],
@@ -9300,7 +9277,7 @@ export function Map({
         return filtered;
       }
 
-      const cap = mapZoom >= 14 ? 110 : mapZoom >= 13.25 ? 60 : 0;
+      const cap = mapZoom >= 14 ? 110 : mapZoom >= 13.25 ? 60 : 22;
       return sortVehiclesByViewportDistance(filtered, visibleViewportBounds).slice(0, cap);
     },
     [isMobile, isSurfaceRouteVisible, liveTrams, mapZoom, visibleViewportBounds],
@@ -10217,7 +10194,6 @@ export function Map({
           />
         )}
 
-        {userLoc && <LocationCenterer loc={userLoc} />}
         {!isGuest && modeIsTrainVisible && (
           <Marker
             position={featuredConsistPosition}

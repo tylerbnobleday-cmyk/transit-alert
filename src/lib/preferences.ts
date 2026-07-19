@@ -10,7 +10,7 @@ export type UserPreferences = {
 };
 
 const LOCAL_STORAGE_KEY = "transitalert-local-preferences";
-export const DEFAULT_TRANSPORT_MODES = ["train", "vline"] as const;
+export const DEFAULT_TRANSPORT_MODES = ["train", "tram", "bus", "vline"] as const;
 export const DEFAULT_PREMIUM_PRICE_AUD = 5;
 export type MobilePerformanceMode = "auto" | "on" | "off";
 
