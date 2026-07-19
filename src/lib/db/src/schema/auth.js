@@ -15,6 +15,7 @@ export const appUsersTable = pgTable("app_users", {
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default("Traveller"),
   isAdmin: boolean("is_admin").notNull().default(false),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

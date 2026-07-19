@@ -369,6 +369,7 @@ const VERSION_LOG: ChangelogEntry[] = [
       "Reported by Jack Miller: synthetic station departures were removed after an incorrect Town Hall service appeared at Armadale.",
       "TransitAlert now shows an unavailable notice instead of generating platform times, delays, service IDs, regional timelines, freight movements, or bus and tram countdowns.",
       "The PID preview is unavailable until a verified departures source is connected.",
+      "Temporary account passwords now trigger a mandatory one-time password change before the map, settings, or saved account tools can open.",
       "Real account storage now runs against the embedded database path used by the local host so sign-in, registration, and relaunch persistence work for live tests.",
       "Jack Miller was added as the first built-in debug tester alias set so tester-only account registration is easier to verify end-to-end.",
       "NSW TrainLink regional classification now prefers XPT labelling when the feed is generic, which avoids misreading those services as VLocity or other regional stock.",
@@ -2394,6 +2395,29 @@ export default function Home() {
             className="mt-5 w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
           >
             Go to login
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  if (authSession.user?.mustChangePassword) {
+    return (
+      <main className="flex min-h-[100dvh] items-center justify-center bg-background px-6 text-white">
+        <div className="w-full max-w-md rounded-[2rem] border border-amber-300/20 bg-card/90 p-6 shadow-2xl backdrop-blur-xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-200/85">
+            Password update required
+          </p>
+          <h1 className="mt-3 text-2xl font-semibold">Change your temporary password first</h1>
+          <p className="mt-2 text-sm leading-6 text-white/65">
+            TransitAlert will remain locked until this account chooses a new password.
+          </p>
+          <button
+            type="button"
+            onClick={() => setLocation("/login")}
+            className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+          >
+            Change password
           </button>
         </div>
       </main>

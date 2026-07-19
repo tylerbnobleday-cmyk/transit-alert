@@ -5,6 +5,7 @@ import {
   isDatabaseConfigured,
   ROLE_OPTIONS,
   authenticateUser,
+  changeUserPassword,
   clearSessionCookie,
   getSessionUser,
   getUserByUsernameOrEmail,
@@ -144,6 +145,50 @@ export default async function handler(req, res) {
       roles: ROLE_OPTIONS,
       sessionToken: getSignedSessionToken(user),
     });
+    return;
+  }
+
+  if (action === "change-password") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    if (rejectIfRateLimited("change-password", { limit: 8, windowMs: 15 * 60 * 1000 })) {
+      return;
+    }
+
+    const user = await getSessionUser(req);
+    if (!user || user.role === "Guest") {
+      sendJson(res, 401, { error: "Sign in before changing your password." });
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const currentPassword = String(body.currentPassword || "");
+    const newPassword = String(body.newPassword || "");
+    if (newPassword.length < 10) {
+      sendJson(res, 400, { error: "New password must be at least 10 characters." });
+      return;
+    }
+    if (!/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+      sendJson(res, 400, { error: "New password must include at least one letter and one number." });
+      return;
+    }
+
+    try {
+      const updatedUser = await changeUserPassword(user.id, currentPassword, newPassword);
+      setSessionCookie(res, updatedUser);
+      sendJson(res, 200, {
+        authenticated: true,
+        user: updatedUser,
+        roles: ROLE_OPTIONS,
+        sessionToken: getSignedSessionToken(updatedUser),
+      });
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : "Password change failed.",
+      });
+    }
     return;
   }
 

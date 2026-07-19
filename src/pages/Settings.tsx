@@ -290,6 +290,25 @@ export default function Settings() {
     );
   }
 
+  if (authSession.user.mustChangePassword) {
+    return (
+      <main className="min-h-screen bg-background px-6 py-10 text-white">
+        <div className="mx-auto max-w-3xl rounded-[2rem] border border-amber-300/20 bg-card/90 p-8 shadow-2xl backdrop-blur-xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-200/85">
+            Password update required
+          </p>
+          <h1 className="mt-3 text-3xl font-semibold">Change your temporary password first</h1>
+          <p className="mt-3 text-sm text-white/65">
+            Account settings remain locked until you choose a new password.
+          </p>
+          <Link href="/login" className="mt-6 inline-flex rounded-2xl bg-amber-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-amber-300">
+            Change password
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-white sm:px-6 sm:py-10">
       <div className="mx-auto max-w-5xl space-y-6">

@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LockKeyhole, Sparkles, UserPlus } from "lucide-react";
 import {
+  changePassword,
   clearGuestIntent,
   continueAsGuest,
   fetchAuthSession,
@@ -14,7 +15,7 @@ import {
   logoutSession,
 } from "@/lib/auth";
 
-type AuthMode = "sign-in" | "register";
+type AuthMode = "sign-in" | "register" | "change-password";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -27,6 +28,10 @@ export default function Login() {
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerRole, setRegisterRole] = useState("Traveller");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordFormError, setPasswordFormError] = useState("");
 
   useEffect(() => {
     try {
@@ -68,6 +73,10 @@ export default function Login() {
 
   useEffect(() => {
     if (session?.authenticated) {
+      if (session.user?.mustChangePassword) {
+        setMode("change-password");
+        return;
+      }
       if (session.user?.role === "Guest") {
         if (hasGuestIntent()) {
           setLocation("/app");
@@ -93,6 +102,15 @@ export default function Login() {
       loginWithPassword(username, password),
     onSuccess: async (nextSession) => {
       clearGuestIntent();
+      if (nextSession.user?.mustChangePassword) {
+        setCurrentPassword(password);
+        setPassword("");
+        setMode("change-password");
+        window.localStorage.removeItem("transitalert-remembered-login");
+        queryClient.setQueryData(["auth-session"], nextSession);
+        await queryClient.invalidateQueries({ queryKey: ["auth-session"] });
+        return;
+      }
       try {
         if (rememberUser) {
           window.localStorage.setItem(
@@ -105,6 +123,20 @@ export default function Login() {
       } catch {
         // Ignore local storage failures.
       }
+      queryClient.setQueryData(["auth-session"], nextSession);
+      await queryClient.invalidateQueries({ queryKey: ["auth-session"] });
+      setLocation("/app");
+    },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: ({ current, next }: { current: string; next: string }) => changePassword(current, next),
+    onSuccess: async (nextSession) => {
+      window.localStorage.removeItem("transitalert-remembered-login");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordFormError("");
       queryClient.setQueryData(["auth-session"], nextSession);
       await queryClient.invalidateQueries({ queryKey: ["auth-session"] });
       setLocation("/app");
@@ -255,6 +287,7 @@ export default function Login() {
               </h1>
             </div>
 
+            {mode !== "change-password" && (
             <div className="grid grid-cols-2 gap-2 rounded-[1.15rem] border border-white/10 bg-white/5 p-1">
               <button
                 type="button"
@@ -275,6 +308,7 @@ export default function Login() {
                 Register
               </button>
             </div>
+            )}
 
             {!databaseConfigured && (
               <div className="mt-4 rounded-[1.15rem] border border-amber-400/20 bg-amber-500/10 px-3.5 py-3 text-sm text-amber-100 sm:px-4">
@@ -283,7 +317,92 @@ export default function Login() {
               </div>
             )}
 
-            {mode === "sign-in" ? (
+            {mode === "change-password" ? (
+              <div>
+                <p className="mt-5 text-xs font-semibold uppercase tracking-[0.24em] text-amber-200/80">
+                  Password update required
+                </p>
+                <h2 className="mt-3 flex items-center gap-2 text-2xl font-semibold text-white">
+                  <LockKeyhole className="h-5 w-5 text-amber-300" />
+                  Choose your own password
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-white/60">
+                  This account is using a temporary password. You must replace it before TransitAlert opens.
+                </p>
+
+                <form
+                  className="mt-6 space-y-3.5 sm:mt-8 sm:space-y-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setPasswordFormError("");
+                    if (newPassword !== confirmPassword) {
+                      setPasswordFormError("The new passwords do not match.");
+                      return;
+                    }
+                    changePasswordMutation.mutate({ current: currentPassword, next: newPassword });
+                  }}
+                >
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-white/45">
+                      Temporary password
+                    </span>
+                    <input
+                      type="password"
+                      value={currentPassword}
+                      onChange={(event) => setCurrentPassword(event.target.value)}
+                      autoComplete="current-password"
+                      className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-amber-300/60 sm:rounded-2xl sm:py-3"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-white/45">
+                      New password
+                    </span>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(event) => setNewPassword(event.target.value)}
+                      autoComplete="new-password"
+                      minLength={10}
+                      className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-amber-300/60 sm:rounded-2xl sm:py-3"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-white/45">
+                      Confirm new password
+                    </span>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      autoComplete="new-password"
+                      minLength={10}
+                      className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-amber-300/60 sm:rounded-2xl sm:py-3"
+                    />
+                  </label>
+
+                  <p className="text-xs leading-5 text-white/50">
+                    Use at least 10 characters with at least one letter and one number.
+                  </p>
+
+                  {(passwordFormError || changePasswordMutation.error instanceof Error) && (
+                    <div className="rounded-[1.15rem] border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 sm:rounded-2xl">
+                      {passwordFormError || (changePasswordMutation.error as Error).message}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={changePasswordMutation.isPending}
+                    className="w-full rounded-[1.15rem] bg-amber-400 px-4 py-2.5 text-base font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-70 sm:rounded-2xl sm:py-3"
+                  >
+                    {changePasswordMutation.isPending ? "Updating password..." : "Set new password and continue"}
+                  </button>
+                </form>
+              </div>
+            ) : mode === "sign-in" ? (
               <div>
                 <p className="mt-5 text-xs font-semibold uppercase tracking-[0.24em] text-white/45">
                   Sign In

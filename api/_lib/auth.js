@@ -463,6 +463,7 @@ export function sanitizeUser(user) {
     email: user.email,
     role: user.role,
     isAdmin: Boolean(user.isAdmin),
+    mustChangePassword: Boolean(user.mustChangePassword),
   };
 }
 
@@ -616,6 +617,40 @@ export async function authenticateUser(username, password) {
     }
     return null;
   }
+}
+
+export async function changeUserPassword(userId, currentPassword, newPassword) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
+  const appUsersTable = context?.appUsersTable;
+  if (!db || !appUsersTable) {
+    throw new Error("Password changes require DATABASE_URL to be configured.");
+  }
+
+  const user = await db.query.appUsersTable.findFirst({
+    where: (fields, operators) => operators.eq(fields.id, userId),
+  });
+  if (!user || !verifyPassword(currentPassword, user.passwordHash)) {
+    throw new Error("The current password is incorrect.");
+  }
+  if (verifyPassword(newPassword, user.passwordHash)) {
+    throw new Error("Choose a new password that is different from the temporary password.");
+  }
+
+  const [updatedUser] = await db
+    .update(appUsersTable)
+    .set({
+      passwordHash: createPasswordHash(newPassword),
+      mustChangePassword: false,
+      updatedAt: new Date(),
+    })
+    .where(eq(appUsersTable.id, userId))
+    .returning();
+
+  if (!updatedUser) {
+    throw new Error("Account not found.");
+  }
+  return sanitizeUser(updatedUser);
 }
 
 export async function registerUser(input) {

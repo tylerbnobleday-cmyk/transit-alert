@@ -54,6 +54,7 @@ export async function ensureDatabaseReady() {
           password_hash text NOT NULL,
           role text NOT NULL DEFAULT 'Traveller',
           is_admin boolean NOT NULL DEFAULT false,
+          must_change_password boolean NOT NULL DEFAULT false,
           created_at timestamp NOT NULL DEFAULT now(),
           updated_at timestamp NOT NULL DEFAULT now()
         );
@@ -92,6 +93,10 @@ export async function ensureDatabaseReady() {
         `
         ALTER TABLE user_preferences
         ALTER COLUMN transport_modes SET DEFAULT '["train","vline"]'::jsonb;
+      `,
+        `
+        ALTER TABLE app_users
+        ADD COLUMN IF NOT EXISTS must_change_password boolean NOT NULL DEFAULT false;
       `,
       ];
 

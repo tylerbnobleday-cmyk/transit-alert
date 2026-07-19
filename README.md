@@ -28,6 +28,7 @@ Version `0.91` is the current public guest release.
 - Improved Ballarat, Ararat, Maryborough, and Bendigo regional line alignment and added the missing Bendigo map corridor.
 - Removed generated station boards, surface-stop countdowns, regional timelines, freight movements, and PID previews. Missing feeds now show an honest unavailable state.
 - Live markers no longer fall back to guessed station coordinates, and nearest mapped bus stops are explicitly labelled as proximity estimates.
+- Temporary passwords can now be marked for mandatory replacement at next login; normal account tools remain locked until the user chooses a new password.
 - Reported by Jack Miller: missing mobile station labels, inaccurate V/Line alignment/service classification, and the incorrect Town Hall departure shown at Armadale.
 
 ### Live-data policy

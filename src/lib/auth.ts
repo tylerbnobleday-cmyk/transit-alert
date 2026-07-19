@@ -7,6 +7,7 @@ export type AuthUser = {
   email: string;
   role: string;
   isAdmin: boolean;
+  mustChangePassword?: boolean;
 };
 
 export type AuthSession = {
@@ -76,6 +77,24 @@ export async function loginWithPassword(username: string, password: string): Pro
     writeSessionToken(payload.sessionToken);
   }
 
+  return payload;
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthSession> {
+  const response = await fetch(getApiUrl("/api/auth/change-password"), {
+    method: "POST",
+    headers: buildSessionHeaders({ "Content-Type": "application/json" }),
+    credentials: "include",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+
+  const payload = await readAuthPayload(response);
+  if (!response.ok) {
+    throw new Error(payload.error || "Password change failed");
+  }
+  if (payload.sessionToken) {
+    writeSessionToken(payload.sessionToken);
+  }
   return payload;
 }
 
