@@ -26,8 +26,13 @@ Version `0.91` is the current public guest release.
 - Added live bus route, PTV run, vehicle/fleet ID, registration, and current stop fields whenever those values are published by the PTV feed.
 - Corrected regional corridor inference so a Maryborough-area train cannot be presented as a Geelong service simply because PTV supplied a generic V/Line label.
 - Improved Ballarat, Ararat, Maryborough, and Bendigo regional line alignment and added the missing Bendigo map corridor.
-- Corrected Frankston-line platform boards so Armadale and Malvern no longer advertise Town Hall, State Library, or non-stopping Metro Tunnel services.
-- Reported by Jack Miller: missing mobile station labels and inaccurate V/Line alignment/service classification.
+- Removed generated station boards, surface-stop countdowns, regional timelines, freight movements, and PID previews. Missing feeds now show an honest unavailable state.
+- Live markers no longer fall back to guessed station coordinates, and nearest mapped bus stops are explicitly labelled as proximity estimates.
+- Reported by Jack Miller: missing mobile station labels, inaccurate V/Line alignment/service classification, and the incorrect Town Hall departure shown at Armadale.
+
+### Live-data policy
+
+TransitAlert never presents generated or placeholder departures, times, delays, platforms, service IDs, vehicle positions, registrations, or fleet numbers as real. A user-facing live value must come from a connected transport feed; unavailable fields remain unavailable.
 
 ## Main features
 

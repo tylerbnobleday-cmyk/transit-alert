@@ -366,7 +366,9 @@ const VERSION_LOG: ChangelogEntry[] = [
     notes: [
       "Version 0.91 restores in-range mobile station labels and expands live PTV bus identity, route, and stop details.",
       "Reported by Jack Miller: V/Line corridor alignment and generic regional service classification were corrected so Maryborough-area trains are not shown as Geelong services.",
-      "Frankston-line station boards now use the 2026 City Loop pattern, removing incorrect Town Hall, State Library, and non-stopping Metro Tunnel departures from Armadale and Malvern.",
+      "Reported by Jack Miller: synthetic station departures were removed after an incorrect Town Hall service appeared at Armadale.",
+      "TransitAlert now shows an unavailable notice instead of generating platform times, delays, service IDs, regional timelines, freight movements, or bus and tram countdowns.",
+      "The PID preview is unavailable until a verified departures source is connected.",
       "Real account storage now runs against the embedded database path used by the local host so sign-in, registration, and relaunch persistence work for live tests.",
       "Jack Miller was added as the first built-in debug tester alias set so tester-only account registration is easier to verify end-to-end.",
       "NSW TrainLink regional classification now prefers XPT labelling when the feed is generic, which avoids misreading those services as VLocity or other regional stock.",
@@ -2418,7 +2420,6 @@ export default function Home() {
         <TabsList className="pointer-events-auto flex w-full max-w-[calc(100%-0.75rem)] justify-start gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-card/80 p-1 shadow-xl backdrop-blur-xl sm:w-auto sm:max-w-xl sm:justify-center">
             <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="map">Journey Planner</TabsTrigger>
             <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="fleets">Fleets</TabsTrigger>
-            {!isGuest && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="pid">Station PID</TabsTrigger>}
             {isAdmin && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="admin">Admin</TabsTrigger>}
         </TabsList>
       </div>

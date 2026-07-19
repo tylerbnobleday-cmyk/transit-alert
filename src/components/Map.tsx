@@ -1183,7 +1183,7 @@ const TRANSPORT_EMOJI: Record<string, string> = {
   stop: "🚏",
 };
 
-const APP_VERSION = "0.91"; const GUEST_PREVIEW_VERSION = "0.85"; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
+const APP_VERSION = "0.91"; const GUEST_PREVIEW_VERSION = APP_VERSION; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
   inspector: "#e11d48",
   delay: "#f59e0b",
   incident: "#3b82f6",
@@ -4611,25 +4611,19 @@ function getNearestKnownBusStop(bus: LiveBus) {
 }
 
 function getLiveBusStopLabel(bus: LiveBus) {
-  const nearest = getNearestKnownBusStop(bus);
-  if (nearest) {
-    const prefix =
-      bus.stopStatus === "stopped"
-        ? "At"
-        : bus.stopStatus === "incoming"
-          ? "Approaching"
-          : "Near";
-    return `${prefix} ${nearest.stop.name}`;
-  }
-
   if (bus.stopId) {
     const prefix =
       bus.stopStatus === "stopped"
         ? "At PTV stop"
         : bus.stopStatus === "incoming"
           ? "Approaching PTV stop"
-          : "Next/current PTV stop";
+          : "PTV stop";
     return `${prefix} ${bus.stopId}`;
+  }
+
+  const nearest = getNearestKnownBusStop(bus);
+  if (nearest) {
+    return `Nearest mapped stop: ${nearest.stop.name} (${Math.round(nearest.distanceMetres)} m away)`;
   }
 
   return null;
@@ -6165,6 +6159,10 @@ function getFreightMovements(stationName: string) {
   return FREIGHT_MOVEMENT_BOARD[stationName] ?? [];
 }
 
+function unverifiedTransitPanelsEnabled() {
+  return false;
+}
+
 function getStationLineMemberships(stationName: string) {
   return PLATFORM_PRESET_PRIORITY.filter((lineKey) =>
     LINES[lineKey].some((station) => station.name === stationName),
@@ -6172,6 +6170,10 @@ function getStationLineMemberships(stationName: string) {
 }
 
 function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
+  // Never present generated schedules as live departures.
+  void station;
+  return [];
+  /*
   if (station.name === "South Yarra") {
     return SOUTH_YARRA_PLATFORM_BOARD;
   }
@@ -6268,6 +6270,7 @@ function buildPlatformBoard(station: Station): PlatformBoardEntry[] {
       })),
     },
   ];
+  */
 }
 
 function renderPlatformBoardCard(
@@ -7615,6 +7618,11 @@ const XPT_SYDNEY_PROFILE: RegionalServiceProfile = {
 };
 
 function getRegionalServiceProfile(vehicle: LiveTrain, snapshot?: ConsistSnapshot): RegionalServiceProfile | null {
+  // The current API does not provide a verified stop-by-stop regional timeline.
+  void vehicle;
+  void snapshot;
+  return null;
+  /*
   const joined = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
 
   if (/(xpt|nsw trainlink|sydney central|albury|wagga|cootamundra)/.test(joined)) {
@@ -7654,6 +7662,7 @@ function getRegionalServiceProfile(vehicle: LiveTrain, snapshot?: ConsistSnapsho
   }
 
   return null;
+  */
 }
 
 function getRegionalStopDelayLabel(delayMinutes?: number) {
@@ -11342,6 +11351,20 @@ export function Map({
               {renderStationBoardingGuide(selectedDetail.station.name)}
 
               {selectedDetail.station.name === "Southern Cross" && (
+                <div className="rounded-[1.35rem] border border-amber-300/20 bg-amber-500/[0.06] p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-200/85">
+                    Live departures unavailable
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-white">
+                    A verified Southern Cross departures feed is not connected.
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-white/60">
+                    TransitAlert will not generate departure times, platforms, delays, stopping patterns, or service IDs. Check the official station displays for current information.
+                  </p>
+                </div>
+              )}
+
+              {unverifiedTransitPanelsEnabled() && selectedDetail.station.name === "Southern Cross" && (
                 <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -11482,7 +11505,7 @@ export function Map({
                             : ""
                         }
                       >
-                      {isMetroTunnelConnectorStation && (
+                      {unverifiedTransitPanelsEnabled() && isMetroTunnelConnectorStation && (
                         <div className="min-w-[320px] max-w-[320px] rounded-[1.2rem] border border-[#279FD5]/20 bg-[#279FD5]/[0.08] p-3 shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
                           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#7cd9ff]">
                             Station
@@ -11518,18 +11541,17 @@ export function Map({
                           Next services
                         </p>
                         <p className="mt-1 text-xs text-white/55">
-                          {isMetroTunnelConnectorStation
-                            ? `${selectedDetail.station.name} loop platforms and connected CBD services.`
-                            : `The next two services showing on each platform at ${selectedDetail.station.name}.`}
+                          A verified departures feed is not connected for {selectedDetail.station.name}.
                         </p>
 
-                        <div className={`mt-2.5 grid gap-2 ${isMetroTunnelConnectorStation ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
-                          {platformBoard.map((platform, index) =>
-                            renderPlatformBoardCard(selectedDetail.station.name, platform, index, isPremium, handlePlatformBoardServiceClick),
-                          )}
+                        <div className="mt-2.5 rounded-2xl border border-amber-300/20 bg-amber-500/[0.06] p-3">
+                          <p className="text-sm font-semibold text-white">Live departures unavailable</p>
+                          <p className="mt-1 text-xs leading-relaxed text-white/60">
+                            TransitAlert does not generate times, platforms, delays, stopping patterns, or service IDs. Check official station displays for current information.
+                          </p>
                         </div>
 
-                        {freightMovements.length > 0 && isPremium && (
+                        {unverifiedTransitPanelsEnabled() && freightMovements.length > 0 && isPremium && (
                           <div className="mt-3 rounded-[1.1rem] border border-[#8b5e34]/30 bg-[#8b5e34]/10 p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div>
@@ -11582,7 +11604,7 @@ export function Map({
                           </div>
                         )}
 
-                        {freightMovements.length > 0 && !isPremium && (
+                        {unverifiedTransitPanelsEnabled() && freightMovements.length > 0 && !isPremium && (
                           <div className="mt-3 rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div>
@@ -11659,7 +11681,17 @@ export function Map({
                 </div>
               </div>
 
-              {isPremium ? (
+              <div className="rounded-[1.35rem] border border-amber-300/20 bg-amber-500/[0.06] p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-200/85">
+                  Verified departures unavailable
+                </p>
+                <p className="mt-1 text-sm font-semibold text-white">No bus or tram schedule is generated.</p>
+                <p className="mt-1 text-xs leading-relaxed text-white/60">
+                  Live vehicle markers use connected feed positions. Use the official operator timetable until a verified stop-departures feed is connected.
+                </p>
+              </div>
+
+              {unverifiedTransitPanelsEnabled() && (isPremium ? (
               <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -11733,7 +11765,7 @@ export function Map({
                   <p className="mt-3 text-xs text-white/50">Add a PayPal premium link in Settings to unlock this feature.</p>
                 )}
               </div>
-              )}
+              ))}
 
               {selectedDetail.stop.modes.includes("bus") && (
                 <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
@@ -11751,7 +11783,7 @@ export function Map({
                     </span>
                   </div>
 
-                  {selectedSurfaceBusTrackingStops.length > 0 ? (
+                  {unverifiedTransitPanelsEnabled() && selectedSurfaceBusTrackingStops.length > 0 ? (
                     <div className="mt-3 overflow-hidden rounded-[1.25rem] border border-sky-300/15 bg-slate-950/70">
                       <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-sky-500/10 px-3 py-2">
                         <div>

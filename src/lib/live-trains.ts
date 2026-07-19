@@ -212,15 +212,9 @@ async function fetchTrackedConsistFallback(): Promise<LiveTrain[]> {
   );
   const destination = snapshot.current_trip?.destination ?? snapshot.next_trip?.destination ?? "Awaiting next trip";
   const coordinate =
-    (typeof snapshot.position?.lat === "number" && typeof snapshot.position?.lng === "number"
+    typeof snapshot.position?.lat === "number" && typeof snapshot.position?.lng === "number"
       ? [snapshot.position.lat, snapshot.position.lng]
-      : null) ??
-    findStationCoordinate(snapshot.position?.current_stop) ??
-    findStationCoordinate(snapshot.position?.next_stop) ??
-    findStationCoordinate(snapshot.current_trip?.origin) ??
-    findStationCoordinate(snapshot.next_trip?.origin) ??
-    findStationCoordinate(snapshot.current_trip?.destination) ??
-    findStationCoordinate(snapshot.next_trip?.destination);
+      : null;
 
   if (!coordinate) {
     return [];
