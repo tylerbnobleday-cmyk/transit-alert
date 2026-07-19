@@ -1,4 +1,5 @@
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, Bell, BellRing, CheckCircle2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchMetroNotifyAlerts,
@@ -126,6 +127,10 @@ function isRecentAlert(updatedAt?: string) {
 }
 
 export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: TopBarProps) {
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
+    typeof window === "undefined" || !("Notification" in window) ? "unsupported" : Notification.permission,
+  );
+  const [notificationMessage, setNotificationMessage] = useState("");
   const { data: metroAlerts = [] } = useQuery({
     queryKey: ["/api/metro-notify/alerts", "topbar"],
     queryFn: fetchMetroNotifyAlerts,
@@ -146,19 +151,69 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
         : "Good service • No active alerts";
   const alertIsRecent = leadAlert ? isRecentAlert(leadAlert.updatedAt) : false;
 
+  useEffect(() => {
+    if (notificationPermission !== "granted") return;
+
+    const badgeNavigator = navigator as Navigator & {
+      setAppBadge?: (contents?: number) => Promise<void>;
+      clearAppBadge?: () => Promise<void>;
+    };
+    const updateBadge = alertsToday > 0
+      ? badgeNavigator.setAppBadge?.(alertsToday)
+      : badgeNavigator.clearAppBadge?.();
+    void updateBadge?.catch(() => undefined);
+  }, [alertsToday, notificationPermission]);
+
+  const enableNotifications = async () => {
+    if (!("Notification" in window)) {
+      setNotificationMessage("Notifications are not supported in this browser.");
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+    if (permission === "granted") {
+      localStorage.setItem("transitalert-browser-notifications", "true");
+      setNotificationMessage("Alerts are on");
+      const registration = await navigator.serviceWorker?.ready.catch(() => null);
+      if (registration) {
+        await registration.showNotification("TransitAlert notifications are on", {
+          body: "Live disruption alerts can now reach this device.",
+          icon: `${import.meta.env.BASE_URL}app-logo.svg`,
+          badge: `${import.meta.env.BASE_URL}app-logo.svg`,
+          tag: "transitalert-enabled",
+        });
+      } else {
+        new Notification("TransitAlert notifications are on", {
+          body: "Live disruption alerts can now reach this device.",
+          icon: `${import.meta.env.BASE_URL}app-logo.svg`,
+        });
+      }
+      window.setTimeout(() => setNotificationMessage(""), 2600);
+      return;
+    }
+
+    const isIos = /iPad|iPhone|iPod/i.test(navigator.userAgent);
+    setNotificationMessage(
+      isIos
+        ? "On iPhone, add TransitAlert to your Home Screen first, then allow notifications."
+        : "Notification access was not allowed. You can change it in browser settings.",
+    );
+  };
+
   return (
-    <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex items-start gap-2 px-2.5 pt-2.5 sm:px-6 sm:pt-5">
-      <div className="pointer-events-auto flex min-w-0 max-w-[calc(100%-4.6rem)] items-center gap-1.5 sm:max-w-none sm:gap-3">
+    <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex items-start justify-between gap-2 px-2.5 pt-2.5 sm:px-6 sm:pt-5">
+      <div className="pointer-events-auto flex min-w-0 items-center gap-1.5 sm:gap-3">
         {user && (
           <button
             type="button"
             onClick={onOpenUserMenu}
-            className="flex min-w-0 items-center gap-1.5 rounded-2xl border border-white/10 bg-card/80 p-1.5 pr-2.5 shadow-xl shadow-black/50 backdrop-blur-xl transition hover:bg-card sm:gap-3 sm:p-2 sm:pr-4"
+            className="flex shrink-0 items-center rounded-full border border-white/10 bg-card/80 p-1.5 shadow-xl shadow-black/50 backdrop-blur-xl transition hover:bg-card sm:gap-3 sm:rounded-2xl sm:p-2 sm:pr-4"
           >
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-xs font-bold text-white sm:h-11 sm:w-11 sm:text-sm">
               {user.username.slice(0, 1).toUpperCase()}
             </div>
-            <div className="min-w-0 max-w-[3.25rem] sm:max-w-none">
+            <div className="hidden min-w-0 sm:block">
               <p className="truncate text-xs font-semibold text-white sm:text-sm">{user.username}</p>
               <p className="truncate text-[9px] uppercase tracking-[0.16em] text-muted-foreground sm:text-[11px]">
                 {user.role}
@@ -170,7 +225,7 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
         <button
           type="button"
           onClick={onOpenVersion}
-          className="flex min-w-0 items-center gap-1.5 rounded-2xl border border-white/10 bg-card/80 p-1.5 pr-2.5 text-left shadow-xl shadow-black/50 backdrop-blur-xl transition hover:bg-card sm:gap-3 sm:p-2 sm:pr-4"
+          className="flex min-w-0 items-center gap-1.5 rounded-full border border-white/10 bg-card/80 p-1.5 pr-2.5 text-left shadow-xl shadow-black/50 backdrop-blur-xl transition hover:bg-card sm:gap-3 sm:rounded-2xl sm:p-2 sm:pr-4"
         >
           <img
             src={`${import.meta.env.BASE_URL}app-logo.svg`}
@@ -178,7 +233,7 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
             className="h-8 w-8 shrink-0 rounded-xl sm:h-10 sm:w-10"
           />
           <div className="min-w-0">
-            <h1 className="truncate font-display text-[13px] font-bold leading-none tracking-tight text-white sm:text-lg">
+            <h1 className="truncate font-display text-[12px] font-bold leading-none tracking-tight text-white sm:text-lg">
               TransitAlert
             </h1>
             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:text-xs">
@@ -188,13 +243,26 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
         </button>
       </div>
 
-      <div className="pointer-events-none absolute right-2.5 top-2.5 z-[70] flex flex-col items-end gap-2 sm:right-6 sm:top-5 sm:gap-3">
+      <div className="pointer-events-auto relative z-[70] flex shrink-0 items-center gap-1.5 sm:gap-3">
+        <button
+          type="button"
+          onClick={() => void enableNotifications()}
+          className={`flex h-11 w-11 items-center justify-center rounded-full border shadow-xl backdrop-blur-xl transition hover:scale-[1.03] ${
+            notificationPermission === "granted"
+              ? "border-emerald-400/25 bg-emerald-500/15 text-emerald-100"
+              : "border-white/10 bg-card/80 text-white/75"
+          }`}
+          aria-label={notificationPermission === "granted" ? "Notifications enabled" : "Enable notifications"}
+          title={notificationPermission === "granted" ? "Notifications enabled" : "Enable notifications"}
+        >
+          {notificationPermission === "granted" ? <BellRing className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+        </button>
         <button
           type="button"
           onClick={onOpenAlerts}
-          className={`pointer-events-auto group relative flex max-w-[10.5rem] items-center gap-2 rounded-full border px-3 py-1.5 text-left backdrop-blur-xl transition hover:scale-[1.02] hover:bg-white/15 sm:max-w-none sm:gap-3 sm:px-4 sm:py-2.5 ${alertSummary.tone}`}
+          className={`group relative flex h-11 items-center gap-2 rounded-full border px-2.5 text-left backdrop-blur-xl transition hover:scale-[1.02] hover:bg-white/15 sm:h-auto sm:gap-3 sm:px-4 sm:py-2.5 ${alertSummary.tone}`}
         >
-          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/20 sm:h-10 sm:w-10">
+          <div className="relative hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/20 sm:flex sm:h-10 sm:w-10">
             {alertsToday > 0 ? (
               <AlertTriangle className="h-4 w-4 sm:h-4.5 sm:w-4.5" />
             ) : (
@@ -209,17 +277,22 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
           </div>
 
           <div className="min-w-0">
-            <span className="block text-[9px] font-semibold uppercase tracking-[0.22em] text-white/55 sm:text-[10px]">
+            <span className="hidden text-[9px] font-semibold uppercase tracking-[0.22em] text-white/55 sm:block sm:text-[10px]">
               Today&apos;s Alerts
             </span>
             <span className="mt-0.5 block text-sm font-display font-bold leading-none text-white sm:text-base">
               {alertLabel}
             </span>
-            <span className="mt-1 block max-w-[7.75rem] truncate text-[10px] text-white/70 sm:max-w-[9.5rem] sm:text-[11px]">
+            <span className="mt-1 hidden max-w-[7.75rem] truncate text-[10px] text-white/70 sm:block sm:max-w-[9.5rem] sm:text-[11px]">
               {alertSubtitle}
             </span>
           </div>
         </button>
+        {notificationMessage && (
+          <div className="absolute right-0 top-[3.25rem] w-[min(18rem,calc(100vw-1.25rem))] rounded-2xl border border-white/10 bg-slate-950/96 px-3 py-2 text-xs leading-4 text-white/75 shadow-2xl backdrop-blur-xl">
+            {notificationMessage}
+          </div>
+        )}
       </div>
     </div>
   );

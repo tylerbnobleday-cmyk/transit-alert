@@ -2,13 +2,15 @@
   "name": "TransitAlert Melbourne",
   "short_name": "TransitAlert",
   "description": "Independent Melbourne transport tracking, journey planning, and network alerts.",
-  "start_url": "/",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
   "icons": [
     {
-      "src": "/app-logo.svg",
+      "src": "./app-logo.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"

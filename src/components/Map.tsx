@@ -51,6 +51,8 @@ import {
   EyeOff,
   Search,
   Star,
+  Map as MapIcon,
+  X,
 } from "lucide-react";
 
 const MELBOURNE_CENTER: [number, number] = [-37.8136, 144.9631];
@@ -8483,6 +8485,7 @@ export function Map({
   const consistData = { active: false } as any;
   const [trainLookupQuery, setTrainLookupQuery] = useState("");
   const [trainLookupMessage, setTrainLookupMessage] = useState("");
+  const [isMobileMapKeyOpen, setIsMobileMapKeyOpen] = useState(false);
   const [activeSurfaceRouteFilters, setActiveSurfaceRouteFilters] = useState<string[]>(
     () => SURFACE_ROUTE_FILTERS.map((filter) => filter.key),
   );
@@ -10532,20 +10535,20 @@ export function Map({
       <LayerControl layers={layers} onChange={toggleLayer} />
 
       {modeIsTrainVisible && (
-      <div className="pointer-events-none absolute left-3 top-[8.6rem] z-[1000] max-w-[7.2rem] sm:left-4 sm:top-28 sm:max-w-xs">
-        <div className={`rounded-2xl border px-3 py-2.5 shadow-xl backdrop-blur-xl ${liveTrainStatusTone}`}>
+      <div className="pointer-events-none absolute left-3 top-[7.25rem] z-[1000] max-w-[8.5rem] sm:left-4 sm:top-28 sm:max-w-xs">
+        <div className={`rounded-xl border px-2.5 py-2 shadow-xl backdrop-blur-xl sm:rounded-2xl sm:px-3 sm:py-2.5 ${liveTrainStatusTone}`}>
           <div className="flex items-center gap-2">
             <Train className="h-3.5 w-3.5" />
             <p className="text-xs font-semibold leading-tight sm:text-sm">{isGuest ? `TransitAlert Guest Preview ${GUEST_PREVIEW_VERSION}` : `TransitAlert Version ${APP_VERSION}`}</p>
           </div>
-          <p className="mt-1.5 text-xs leading-tight sm:text-sm">{liveTrainStatusLabel}</p>
-          <p className="mt-1 text-[11px] leading-4 opacity-80 sm:text-xs">{liveTrainStatusDetail}</p>
+          <p className="mt-1 text-[11px] leading-tight sm:mt-1.5 sm:text-sm">{liveTrainStatusLabel}</p>
+          <p className="mt-1 hidden text-[11px] leading-4 opacity-80 sm:block sm:text-xs">{liveTrainStatusDetail}</p>
         </div>
       </div>
       )}
 
         {!isGuest && (modeIsTrainVisible || modeIsVlineVisible) && (
-      <div className="pointer-events-auto absolute left-3 top-[14.45rem] z-[1000] w-[12.5rem] sm:left-4 sm:top-[12.7rem] sm:w-[18.75rem]">
+      <div className="pointer-events-auto absolute left-3 top-[14.45rem] z-[1000] hidden w-[12.5rem] sm:left-4 sm:top-[12.7rem] sm:block sm:w-[18.75rem]">
         <div className="rounded-2xl border border-white/10 bg-slate-950/88 p-3 shadow-xl backdrop-blur-xl">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -11813,8 +11816,18 @@ export function Map({
         </div>
       )}
 
-      <div className="pointer-events-none absolute bottom-28 left-3 z-[1000] max-w-[17rem] sm:bottom-32 sm:left-4 sm:max-w-[20rem]">
-        <div className="rounded-2xl border border-white/10 bg-slate-950/88 p-3 shadow-xl backdrop-blur-xl">
+      <button
+        type="button"
+        onClick={() => setIsMobileMapKeyOpen((open) => !open)}
+        className="absolute bottom-[6.5rem] left-3 z-[1002] inline-flex h-10 items-center gap-2 rounded-full border border-white/15 bg-slate-950/88 px-3 text-xs font-semibold text-white shadow-xl backdrop-blur-xl sm:hidden"
+        aria-expanded={isMobileMapKeyOpen}
+      >
+        {isMobileMapKeyOpen ? <X className="h-4 w-4" /> : <MapIcon className="h-4 w-4" />}
+        {isMobileMapKeyOpen ? "Close key" : "Map key"}
+      </button>
+
+      <div className={`pointer-events-none absolute bottom-[9.5rem] left-3 z-[1001] max-w-[calc(100%-1.5rem)] sm:bottom-32 sm:left-4 sm:block sm:max-w-[20rem] ${isMobileMapKeyOpen ? "block" : "hidden"}`}>
+        <div className="rounded-2xl border border-white/10 bg-slate-950/94 p-3 shadow-xl backdrop-blur-xl">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
             Map key
           </p>

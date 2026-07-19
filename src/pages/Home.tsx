@@ -1001,19 +1001,19 @@ function getPidServiceTypeLabel(departure?: StationDeparture) {
 function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
   return (
     <div
-      className={`pointer-events-none overflow-hidden rounded-t-[1.75rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[1.85rem] ${
-        isOpen ? "translate-y-0" : "translate-y-[calc(100%-66px)]"
+      className={`pointer-events-none overflow-hidden rounded-t-[1.4rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[1.85rem] ${
+        isOpen ? "translate-y-0" : "translate-y-[calc(100%-52px)] sm:translate-y-[calc(100%-66px)]"
       }`}
     >
       <button
         onClick={onToggle}
-        className="pointer-events-auto flex w-full flex-col items-center justify-center px-4 pb-2.5 pt-2.5 text-white"
+        className="pointer-events-auto flex w-full flex-col items-center justify-center px-4 pb-2 pt-1.5 text-white sm:pb-2.5 sm:pt-2.5"
         aria-expanded={isOpen}
         aria-label={isOpen ? "Hide planner" : "Show planner"}
       >
-        <span className="mb-2 h-1.5 w-12 rounded-full bg-white/20" />
-        <span className="inline-flex items-center gap-2 rounded-full border border-blue-400/30 bg-blue-600 px-3.5 py-1.5 text-sm font-semibold shadow-lg shadow-blue-950/35">
-          <ChevronUp className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        <span className="mb-1.5 h-1 w-10 rounded-full bg-white/20 sm:mb-2 sm:h-1.5 sm:w-12" />
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/30 bg-blue-600 px-3 py-1 text-xs font-semibold shadow-lg shadow-blue-950/35 sm:gap-2 sm:px-3.5 sm:py-1.5 sm:text-sm">
+          <ChevronUp className={`h-3.5 w-3.5 transition-transform sm:h-4 sm:w-4 ${isOpen ? "rotate-180" : ""}`} />
           {isOpen ? "Hide Planner" : "Show Planner"}
         </span>
       </button>
@@ -3714,7 +3714,7 @@ export default function Home() {
         </button>
       </div>
 
-      <div className="pointer-events-none absolute bottom-[4.4rem] left-2.5 z-30 max-w-[10.75rem] rounded-[1.1rem] border border-white/10 bg-slate-950/78 px-2.5 py-2 text-[9px] leading-3.5 text-white/75 shadow-xl backdrop-blur-xl sm:bottom-6 sm:left-6 sm:max-w-xs sm:rounded-2xl sm:px-3 sm:py-2.5 sm:text-xs sm:leading-4">
+      <div className="pointer-events-none absolute bottom-[4.4rem] left-2.5 z-30 hidden max-w-[10.75rem] rounded-[1.1rem] border border-white/10 bg-slate-950/78 px-2.5 py-2 text-[9px] leading-3.5 text-white/75 shadow-xl backdrop-blur-xl sm:bottom-6 sm:left-6 sm:block sm:max-w-xs sm:rounded-2xl sm:px-3 sm:py-2.5 sm:text-xs sm:leading-4">
         <p className="font-semibold text-white/85">Copyright 2026 Tyler Rose. TransitAlert.</p>
         <p className="mt-1">
           TransitAlert is an independent project. We are not operated by, affiliated with, or endorsed by the Department of Transport and Planning, Transport Victoria, PTV, or Metro Trains Melbourne.
