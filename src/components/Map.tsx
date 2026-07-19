@@ -8501,7 +8501,7 @@ export function Map({
     };
   }, [aggressiveMobileProtectionEnabled, mapBounds]);
   const allowMobileHeavySurfaceTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 15.25;
-  const allowMobileHeavyTrainTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 13.1;
+  const allowMobileHeavyTrainTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 12.5;
   const allowIosSurfaceStops = !iosLeanMapEnabled || mapZoom >= 15.8;
   const allowIosFreightLayer = !iosLeanMapEnabled || mapZoom >= 13.2;
   const allowIosReportLayer = !iosLeanMapEnabled || mapZoom >= 14.8;
@@ -8548,7 +8548,6 @@ export function Map({
     queryKey: ["/api/ptv/live-trains", viewportBoundsQuery],
     queryFn: () => fetchLiveTrains(viewportBoundsQuery),
     enabled:
-      !disableLiveMapOverlaysForIos &&
       allowMobileHeavyTrainTracking &&
       (transportModes.includes("train") || transportModes.includes("vline")),
     refetchInterval: aggressiveMobileProtectionEnabled ? 40_000 : 15_000,
@@ -8774,7 +8773,8 @@ export function Map({
       }
 
       const limited = sortVehiclesByViewportDistance(filtered, visibleViewportBounds);
-      const cap = mapZoom >= 14.4 ? 28 : mapZoom >= 13.5 ? 14 : 0;
+      // Keep iPhone stable without making the opening map look empty.
+      const cap = mapZoom >= 14.4 ? 28 : mapZoom >= 13.5 ? 16 : 10;
       return limited.slice(0, cap);
     },
     [aggressiveMobileProtectionEnabled, liveVehicles, mapZoom, visibleViewportBounds],
