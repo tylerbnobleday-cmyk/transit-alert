@@ -6,8 +6,23 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "portrait-primary",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
+  "categories": ["navigation", "travel"],
+  "shortcuts": [
+    {
+      "name": "Live map",
+      "short_name": "Map",
+      "url": "./"
+    },
+    {
+      "name": "Today's alerts",
+      "short_name": "Alerts",
+      "url": "./alerts/today"
+    }
+  ],
   "icons": [
     {
       "src": "./app-logo.svg",

@@ -69,7 +69,7 @@ const ALERT_FILTERS: AlertFilter[] = [
   { id: "other", label: "Other" },
 ];
 
-const ALERT_BROWSER_NOTIFICATIONS_KEY = "transitalert-alert-browser-notifications";
+import { ALERT_NOTIFICATIONS_KEY, setNotificationsEnabled, showAppNotification } from "@/lib/pwa";
 
 const ALERT_GROUPS: AlertGroup[] = [
   { id: "all", label: "All groups", activeClassName: "border-white/25 bg-white/12 text-white", inactiveBadgeClassName: "border-white/10 bg-white/5 text-white/70", activeBadgeClassName: "border-white/25 bg-white/12 text-white" },
@@ -686,7 +686,7 @@ export default function TodaysAlerts() {
       return;
     }
 
-    const stored = window.localStorage.getItem(ALERT_BROWSER_NOTIFICATIONS_KEY);
+    const stored = window.localStorage.getItem(ALERT_NOTIFICATIONS_KEY);
     setBrowserNotificationsEnabled(stored === "true");
     if ("Notification" in window) {
       setBrowserNotificationPermission(Notification.permission);
@@ -712,9 +712,10 @@ export default function TodaysAlerts() {
     const newAlerts = metroAlerts.filter((alert) => !seenAlertIdsRef.current.includes(alert.id));
     if (newAlerts.length > 0 && typeof document !== "undefined" && document.visibilityState === "hidden") {
       newAlerts.slice(0, 3).forEach((alert) => {
-        new Notification(getAlertCategory(alert), {
+        void showAppNotification(getAlertCategory(alert), {
           body: getAlertFeedHeadline(alert),
           tag: `transitalert-${alert.id}`,
+          data: { url: `${import.meta.env.BASE_URL}alerts/today` },
         });
       });
     }
@@ -735,7 +736,7 @@ export default function TodaysAlerts() {
     if (browserNotificationPermission === "granted") {
       const nextValue = !browserNotificationsEnabled;
       setBrowserNotificationsEnabled(nextValue);
-      window.localStorage.setItem(ALERT_BROWSER_NOTIFICATIONS_KEY, String(nextValue));
+      setNotificationsEnabled(nextValue);
       return;
     }
 
@@ -747,7 +748,7 @@ export default function TodaysAlerts() {
     setBrowserNotificationPermission(permission);
     const enabled = permission === "granted";
     setBrowserNotificationsEnabled(enabled);
-    window.localStorage.setItem(ALERT_BROWSER_NOTIFICATIONS_KEY, String(enabled));
+    setNotificationsEnabled(enabled);
   };
 
   return (

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { AlertTriangle, Bell, BellRing, CheckCircle2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, Bell, BellRing, CheckCircle2, PlusSquare, Share, Smartphone, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchMetroNotifyAlerts,
@@ -8,6 +8,14 @@ import {
   type MetroNotifyAlert,
 } from "@/lib/todays-alerts";
 import { TRANSITALERT_VERSION_LABEL } from "@/lib/version";
+import {
+  isIosDevice,
+  isStandaloneApp,
+  notificationsEnabled,
+  setNotificationsEnabled,
+  showAppNotification,
+  updateAppBadge,
+} from "@/lib/pwa";
 
 const KNOWN_ALERT_LINES = [
   "Metro Tunnel",
@@ -130,7 +138,9 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     typeof window === "undefined" || !("Notification" in window) ? "unsupported" : Notification.permission,
   );
-  const [notificationMessage, setNotificationMessage] = useState("");
+  const [notificationActive, setNotificationActive] = useState(notificationsEnabled);
+  const [isNotificationGuideOpen, setIsNotificationGuideOpen] = useState(false);
+  const seenAlertIdsRef = useRef<string[]>([]);
   const { data: metroAlerts = [] } = useQuery({
     queryKey: ["/api/metro-notify/alerts", "topbar"],
     queryFn: fetchMetroNotifyAlerts,
@@ -152,54 +162,54 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
   const alertIsRecent = leadAlert ? isRecentAlert(leadAlert.updatedAt) : false;
 
   useEffect(() => {
-    if (notificationPermission !== "granted") return;
+    void updateAppBadge(notificationActive ? alertsToday : 0);
+  }, [alertsToday, notificationActive]);
 
-    const badgeNavigator = navigator as Navigator & {
-      setAppBadge?: (contents?: number) => Promise<void>;
-      clearAppBadge?: () => Promise<void>;
-    };
-    const updateBadge = alertsToday > 0
-      ? badgeNavigator.setAppBadge?.(alertsToday)
-      : badgeNavigator.clearAppBadge?.();
-    void updateBadge?.catch(() => undefined);
-  }, [alertsToday, notificationPermission]);
+  useEffect(() => {
+    const currentIds = headlineAlerts.map((alert) => alert.id);
+    if (seenAlertIdsRef.current.length === 0) {
+      seenAlertIdsRef.current = currentIds;
+      return;
+    }
+
+    const newAlerts = headlineAlerts.filter((alert) => !seenAlertIdsRef.current.includes(alert.id));
+    if (notificationActive && document.visibilityState === "hidden") {
+      newAlerts.slice(0, 3).forEach((alert) => {
+        const summary = getAlertCategory(alert);
+        void showAppNotification(summary.typeLabel, {
+          body: `${summary.detailLabel}: ${alert.title}`,
+          tag: `transitalert-${alert.id}`,
+          data: { url: `${import.meta.env.BASE_URL}alerts/today` },
+        });
+      });
+    }
+    seenAlertIdsRef.current = currentIds;
+  }, [headlineAlerts, notificationActive]);
 
   const enableNotifications = async () => {
     if (!("Notification" in window)) {
-      setNotificationMessage("Notifications are not supported in this browser.");
       return;
     }
 
     const permission = await Notification.requestPermission();
     setNotificationPermission(permission);
     if (permission === "granted") {
-      localStorage.setItem("transitalert-browser-notifications", "true");
-      setNotificationMessage("Alerts are on");
-      const registration = await navigator.serviceWorker?.ready.catch(() => null);
-      if (registration) {
-        await registration.showNotification("TransitAlert notifications are on", {
-          body: "Live disruption alerts can now reach this device.",
-          icon: `${import.meta.env.BASE_URL}app-logo.svg`,
-          badge: `${import.meta.env.BASE_URL}app-logo.svg`,
-          tag: "transitalert-enabled",
-        });
-      } else {
-        new Notification("TransitAlert notifications are on", {
-          body: "Live disruption alerts can now reach this device.",
-          icon: `${import.meta.env.BASE_URL}app-logo.svg`,
-        });
-      }
-      window.setTimeout(() => setNotificationMessage(""), 2600);
-      return;
+      setNotificationsEnabled(true);
+      setNotificationActive(true);
+      await showAppNotification("TransitAlert is ready", {
+        body: "Live disruption alerts and app badges are now enabled.",
+        tag: "transitalert-enabled",
+      });
     }
-
-    const isIos = /iPad|iPhone|iPod/i.test(navigator.userAgent);
-    setNotificationMessage(
-      isIos
-        ? "On iPhone, add TransitAlert to your Home Screen first, then allow notifications."
-        : "Notification access was not allowed. You can change it in browser settings.",
-    );
   };
+
+  const disableNotifications = () => {
+    setNotificationsEnabled(false);
+    setNotificationActive(false);
+    void updateAppBadge(0);
+  };
+
+  const iosNeedsInstall = isIosDevice() && !isStandaloneApp();
 
   return (
     <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex items-start justify-between gap-2 px-2.5 pt-2.5 sm:px-6 sm:pt-5">
@@ -246,16 +256,16 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
       <div className="pointer-events-auto relative z-[70] flex shrink-0 items-center gap-1.5 sm:gap-3">
         <button
           type="button"
-          onClick={() => void enableNotifications()}
+          onClick={() => setIsNotificationGuideOpen(true)}
           className={`flex h-11 w-11 items-center justify-center rounded-full border shadow-xl backdrop-blur-xl transition hover:scale-[1.03] ${
-            notificationPermission === "granted"
+            notificationActive
               ? "border-emerald-400/25 bg-emerald-500/15 text-emerald-100"
               : "border-white/10 bg-card/80 text-white/75"
           }`}
-          aria-label={notificationPermission === "granted" ? "Notifications enabled" : "Enable notifications"}
-          title={notificationPermission === "granted" ? "Notifications enabled" : "Enable notifications"}
+          aria-label={notificationActive ? "Notifications enabled" : "Set up notifications"}
+          title={notificationActive ? "Notifications enabled" : "Set up notifications"}
         >
-          {notificationPermission === "granted" ? <BellRing className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+          {notificationActive ? <BellRing className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
         </button>
         <button
           type="button"
@@ -288,12 +298,80 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
             </span>
           </div>
         </button>
-        {notificationMessage && (
-          <div className="absolute right-0 top-[3.25rem] w-[min(18rem,calc(100vw-1.25rem))] rounded-2xl border border-white/10 bg-slate-950/96 px-3 py-2 text-xs leading-4 text-white/75 shadow-2xl backdrop-blur-xl">
-            {notificationMessage}
-          </div>
-        )}
       </div>
+
+      {isNotificationGuideOpen && (
+        <div className="pointer-events-auto fixed inset-0 z-[2000] flex items-end justify-center bg-black/60 p-3 backdrop-blur-md sm:items-center sm:p-6">
+          <button
+            type="button"
+            aria-label="Close notification setup"
+            onClick={() => setIsNotificationGuideOpen(false)}
+            className="absolute inset-0"
+          />
+          <section className="relative w-full max-w-md overflow-hidden rounded-[1.8rem] border border-white/10 bg-slate-950/98 p-5 text-white shadow-2xl sm:rounded-[2rem] sm:p-6">
+            <button
+              type="button"
+              onClick={() => setIsNotificationGuideOpen(false)}
+              className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70"
+              aria-label="Close notification setup"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-300/20 bg-blue-500/15 text-blue-100">
+              <Smartphone className="h-6 w-6" />
+            </div>
+            <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.24em] text-blue-300/80">iPhone-ready web app</p>
+            <h2 className="mt-2 pr-10 text-2xl font-semibold tracking-tight">TransitAlert, without the browser clutter.</h2>
+            <p className="mt-2 text-sm leading-6 text-white/60">
+              Install the app for a full-screen map, alert badges, and notification access.
+            </p>
+
+            {iosNeedsInstall ? (
+              <div className="mt-5 space-y-2.5">
+                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/15 text-blue-200"><Share className="h-4 w-4" /></span>
+                  <p className="text-sm text-white/75"><span className="font-semibold text-white">1. Tap Share</span> in Safari&apos;s bottom toolbar.</p>
+                </div>
+                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/15 text-blue-200"><PlusSquare className="h-4 w-4" /></span>
+                  <p className="text-sm text-white/75"><span className="font-semibold text-white">2. Add to Home Screen</span>, then open TransitAlert there.</p>
+                </div>
+                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/15 text-blue-200"><Bell className="h-4 w-4" /></span>
+                  <p className="text-sm text-white/75"><span className="font-semibold text-white">3. Tap the bell</span> again and allow notifications.</p>
+                </div>
+              </div>
+            ) : notificationActive ? (
+              <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
+                <div className="flex items-center gap-3">
+                  <BellRing className="h-5 w-5 text-emerald-200" />
+                  <div>
+                    <p className="font-semibold text-emerald-50">Notifications are on</p>
+                    <p className="mt-0.5 text-xs text-emerald-100/65">New disruptions can appear as alerts and app badges.</p>
+                  </div>
+                </div>
+                <button type="button" onClick={disableNotifications} className="mt-4 text-xs font-semibold text-white/50 underline decoration-white/20 underline-offset-4">
+                  Turn off TransitAlert notifications
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void enableNotifications()}
+                disabled={notificationPermission === "denied" || notificationPermission === "unsupported"}
+                className="mt-5 w-full rounded-2xl bg-blue-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-950/40 transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
+              >
+                {notificationPermission === "denied" ? "Notifications blocked in settings" : "Enable live alert notifications"}
+              </button>
+            )}
+
+            <p className="mt-4 text-center text-[11px] leading-4 text-white/35">
+              Apple Dynamic Island Live Activities require a native App Store build. This is the strongest supported Safari web-app experience.
+            </p>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
