@@ -32,6 +32,7 @@ export default function Login() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordFormError, setPasswordFormError] = useState("");
+  const [isCapsLockOn, setIsCapsLockOn] = useState(false);
 
   useEffect(() => {
     try {
@@ -350,10 +351,18 @@ export default function Login() {
                       type="password"
                       value={currentPassword}
                       onChange={(event) => setCurrentPassword(event.target.value)}
+                      onKeyDown={(event) => setIsCapsLockOn(event.getModifierState("CapsLock"))}
+                      onKeyUp={(event) => setIsCapsLockOn(event.getModifierState("CapsLock"))}
                       autoComplete="current-password"
                       className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-amber-300/60 sm:rounded-2xl sm:py-3"
                     />
                   </label>
+
+                  {isCapsLockOn && (
+                    <p className="rounded-xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100">
+                      Caps Lock is on. Passwords remain case-sensitive for account security.
+                    </p>
+                  )}
 
                   <label className="block">
                     <span className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-white/45">
@@ -363,6 +372,8 @@ export default function Login() {
                       type="password"
                       value={newPassword}
                       onChange={(event) => setNewPassword(event.target.value)}
+                      onKeyDown={(event) => setIsCapsLockOn(event.getModifierState("CapsLock"))}
+                      onKeyUp={(event) => setIsCapsLockOn(event.getModifierState("CapsLock"))}
                       autoComplete="new-password"
                       minLength={10}
                       className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-amber-300/60 sm:rounded-2xl sm:py-3"
@@ -377,6 +388,8 @@ export default function Login() {
                       type="password"
                       value={confirmPassword}
                       onChange={(event) => setConfirmPassword(event.target.value)}
+                      onKeyDown={(event) => setIsCapsLockOn(event.getModifierState("CapsLock"))}
+                      onKeyUp={(event) => setIsCapsLockOn(event.getModifierState("CapsLock"))}
                       autoComplete="new-password"
                       minLength={10}
                       className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-amber-300/60 sm:rounded-2xl sm:py-3"
@@ -440,11 +453,19 @@ export default function Login() {
                       type="password"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
+                      onKeyDown={(event) => setIsCapsLockOn(event.getModifierState("CapsLock"))}
+                      onKeyUp={(event) => setIsCapsLockOn(event.getModifierState("CapsLock"))}
                       autoComplete="current-password"
                       placeholder="Enter password"
                       className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-blue-400/60 sm:rounded-2xl sm:py-3"
                     />
                   </label>
+
+                  {isCapsLockOn && (
+                    <p className="rounded-xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100">
+                      Caps Lock is on. Usernames ignore capitals, but passwords are case-sensitive.
+                    </p>
+                  )}
 
                   <label className="flex items-center gap-3 rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/75 sm:rounded-2xl sm:py-3">
                     <input

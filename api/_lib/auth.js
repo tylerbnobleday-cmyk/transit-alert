@@ -606,7 +606,7 @@ export async function authenticateUser(username, password) {
       throw new Error("Database unavailable");
     }
     const user = await db.query.appUsersTable.findFirst({
-      where: (fields, operators) => operators.eq(fields.username, username),
+      where: (fields, operators) => operators.ilike(fields.username, username),
     });
     if (!user) return null;
     return verifyPassword(password, user.passwordHash) ? sanitizeUser(user) : null;
