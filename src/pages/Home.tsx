@@ -1159,7 +1159,7 @@ export default function Home() {
   const { data: liveFleetVehicles = [], isFetching: isFleetRefreshing } = useQuery({
     queryKey: ["live-fleet-board"],
     queryFn: fetchLiveTrains,
-    enabled: (authSession?.user?.role ?? "") !== "Guest",
+    enabled: Boolean(authSession?.authenticated),
     retry: false,
     refetchInterval: isMobile ? 30_000 : 15_000,
     staleTime: isMobile ? 20_000 : 10_000,
@@ -1677,7 +1677,7 @@ export default function Home() {
   }, [authSession?.user]);
 
   useEffect(() => {
-    if (isGuest && activeTab !== "map") {
+    if (isGuest && activeTab !== "map" && activeTab !== "fleets") {
       setActiveTab("map");
     }
   }, [activeTab, isGuest]);
@@ -2316,8 +2316,8 @@ export default function Home() {
   }, [activeTab, isAdmin, selectedFleetFilterLabel]);
 
   const handleTabChange = (value: string) => {
-    if (isGuest && value !== "map") {
-      setUserMenuMessage("Guest access is limited to the map and journey planner. Register to unlock the full app.");
+    if (isGuest && value !== "map" && value !== "fleets") {
+      setUserMenuMessage("Guest access includes the live map and fleet board in version 0.90. Register to unlock account tools, station PID, and admin controls.");
       setIsUserMenuOpen(true);
       return;
     }
@@ -2377,7 +2377,7 @@ export default function Home() {
       <div className="pointer-events-none absolute inset-x-0 top-[4.85rem] z-[55] flex justify-center px-2.5 sm:top-5 sm:px-6">
         <TabsList className="pointer-events-auto flex w-full max-w-[calc(100%-0.75rem)] justify-start gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-card/80 p-1 shadow-xl backdrop-blur-xl sm:w-auto sm:max-w-xl sm:justify-center">
             <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="map">Journey Planner</TabsTrigger>
-            {!isGuest && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="fleets">Fleets</TabsTrigger>}
+            <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="fleets">Fleets</TabsTrigger>
             {!isGuest && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="pid">Station PID</TabsTrigger>}
             {isAdmin && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="admin">Admin</TabsTrigger>}
         </TabsList>
@@ -2422,7 +2422,7 @@ export default function Home() {
                     Create account
                   </button>
                   <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs leading-relaxed text-white/65">
-                    Guest mode hides live vehicles and premium account tools. Log in or register to unlock the full app.
+                    Guest mode now includes live trains and the fleet board. Log in or register to unlock saved account tools, station PID, and extra account controls.
                   </div>
                 </>
               ) : (

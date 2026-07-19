@@ -8545,7 +8545,6 @@ export function Map({
     queryKey: ["/api/ptv/live-trains", viewportBoundsQuery],
     queryFn: () => fetchLiveTrains(viewportBoundsQuery),
     enabled:
-      !isGuest &&
       !disableLiveMapOverlaysForIos &&
       allowMobileHeavyTrainTracking &&
       (transportModes.includes("train") || transportModes.includes("vline")),
