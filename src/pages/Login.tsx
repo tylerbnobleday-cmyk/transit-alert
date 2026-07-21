@@ -284,7 +284,7 @@ export default function Login() {
                 Accounts
               </p>
               <h1 className="mt-3 text-[1.85rem] font-semibold tracking-tight text-white sm:text-3xl">
-                Guest version 0.91 is live with slimmer mobile auth screens.
+                Guest version 0.92 is live with verified departures and bus stops.
               </h1>
             </div>
 
@@ -422,7 +422,7 @@ export default function Login() {
                 </p>
                 <h2 className="mt-3 text-2xl font-semibold text-white">Welcome back</h2>
                 <p className="mt-2 text-sm text-white/60">
-                  Sign in to open the live map, planner, and saved account tools, or use guest mode for the public 0.91 browse experience.
+                  Sign in to open the live map, planner, and saved account tools, or use guest mode for the public 0.92 browse experience.
                 </p>
 
                 <form
@@ -507,7 +507,7 @@ export default function Login() {
                   )}
 
                   <p className="text-xs leading-5 text-white/50">
-                    Guest mode in version 0.91 lets people browse the map and planner without registering, while live tools and account-only features stay restricted until they sign up.
+                    Guest mode in version 0.92 lets people browse the map and planner without registering, while live tools and account-only features stay restricted until they sign up.
                   </p>
                 </form>
               </div>
@@ -521,7 +521,7 @@ export default function Login() {
                   Create an account
                 </h2>
                 <p className="mt-2 text-sm text-white/60">
-                  Registration is currently for approved debug testers only. Guest version 0.91 keeps public browsing open, and public Traveller sign-ups open in version 1.0.
+                  Registration is currently for approved debug testers only. Guest version 0.92 keeps public browsing open, and public Traveller sign-ups open in version 1.0.
                 </p>
 
                 <form
@@ -605,7 +605,7 @@ export default function Login() {
             )}
 
             <div className="mt-4 rounded-[1.15rem] border border-white/10 bg-white/5 px-3.5 py-3 text-sm text-white/60 sm:rounded-2xl sm:px-4">
-              Guest mode is the public 0.91 experience for browsing. Live tools and saved account features still stay limited until sign-in.
+              Guest mode is the public 0.92 experience for browsing. Live tools and saved account features still stay limited until sign-in.
             </div>
           </section>
         </div>

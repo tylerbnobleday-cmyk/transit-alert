@@ -12,6 +12,7 @@ import preferencesHandler from "../api/preferences/[[...slug]].js";
 import liveBusesHandler from "../api/ptv/live-buses.js";
 import liveTrainsHandler from "../api/ptv/live-trains.js";
 import liveTramsHandler from "../api/ptv/live-trams.js";
+import timetableHandler from "../api/ptv/timetable.js";
 import reportsHandler from "../api/reports/[[...slug]].js";
 import telegramStatusHandler from "../api/telegram/status.js";
 import { ensureDatabaseReady, isDatabaseConfigured } from "../src/lib/db/src/index.js";
@@ -97,6 +98,7 @@ function getApiResolution(urlObject) {
       if (remainder[0] === "live-buses") return { handler: liveBusesHandler, query };
       if (remainder[0] === "live-trains") return { handler: liveTrainsHandler, query };
       if (remainder[0] === "live-trams") return { handler: liveTramsHandler, query };
+      if (remainder[0] === "timetable") return { handler: timetableHandler, query };
       return null;
     case "telegram":
       return remainder[0] === "status" ? { handler: telegramStatusHandler, query } : null;

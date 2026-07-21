@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import crypto from "node:crypto";
+import { copyFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
@@ -1680,6 +1681,19 @@ function ptvRealtimePlugin(runtimeConfig: RuntimeConfig): Plugin {
   };
 }
 
+function githubPagesSpaFallback(): Plugin {
+  return {
+    name: "github-pages-spa-fallback",
+    closeBundle() {
+      const outputDirectory = path.resolve(import.meta.dirname, "dist");
+      copyFileSync(
+        path.join(outputDirectory, "index.html"),
+        path.join(outputDirectory, "404.html"),
+      );
+    },
+  };
+}
+
 export default defineConfig(async ({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const port = Number(env.PORT || process.env.PORT || 5173);
@@ -1714,6 +1728,7 @@ export default defineConfig(async ({ mode }) => {
       react(),
       tailwindcss(),
       runtimeErrorOverlay(),
+      githubPagesSpaFallback(),
       ...(process.env.NODE_ENV !== "production" &&
       process.env.REPL_ID !== undefined
         ? [

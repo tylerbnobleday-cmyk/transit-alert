@@ -4,21 +4,29 @@ TransitAlert is an independent Melbourne public transport map and tracking app f
 
 ## Current release
 
-- Web version: `0.91`
+- Web version: `0.92`
 - Public guest frontend: [GitHub Pages](https://tylerbnobleday-cmyk.github.io/transit-alert/)
 - Local/live backend host target: local Node server with optional tunnel or Render-style deployment
 - Frontend: Vite + React + TypeScript
 - Backend/API style: local Node server with API handlers under [`api/`](api/)
 
-## Guest version 0.91
+## Guest version 0.92
 
-Version `0.91` is the current public guest release.
+Version `0.92` is the current public guest release.
 
 - Guest users can browse the map and planner without making an account
 - Signed-in tester/admin accounts now persist in the real embedded database configured through `DATABASE_URL`
 - Tester registration is still gated through `APPROVED_DEBUG_TESTERS`
 - NSW TrainLink/XPT regional labelling was cleaned up to reduce generic fleet confusion
 - Mobile account screens were tightened up so they feel less cramped on narrow phones
+
+### 0.92 bug fixes
+
+- Connected station cards to the official dated Transport Victoria GTFS schedule with GTFS-Realtime overlays for expected times, delays, cancellations, and skipped stops.
+- Live bus markers now open the exact official trip update and show its published upcoming stops, stop IDs, and expected times.
+- Added a GitHub Pages SPA fallback so direct and shared app routes no longer return a GitHub 404.
+- Kept the no-fake-data rule: unpublished departures, stops, and vehicle details remain unavailable rather than being generated.
+- Reported by Jack Miller: the missing verified station replacement after fake boards were removed, and live bus markers not opening their stop sequence.
 
 ### 0.91 bug fixes
 

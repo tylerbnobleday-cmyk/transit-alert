@@ -25,6 +25,7 @@ import southsideComengIcon from "@/assets/icons/ss-comeng.svg";
 import northsideComengIcon from "@/assets/icons/ns-comeng.svg";
 import { fetchLiveTrains, isVlineLiveTrain, type LiveTrain } from "@/lib/live-trains";
 import { fetchLiveBuses, type LiveBus } from "@/lib/live-buses";
+import { fetchBusTrip, fetchStationDepartures } from "@/lib/timetable";
 import { fetchLiveTrams, type LiveTram } from "@/lib/live-trams";
 import { GENERATED_TRAM_ROUTE_BUNDLES } from "@/lib/generated-tram-routes";
 import { findStationCoordinate } from "@/lib/station-coordinates";
@@ -1183,7 +1184,7 @@ const TRANSPORT_EMOJI: Record<string, string> = {
   stop: "🚏",
 };
 
-const APP_VERSION = "0.91"; const GUEST_PREVIEW_VERSION = APP_VERSION; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
+const APP_VERSION = "0.92"; const GUEST_PREVIEW_VERSION = APP_VERSION; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
   inspector: "#e11d48",
   delay: "#f59e0b",
   incident: "#3b82f6",
@@ -8689,6 +8690,7 @@ export function Map({
   const [selectedDetail, setSelectedDetail] = useState<
     | { type: "station"; station: Station }
     | { type: "vehicle"; vehicle: LiveTrain }
+    | { type: "bus"; bus: LiveBus }
     | { type: "surfaceStop"; stop: SurfaceStop }
     | { type: "report"; report: Report }
     | null
@@ -8698,8 +8700,34 @@ export function Map({
     tdn: string;
   } | null>(null);
   const selectedVehicle = selectedDetail?.type === "vehicle" ? selectedDetail.vehicle : null;
+  const selectedBus = selectedDetail?.type === "bus" ? selectedDetail.bus : null;
+  const selectedStation = selectedDetail?.type === "station" ? selectedDetail.station : null;
   const selectedVehicleKey = selectedVehicle ? getVehicleFocusKey(selectedVehicle) : null;
   const selectedSurfaceStop = selectedDetail?.type === "surfaceStop" ? selectedDetail.stop : null;
+  const {
+    data: selectedStationDepartures,
+    isLoading: isStationDeparturesLoading,
+    error: stationDeparturesError,
+  } = useQuery({
+    queryKey: ["verified-station-departures", selectedStation?.name],
+    queryFn: () => fetchStationDepartures(selectedStation!.name),
+    enabled: Boolean(selectedStation?.name),
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+    retry: false,
+  });
+  const {
+    data: selectedBusTrip,
+    isLoading: isBusTripLoading,
+    error: busTripError,
+  } = useQuery({
+    queryKey: ["verified-bus-trip", selectedBus?.tripId],
+    queryFn: () => fetchBusTrip(selectedBus!.tripId!),
+    enabled: Boolean(selectedBus?.tripId),
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+    retry: false,
+  });
   const selectedVehicleSnapshotConsist = selectedVehicle ? getSnapshotConsistId(selectedVehicle.consist) : null;
   const { data: selectedVehicleSnapshot } = useQuery({
     queryKey: ["consist-snapshot", selectedVehicleSnapshotConsist],
@@ -8760,7 +8788,7 @@ export function Map({
         ? `${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
         : selectedVehicleIsRegional
           ? `${getRegionalFallbackMeta(selectedVehicle)?.serviceLabel ?? "Regional"} service`
-          : `${selectedDetail?.vehicle.line ?? selectedVehicle.line} service`
+          : `${selectedVehicle.line} service`
     : "";
   const selectedVehicleJourneyId = selectedVehicle
     ? (selectedBoardServiceContext?.vehicleKey === selectedVehicleKey ? selectedBoardServiceContext.tdn : null) ??
@@ -10422,6 +10450,11 @@ export function Map({
               icon={createLiveBusIcon(bus)}
               zIndexOffset={1000}
               riseOnHover
+              eventHandlers={{
+                mousedown: () => setSelectedDetail({ type: "bus", bus }),
+                click: () => setSelectedDetail({ type: "bus", bus }),
+                popupopen: () => setSelectedDetail({ type: "bus", bus }),
+              }}
             >
               <Popup>
                 <div className="w-56 p-3">
@@ -11317,7 +11350,102 @@ export function Map({
         </div>
       )}
 
-      {selectedDetail && selectedDetail.type !== "vehicle" && (
+      {selectedDetail?.type === "bus" && (
+        <div className="absolute inset-x-3 bottom-28 z-[1001] mx-auto max-h-[52vh] w-auto max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-[1.6rem] border border-orange-300/15 bg-slate-950/96 p-3.5 shadow-2xl backdrop-blur-2xl md:inset-x-auto md:bottom-6 md:right-4 md:top-24 md:max-h-[calc(100%-7rem)] md:w-[24rem]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-orange-300/80">Live bus</p>
+              <h2 className="mt-1.5 text-xl font-semibold text-white">
+                {selectedDetail.bus.route === "Bus" ? "PTV bus" : `Route ${selectedDetail.bus.route}`}
+              </h2>
+              <p className="mt-1 text-sm text-white/60">
+                {selectedDetail.bus.destination ? `To ${selectedDetail.bus.destination}` : "Destination not published"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedDetail(null)}
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+            {selectedDetail.bus.fleetNumber && (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
+                <p className="uppercase tracking-[0.16em] text-white/40">Fleet</p>
+                <p className="mt-1 font-semibold text-white">{selectedDetail.bus.fleetNumber}</p>
+              </div>
+            )}
+            {selectedDetail.bus.registration && (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
+                <p className="uppercase tracking-[0.16em] text-white/40">Registration</p>
+                <p className="mt-1 font-semibold text-white">{selectedDetail.bus.registration}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-3 rounded-[1.25rem] border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-200/80">Upcoming stops</p>
+                <p className="mt-1 text-xs text-white/55">Official PTV trip updates for this run.</p>
+              </div>
+              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold text-white/60">
+                {isBusTripLoading ? "Loading" : `${selectedBusTrip?.stops.length ?? 0} stops`}
+              </span>
+            </div>
+
+            {isBusTripLoading ? (
+              <p className="mt-3 text-sm text-white/60">Checking the current dated trip update...</p>
+            ) : busTripError ? (
+              <p className="mt-3 rounded-xl border border-amber-300/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+                {busTripError instanceof Error ? busTripError.message : "Bus stops are unavailable right now."}
+              </p>
+            ) : selectedBusTrip?.stops.length ? (
+              <div className="mt-3 space-y-1.5">
+                {selectedBusTrip.stops.map((stop) => (
+                  <div
+                    key={`${selectedBusTrip.tripId}-${stop.stopSequence}-${stop.stopId}`}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/15 px-3 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-white">{stop.name}</p>
+                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-white/40">
+                        {stop.stopCode ? `Stop ${stop.stopCode}` : `PTV stop ${stop.stopId}`}
+                        {stop.status === "skipped" ? " · Skipped" : ""}
+                      </p>
+                    </div>
+                    <p className="shrink-0 text-sm font-semibold text-sky-100">
+                      {stop.expectedAt
+                        ? new Date(stop.expectedAt).toLocaleTimeString("en-AU", {
+                            timeZone: "Australia/Melbourne",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "No time"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/60">
+                PTV has not published a stop sequence for this live run yet.
+              </p>
+            )}
+
+            <p className="mt-3 text-[10px] leading-4 text-white/40">
+              {selectedBusTrip?.realtimeFeedAt
+                ? `Realtime feed ${formatDistanceToNow(new Date(selectedBusTrip.realtimeFeedAt), { addSuffix: true })}. `
+                : ""}
+              {selectedBusTrip?.source ?? "Transport Victoria GTFS-Realtime"}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {selectedDetail && selectedDetail.type !== "vehicle" && selectedDetail.type !== "bus" && (
         <div className="absolute inset-x-3 bottom-32 z-[1001] mx-auto max-h-[52vh] w-full max-w-[95vw] overflow-y-auto rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-3.5 shadow-2xl backdrop-blur-2xl sm:bottom-24 sm:p-4 lg:max-w-[980px]">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -11350,7 +11478,101 @@ export function Map({
               <div className="rounded-2xl border border-white/10 bg-white/5 p-3">{getStationDetails(selectedDetail.station)}</div>
               {renderStationBoardingGuide(selectedDetail.station.name)}
 
-              {selectedDetail.station.name === "Southern Cross" && (
+              <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-300/75">
+                      Verified departures
+                    </p>
+                    <p className="mt-1 text-xs text-white/55">
+                      Official dated GTFS schedule with GTFS-Realtime updates.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/65">
+                    {isStationDeparturesLoading ? "Loading" : `${selectedStationDepartures?.departures.length ?? 0} services`}
+                  </span>
+                </div>
+
+                {isStationDeparturesLoading ? (
+                  <p className="mt-3 text-sm text-white/60">Checking today&apos;s active service calendar...</p>
+                ) : stationDeparturesError ? (
+                  <p className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+                    {stationDeparturesError instanceof Error
+                      ? stationDeparturesError.message
+                      : "Verified departures are unavailable right now."}
+                  </p>
+                ) : selectedStationDepartures?.departures.length ? (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {selectedStationDepartures.departures.map((departure) => {
+                      const expected = new Date(departure.expectedAt);
+                      const scheduled = new Date(departure.scheduledAt);
+                      const delayMinutes = Math.round((departure.delaySeconds ?? 0) / 60);
+                      return (
+                        <div
+                          key={`${departure.tripId}-${departure.platform ?? "na"}`}
+                          className="rounded-2xl border border-white/10 bg-black/15 p-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-200/75">
+                                {departure.route}
+                                {departure.platform ? ` · Platform ${departure.platform}` : ""}
+                              </p>
+                              <p className="mt-1 truncate text-base font-semibold text-white">{departure.destination}</p>
+                            </div>
+                            <p className="shrink-0 text-lg font-semibold text-white">
+                              {expected.toLocaleTimeString("en-AU", {
+                                timeZone: "Australia/Melbourne",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between gap-3 text-[11px]">
+                            <span className="text-white/45">
+                              Scheduled{" "}
+                              {scheduled.toLocaleTimeString("en-AU", {
+                                timeZone: "Australia/Melbourne",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                            <span className={departure.status === "cancelled" || departure.status === "skipped" ? "font-semibold text-rose-200" : delayMinutes > 0 ? "font-semibold text-amber-200" : "font-semibold text-emerald-200"}>
+                              {departure.status === "cancelled"
+                                ? "Cancelled"
+                                : departure.status === "skipped"
+                                  ? "Not stopping"
+                                  : departure.status === "live"
+                                    ? delayMinutes > 0
+                                      ? `${delayMinutes} min late`
+                                      : delayMinutes < 0
+                                        ? `${Math.abs(delayMinutes)} min early`
+                                        : "Live · On time"
+                                    : "Scheduled"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-white/60">
+                    No verified departures were returned in the next three hours.
+                  </p>
+                )}
+
+                <p className="mt-3 text-[10px] leading-4 text-white/40">
+                  {selectedStationDepartures?.realtimeFeedAt
+                    ? `Realtime feed ${formatDistanceToNow(new Date(selectedStationDepartures.realtimeFeedAt), { addSuffix: true })}. `
+                    : ""}
+                  {selectedStationDepartures?.scheduleUpdatedAt
+                    ? `Schedule file checked ${new Date(selectedStationDepartures.scheduleUpdatedAt).toLocaleDateString("en-AU")}. `
+                    : ""}
+                  {selectedStationDepartures?.source ?? "Transport Victoria"}
+                </p>
+              </div>
+
+              {unverifiedTransitPanelsEnabled() && selectedDetail.station.name === "Southern Cross" && (
                 <div className="rounded-[1.35rem] border border-amber-300/20 bg-amber-500/[0.06] p-4">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-200/85">
                     Live departures unavailable
@@ -11482,7 +11704,7 @@ export function Map({
                 </div>
               )}
 
-              {selectedDetail.station.name !== "Southern Cross" && (
+              {unverifiedTransitPanelsEnabled() && selectedDetail.station.name !== "Southern Cross" && (
                 (() => {
                   const isMetroTunnelConnectorStation =
                     selectedDetail.station.name === "Melbourne Central" ||

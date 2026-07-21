@@ -364,7 +364,11 @@ const VERSION_LOG: ChangelogEntry[] = [
     version: TRANSITALERT_WEB_VERSION,
     date: "19/07/2026",
     notes: [
-      "Version 0.91 restores in-range mobile station labels and expands live PTV bus identity, route, and stop details.",
+      "Version 0.92 connects station departure cards to the current official Transport Victoria GTFS schedule and overlays GTFS-Realtime times, delays, cancellations, and skipped stops.",
+      "Reported by Jack Miller: station panels no longer stop at the unavailable notice after synthetic boards were removed; Ormond and other mapped stations now use verified current-date services only.",
+      "Reported by Jack Miller: tapping a live bus now opens the exact PTV run and its officially published upcoming stop sequence, stop IDs, and expected times.",
+      "GitHub Pages now ships an SPA fallback so shared TransitAlert routes open the app instead of GitHub's 404 page.",
+      "No generated departures or stops were restored. Missing or sparse official feed values remain clearly unavailable.",
       "Reported by Jack Miller: V/Line corridor alignment and generic regional service classification were corrected so Maryborough-area trains are not shown as Geelong services.",
       "Reported by Jack Miller: synthetic station departures were removed after an incorrect Town Hall service appeared at Armadale.",
       "TransitAlert now shows an unavailable notice instead of generating platform times, delays, service IDs, regional timelines, freight movements, or bus and tram countdowns.",
@@ -497,8 +501,8 @@ const TRANSITALERT_SYSTEM_NOTES = [
 
 const VERSION_HIGHLIGHT_CARDS = [
   {
-    title: "What’s new in 0.91",
-    body: "TransitAlert 0.91 keeps the public guest release and adds clearer mobile stations, richer live bus details, and corrected V/Line corridor matching.",
+    title: "What’s new in 0.92",
+    body: "TransitAlert 0.92 adds verified station departures, exact live-bus stop sequences, and reliable GitHub Pages shared links.",
   },
   {
     title: "Guest + accounts",
@@ -2360,7 +2364,7 @@ export default function Home() {
 
   const handleTabChange = (value: string) => {
     if (isGuest && value !== "map" && value !== "fleets") {
-      setUserMenuMessage("Guest access includes the live map and fleet board in version 0.91. Register to unlock account tools, station PID, and admin controls.");
+      setUserMenuMessage("Guest access includes the live map and fleet board in version 0.92. Register to unlock account tools, station PID, and admin controls.");
       setIsUserMenuOpen(true);
       return;
     }
@@ -3530,7 +3534,7 @@ export default function Home() {
                             <p className="text-xs uppercase tracking-[0.18em] text-white/45">Sign-up gate</p>
                             <p className="mt-2 text-white">
                               Registration is currently limited to approved debug testers from the server allowlist <span className="font-semibold text-blue-200">APPROVED_DEBUG_TESTERS</span>.
-                              Version 0.91 is the current guest release, and version 1.0 is where normal public traveller sign-up is meant to open.
+                              Version 0.92 is the current guest release, and version 1.0 is where normal public traveller sign-up is meant to open.
                             </p>
                           </div>
                           <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
