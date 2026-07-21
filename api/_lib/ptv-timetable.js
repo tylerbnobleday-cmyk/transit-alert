@@ -245,6 +245,7 @@ async function fetchRealtimeFeed(baseUrl, pathName) {
   if (cached && Date.now() - cached.loadedAt < 25_000) return cached.feed;
   const response = await fetch(cacheKey, {
     headers: { KeyID: key, "Ocp-Apim-Subscription-Key": key },
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) throw new Error(`Official PTV realtime feed failed (${response.status}).`);
   const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(
