@@ -393,9 +393,19 @@ const PID_THEMES: PidThemeMode[] = ["dark", "light"];
 const VERSION_LOG: ChangelogEntry[] = [
   {
     version: TRANSITALERT_WEB_VERSION,
-    date: "19/07/2026",
+    date: "05/09/2026",
     notes: [
-      "Version 0.92 connects station departure cards to the current official Transport Victoria GTFS schedule and overlays GTFS-Realtime times, delays, cancellations, and skipped stops.",
+      "Version 0.95 adds faster live-vehicle refresh and steadier train movement while zooming or moving the map.",
+      "Train bubbles now use destination, origin and the real City Loop, Metro Tunnel or Flinders Street routing without duplicate wording such as Frankston via Frankston.",
+      "Train formation bubbles now show car count, fleet family and useful consist identifiers; HCMTs show seven cars and their published set number.",
+      "Regional stopping patterns now use live and verified GTFS data where available, preserve prior stops across TDN changes, and mark the train's current map position.",
+      "V/Line and NSW TrainLink identity handling was separated so Albury V/Line services are not incorrectly labelled as XPT; genuine XPT services show as seven-car NSW TrainLink trains.",
+      "Station-board selections now carry their exact origin, destination and TDN into both the service panel and selected map bubble.",
+      "Bus map bubbles now lead with a nearby locality or published destination before the route number, and show the operator in the expanded label.",
+      "Fleet Tracker is now a Premium sidebar feature with search, selection and automatic map centring on the chosen live service.",
+      "Guest users can view TransitAlert's public live information without the previous guest-mode block.",
+      "Selected-service map framing was improved for mobile so the marker remains visible above the detail sheet.",
+      "Version 0.92 connected station departure cards to the current official Transport Victoria GTFS schedule and overlaid GTFS-Realtime times, delays, cancellations, and skipped stops.",
       "Reported by Jack Miller: station panels no longer stop at the unavailable notice after synthetic boards were removed; Ormond and other mapped stations now use verified current-date services only.",
       "Reported by Jack Miller: tapping a live bus now opens the exact PTV run and its officially published upcoming stop sequence, stop IDs, and expected times.",
       "GitHub Pages now ships an SPA fallback so shared TransitAlert routes open the app instead of GitHub's 404 page.",
@@ -532,8 +542,8 @@ const TRANSITALERT_SYSTEM_NOTES = [
 
 const VERSION_HIGHLIGHT_CARDS = [
   {
-    title: "What’s new in 0.92",
-    body: "TransitAlert 0.92 adds verified station departures, exact live-bus stop sequences, and reliable GitHub Pages shared links.",
+    title: "What’s new in 0.95",
+    body: "Clearer train and bus bubbles, faster live movement, complete stopping patterns, and safer Metro, V/Line and NSW TrainLink identification.",
   },
   {
     title: "Guest + accounts",
@@ -541,7 +551,7 @@ const VERSION_HIGHLIGHT_CARDS = [
   },
   {
     title: "Regional live tracking",
-    body: "NSW TrainLink services are labelled more cleanly as XPT or Xplorer in the regional fleet layer, which reduces the old generic-service confusion.",
+    body: "V/Line and NSW TrainLink are kept separate, with exact station-board journeys, regional stopping patterns, consist details, and seven-car XPT labelling.",
   },
 ] as const;
 

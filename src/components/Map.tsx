@@ -1014,9 +1014,13 @@ function createLiveTrainIcon(
         ? throughDestinationLabel.replace(/\s+via\s+.+$/i, "").trim()
         : "";
   const journeyLabel = originLabel && finalDestinationLabel
-    ? markerViaLabel && originLabel.toLowerCase() !== markerViaLabel.toLowerCase()
-      ? `${finalDestinationLabel} via ${originLabel} ${markerViaLabel}`
-      : `${finalDestinationLabel} via ${originLabel}`
+    ? originLabel.toLowerCase() === finalDestinationLabel.toLowerCase()
+      ? markerViaLabel && markerViaLabel.toLowerCase() !== finalDestinationLabel.toLowerCase()
+        ? `${finalDestinationLabel} via ${markerViaLabel}`
+        : finalDestinationLabel
+      : markerViaLabel && originLabel.toLowerCase() !== markerViaLabel.toLowerCase()
+        ? `${finalDestinationLabel} via ${originLabel} ${markerViaLabel}`
+        : `${finalDestinationLabel} via ${originLabel}`
     : destinationLabel;
   const formation = getVehicleFormation(vehicle);
   const regionalCarLabel = isVlineLiveTrain(vehicle) ? getRegionalCarLengthLabel(vehicle) : "";
@@ -1179,7 +1183,8 @@ function saveLiveTrainMapCache(trains: LiveTrain[]) {
 function createLiveBusIcon(bus: LiveBus, options: { showLabel?: boolean; selected?: boolean } = {}) {
   const showLabel = options.showLabel ?? false;
   const selected = options.selected ?? false;
-  const routeLabel = escapeInlineMarkerHtml(bus.route.slice(0, 6));
+  const areaLabel = getLiveBusAreaLabel(bus);
+  const routeLabel = escapeInlineMarkerHtml([areaLabel, bus.route.slice(0, 6)].filter(Boolean).join(" · "));
   const operatorLabel = (bus.operator ?? "Bus operator TBC")
     .replace(/\s+/g, " ")
     .trim()
@@ -1269,7 +1274,7 @@ const TRANSPORT_EMOJI: Record<string, string> = {
   stop: "🚏",
 };
 
-const APP_VERSION = "0.92"; const GUEST_PREVIEW_VERSION = APP_VERSION; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
+const APP_VERSION = "0.95"; const GUEST_PREVIEW_VERSION = APP_VERSION; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
   inspector: "#e11d48",
   delay: "#f59e0b",
   incident: "#3b82f6",
@@ -4803,6 +4808,29 @@ function getNearestKnownBusStop(bus: LiveBus) {
   }
 
   return nearest && nearest.distanceMetres <= 1200 ? nearest : null;
+}
+
+function getLiveBusAreaLabel(bus: LiveBus) {
+  const publishedDestination = bus.destination
+    ?.replace(/\s+(?:Bus Interchange|Shopping Centre|SC|Station)$/i, "")
+    .replace(/\s+via\s+.+$/i, "")
+    .trim();
+  if (publishedDestination && !/^(bus|unknown)$/i.test(publishedDestination)) {
+    return publishedDestination.slice(0, 24);
+  }
+
+  const nearestStop = getNearestKnownBusStop(bus)?.stop;
+  if (nearestStop?.locality) return nearestStop.locality.slice(0, 24);
+
+  const nearestStation = ALL_STATIONS.reduce<{ station: Station; distanceMetres: number } | null>((best, station) => {
+    const distanceMetres = getDistanceInMetres([bus.lat, bus.lng], station.position);
+    return !best || distanceMetres < best.distanceMetres ? { station, distanceMetres } : best;
+  }, null);
+  if (nearestStation && nearestStation.distanceMetres <= 5000) {
+    return nearestStation.station.name.replace(/\s+Station$/i, "").slice(0, 24);
+  }
+
+  return "Melbourne";
 }
 
 function getLiveBusStopLabel(bus: LiveBus) {

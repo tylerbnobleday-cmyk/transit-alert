@@ -268,7 +268,7 @@ export default function Login() {
                 Accounts
               </p>
               <h1 className="mt-3 text-[1.85rem] font-semibold tracking-tight text-white sm:text-3xl">
-                Guest version 0.92 is live with verified departures and bus stops.
+                Guest version {TRANSITALERT_WEB_VERSION} is live with verified departures and bus stops.
               </h1>
             </div>
 
@@ -491,7 +491,7 @@ export default function Login() {
                   )}
 
                   <p className="text-xs leading-5 text-white/50">
-                    Guest mode in version 0.92 lets people browse the map and planner without registering, while live tools and account-only features stay restricted until they sign up.
+                  Guest mode in version {TRANSITALERT_WEB_VERSION} lets people browse the map and planner without registering, while account-only features stay restricted until they sign up.
                   </p>
                 </form>
               </div>
@@ -505,7 +505,7 @@ export default function Login() {
                   Create an account
                 </h2>
                 <p className="mt-2 text-sm text-white/60">
-                  Registration is currently for approved debug testers only. Guest version 0.92 keeps public browsing open, and public Traveller sign-ups open in version 1.0.
+                  Registration is currently for approved debug testers only. Guest version {TRANSITALERT_WEB_VERSION} keeps public browsing open, and public Traveller sign-ups open in version 1.0.
                 </p>
 
                 <form
