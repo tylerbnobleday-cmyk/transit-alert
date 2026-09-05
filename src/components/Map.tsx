@@ -6837,7 +6837,7 @@ function getRegionalTrainTypeLabel(vehicle: LiveTrain) {
     return vehicle.trainType;
   }
 
-  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toUpperCase();
   const genericRegionalLabel =
     !vehicle.trainType.trim() ||
     /^(REGIONAL TRAIN|TRAIN|V\/LINE|VLINE|UNKNOWN)$/i.test(vehicle.trainType.trim());
@@ -6872,7 +6872,7 @@ function getRegionalTrainTypeLabel(vehicle: LiveTrain) {
 
 function getRegionalTrainFamilyLabel(vehicle: LiveTrain) {
   const typeLabel = getRegionalTrainTypeLabel(vehicle);
-  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toUpperCase();
 
   if (/XPT|XPLORER/.test(joined)) return typeLabel;
   if (/SPRINTER/.test(joined)) return "Sprinter";
@@ -6884,19 +6884,22 @@ function getRegionalTrainFamilyLabel(vehicle: LiveTrain) {
 
 function getRegionalCarLengthLabel(vehicle: LiveTrain) {
   const typeLabel = getRegionalTrainTypeLabel(vehicle);
-  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination} ${typeLabel}`.toUpperCase();
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""} ${typeLabel}`.toUpperCase();
   const explicitCarMatch = joined.match(/\b(3|4|5|6|7|8|9)\s*[- ]?CAR\b/);
   if (explicitCarMatch?.[1]) return `${explicitCarMatch[1]}-car`;
   if (/\bV\d{3,4}\b.*\bV\d{3,4}\b/.test(joined)) return "6-car";
   if (/\bV\d{3,4}\b/.test(joined) || /VLOCITY/.test(joined)) return "3-car";
   if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "loco set";
-  if (/XPT|XPLORER|SPRINTER/.test(joined)) return "special";
+  if (/XPT/.test(joined)) return "7-car";
+  if (/XPLORER|SPRINTER/.test(joined)) return "special";
   return "set TBC";
 }
 
 function getRegionalRouteDisplayLabel(vehicle: LiveTrain) {
   const fallbackMeta = getRegionalFallbackMeta(vehicle);
-  const raw = fallbackMeta?.serviceLabel ?? vehicle.line ?? vehicle.destination ?? "V/Line";
+  const raw = !isGenericRegionalPlaceholder(vehicle.destination)
+    ? vehicle.destination
+    : fallbackMeta?.serviceLabel ?? vehicle.line ?? "V/Line";
   return raw
     .replace(/\s+line$/i, "")
     .replace(/^V\/Line$/i, "Regional")
@@ -6904,7 +6907,7 @@ function getRegionalRouteDisplayLabel(vehicle: LiveTrain) {
 }
 
 function getRegionalSpecialTrainLabel(vehicle: LiveTrain) {
-  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
+  const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toUpperCase();
   if (/XPT|XPLORER|NSW TRAINLINK/.test(joined)) return "Special train";
   if (/SPRINTER|N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "Special movement";
   if (!/VLOCITY|\bV\d{3,4}\b/.test(joined) && isVlineLiveTrain(vehicle)) return "Special / other";
@@ -7970,7 +7973,9 @@ function getRegionalFallbackMeta(
     /southern cross|flinders street|melbourne central|flagstaff|parliament|city/i.test(vehicle.destination);
 
   const explicitMetas = [
-    { match: /(xpt|nsw trainlink|sydney central|campbelltown|goulburn|albury)/, outbound: "Sydney Central", inbound: "Southern Cross", serviceLabel: "NSW TrainLink XPT" },
+    // Albury is served by both V/Line and NSW TrainLink. Only explicit NSW/XPT
+    // identity is enough to classify a vehicle as an interstate XPT.
+    { match: /(xpt|nsw trainlink|sydney central|campbelltown|goulburn)/, outbound: "Sydney Central", inbound: "Southern Cross", serviceLabel: "NSW TrainLink XPT" },
     { match: /(waurn ponds|geelong|warrnambool)/, outbound: "Waurn Ponds", inbound: "Southern Cross", serviceLabel: "Geelong line" },
     { match: /(ballarat|wendouree|ararat|maryborough)/, outbound: "Ballarat", inbound: "Southern Cross", serviceLabel: "Ballarat line" },
     { match: /(bendigo|castlemaine|echuca|swan hill)/, outbound: "Bendigo", inbound: "Southern Cross", serviceLabel: "Bendigo line" },
@@ -7990,12 +7995,6 @@ function getRegionalFallbackMeta(
 
   const position: [number, number] = [vehicle.lat, vehicle.lng];
   const inferredMetas = [
-    {
-      outbound: "Sydney Central",
-      inbound: "Southern Cross",
-      serviceLabel: "NSW TrainLink XPT",
-      distance: getPolylinePointDistanceMetres(position, XPT_INTERSTATE_LINE),
-    },
     {
       outbound: "Waurn Ponds",
       inbound: "Southern Cross",
@@ -9084,6 +9083,8 @@ export function Map({
   const [selectedBoardServiceContext, setSelectedBoardServiceContext] = useState<{
     vehicleKey: string;
     tdn: string;
+    origin: string;
+    destination: string;
   } | null>(null);
   const [selectedStationService, setSelectedStationService] = useState<VerifiedDeparture | null>(null);
   const [serviceTripToFit, setServiceTripToFit] = useState<string | null>(null);
@@ -9093,9 +9094,17 @@ export function Map({
   const selectedVehicleSeed = selectedDetail?.type === "vehicle" ? selectedDetail.vehicle : null;
   const selectedBusSeed = selectedDetail?.type === "bus" ? selectedDetail.bus : null;
   const selectedTramSeed = selectedDetail?.type === "tram" ? selectedDetail.tram : null;
-  const selectedVehicle = selectedVehicleSeed
+  const selectedVehicleLive = selectedVehicleSeed
     ? liveVehicles.find((vehicle) => vehicle.tripId === selectedVehicleSeed.tripId || getVehicleFocusKey(vehicle) === getVehicleFocusKey(selectedVehicleSeed)) ?? selectedVehicleSeed
     : null;
+  const selectedVehicle = selectedVehicleLive && selectedBoardServiceContext?.vehicleKey === getVehicleFocusKey(selectedVehicleLive)
+    ? {
+        ...selectedVehicleLive,
+        origin: selectedBoardServiceContext.origin,
+        destination: selectedBoardServiceContext.destination,
+        serviceDescription: `${selectedVehicleLive.line} · ${selectedBoardServiceContext.origin} → ${selectedBoardServiceContext.destination}`,
+      }
+    : selectedVehicleLive;
   const selectedBus = selectedBusSeed
     ? liveBuses.find((bus) => bus.tripId === selectedBusSeed.tripId || bus.id === selectedBusSeed.id) ?? selectedBusSeed
     : null;
@@ -9526,7 +9535,9 @@ export function Map({
   const selectedVehicleDateLabel = selectedVehicle ? formatRegionalServiceDate(selectedVehicle.timestamp) : "";
   const selectedVehicleServiceTypeLabel = selectedRegionalProfile?.serviceType ?? (selectedVehicleIsHcmtMetroTunnel ? "HCMT Metro Tunnel" : selectedVehicleIsRegional ? "Regional Service" : "Metro Service");
   const selectedVehicleHeadingLabel = selectedVehicle
-    ? selectedServiceViaLabel && selectedVehicleDestinationLabel
+    ? selectedBoardServiceContext?.vehicleKey === selectedVehicleKey && selectedVehicleDestinationLabel
+      ? `${selectedVehicleDestinationLabel} service`
+      : selectedServiceViaLabel && selectedVehicleDestinationLabel
       ? `${selectedVehicleDestinationLabel} via ${selectedServiceViaLabel} service`
       : selectedTrainCrossCityDestination
       ? `${selectedTrainCrossCityDestination} service`
@@ -9852,6 +9863,8 @@ export function Map({
       setSelectedBoardServiceContext({
         vehicleKey: getVehicleFocusKey(matchedVehicle),
         tdn: stripTdnPrefix(service.tdnLabel),
+        origin: stationName.replace(/\s+Station$/i, ""),
+        destination: display.destination.replace(/\s+Station$/i, ""),
       });
       setSelectedDetail({ type: "vehicle", vehicle: matchedVehicle });
       mapRef.current?.flyTo([matchedVehicle.lat, matchedVehicle.lng], Math.max(mapRef.current.getZoom(), 14), {
@@ -11193,13 +11206,21 @@ export function Map({
             const priority = getTrainLabelPriority(vehicle);
             const isZoomedOut = mapZoom <= 13;
             const hideSecondaryLabel = false;
-            const markerVehicle = isSelected && selectedTrainTrip?.tripId === vehicle.tripId
+            const boardContextVehicle = isSelected && selectedBoardServiceContext?.vehicleKey === vehicleKey
               ? {
                   ...vehicle,
-                  origin: selectedTrainFormationOrigin ?? selectedTrainCurrentOrigin ?? vehicle.origin,
-                  destination: selectedTrainFormationDestination ?? selectedTrainFinalDestination ?? selectedTrainCurrentDestination ?? vehicle.destination,
+                  origin: selectedBoardServiceContext.origin,
+                  destination: selectedBoardServiceContext.destination,
+                  serviceDescription: `${vehicle.line} · ${selectedBoardServiceContext.origin} → ${selectedBoardServiceContext.destination}`,
                 }
               : vehicle;
+            const markerVehicle = isSelected && selectedTrainTrip?.tripId === vehicle.tripId
+              ? {
+                  ...boardContextVehicle,
+                  origin: selectedTrainFormationOrigin ?? selectedTrainCurrentOrigin ?? boardContextVehicle.origin,
+                  destination: selectedTrainFormationDestination ?? selectedTrainFinalDestination ?? selectedTrainCurrentDestination ?? boardContextVehicle.destination,
+                }
+              : boardContextVehicle;
 
             return (
               <Marker
@@ -11227,12 +11248,20 @@ export function Map({
             const isSelected = selectedVehicleKey === vehicleKey || Boolean(selectedVehicle?.tripId && vehicle.tripId === selectedVehicle.tripId);
             const isHovered = hoveredVehicleKey === vehicleKey;
             const isZoomedOut = mapZoom <= 13;
-            const markerVehicle = isSelected && selectedTrainTrip?.tripId === vehicle.tripId
+            const boardContextVehicle = isSelected && selectedBoardServiceContext?.vehicleKey === vehicleKey
               ? {
                   ...vehicle,
-                  destination: selectedTrainCrossCityDestination ?? selectedTrainCurrentDestination ?? vehicle.destination,
+                  origin: selectedBoardServiceContext.origin,
+                  destination: selectedBoardServiceContext.destination,
+                  serviceDescription: `${vehicle.line} · ${selectedBoardServiceContext.origin} → ${selectedBoardServiceContext.destination}`,
                 }
               : vehicle;
+            const markerVehicle = isSelected && selectedTrainTrip?.tripId === vehicle.tripId
+              ? {
+                  ...boardContextVehicle,
+                  destination: selectedTrainCrossCityDestination ?? selectedTrainCurrentDestination ?? boardContextVehicle.destination,
+                }
+              : boardContextVehicle;
 
             return (
               <Marker
