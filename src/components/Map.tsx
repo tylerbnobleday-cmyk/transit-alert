@@ -8303,6 +8303,47 @@ function getDisplayConsist(consist: string) {
   return formatDisplayedConsist(parts);
 }
 
+function getRegionalGtfsPatternStations(vehicle: LiveTrain): Station[] {
+  if (!isVlineLiveTrain(vehicle)) return [];
+  const searchable = `${vehicle.line} ${vehicle.origin ?? ""} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
+  const candidates = GENERATED_VLINE_GTFS.map((route) => {
+    const name = `${route.shortName} ${route.longName}`.toLowerCase();
+    const nameBonus = searchable.includes(route.shortName.toLowerCase())
+      || route.longName.toLowerCase().split(/\s+-\s+|\s+via\s+/).some((part) => part.length > 3 && searchable.includes(part.trim()))
+      ? -0.05
+      : 0;
+    const nearestDistance = route.shape.reduce((best, point) => {
+      const distance = (point[0] - vehicle.lat) ** 2 + (point[1] - vehicle.lng) ** 2;
+      return Math.min(best, distance);
+    }, Number.POSITIVE_INFINITY);
+    return { route, score: nearestDistance + nameBonus };
+  }).sort((left, right) => left.score - right.score);
+  const matchedRoute = candidates[0]?.route;
+  if (!matchedRoute) return [];
+
+  const ordered = [...matchedRoute.stations]
+    .map((station) => {
+      let shapeIndex = 0;
+      let nearest = Number.POSITIVE_INFINITY;
+      matchedRoute.shape.forEach((point, index) => {
+        const distance = (point[0] - station.position[0]) ** 2 + (point[1] - station.position[1]) ** 2;
+        if (distance < nearest) {
+          nearest = distance;
+          shapeIndex = index;
+        }
+      });
+      return { name: station.name, position: [station.position[0], station.position[1]] as [number, number], shapeIndex };
+    })
+    .sort((left, right) => left.shapeIndex - right.shapeIndex)
+    .filter((station, index, stations) => index === 0 || station.name !== stations[index - 1].name)
+    .map(({ name, position }) => ({ name, position }));
+
+  const destination = vehicle.destination.toLowerCase().replace(/\s+station\b/g, "");
+  const firstMatchesDestination = destination.includes(ordered[0]?.name.toLowerCase().replace(/\s+station\b/g, "") ?? "");
+  const lastMatchesDestination = destination.includes(ordered.at(-1)?.name.toLowerCase().replace(/\s+station\b/g, "") ?? "");
+  return firstMatchesDestination && !lastMatchesDestination ? ordered.reverse() : ordered;
+}
+
 function getLivePositionOnStopTimeline(
   vehicle: { lat: number; lng: number },
   stops: Array<{ name: string; position?: [number, number] }>,
@@ -9338,7 +9379,7 @@ export function Map({
     // A regional vehicle without a matched GTFS trip must not inherit a metro
     // line pattern. That created false stops such as a next stop named “V/Line”.
     : selectedVehicle && isVlineLiveTrain(selectedVehicle)
-      ? []
+      ? getRegionalGtfsPatternStations(selectedVehicle)
       : selectedVehicleMetroStops;
   const selectedVehicleSnapshotConsist = selectedVehicle ? getSnapshotConsistId(selectedVehicle.consist) : null;
   const { data: selectedVehicleSnapshot } = useQuery({
