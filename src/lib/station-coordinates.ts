@@ -3,6 +3,7 @@ const STATION_COORDINATES: Record<string, [number, number]> = {
   "Southern Cross": [-37.8176, 144.9522],
   "North Melbourne": [-37.8073, 144.9426],
   Richmond: [-37.82359625345165, 144.9891977969667],
+  "East Richmond": [-37.8263274, 144.9972673],
   Newport: [-37.8426, 144.8833],
   Williamstown: [-37.8673, 144.9006],
   "North Williamstown": [-37.8573, 144.8872],

@@ -71,7 +71,10 @@ function buildPtvLiveTrams(feed) {
       const longitude = position.longitude;
       if (typeof latitude !== "number" || typeof longitude !== "number") return null;
 
-      const route = normaliseRoute(vehicle.trip?.tripId || entity.id || vehicle.trip?.routeId);
+      // A trip ID identifies one run, not its route. Keep both values so the
+      // client can load the exact, dated stopping pattern for this vehicle.
+      const tripId = vehicle.trip?.tripId;
+      const route = normaliseRoute(vehicle.trip?.routeId || tripId || entity.id);
       const timestamp = toNumber(vehicle.timestamp);
       const label = normaliseLabel(vehicle.vehicle?.label, vehicle.vehicle?.licensePlate, route);
       const destination = normaliseDestination(
@@ -82,6 +85,7 @@ function buildPtvLiveTrams(feed) {
 
       return {
         id: entity.id || vehicle.vehicle?.id || `${route}-${latitude}-${longitude}`,
+        tripId: typeof tripId === "string" && tripId.trim() ? tripId.trim() : undefined,
         label,
         lat: latitude,
         lng: longitude,
@@ -127,7 +131,11 @@ export default async function handler(req, res) {
     process.env.PTV_API_KEY;
 
   if (!ptvSubscriptionKey) {
-    res.status(200).json({ trams: [] });
+    res.status(503).json({
+      error: "Live tram positions need a Transport Victoria KeyID. Static tram routes remain available from GTFS.",
+      code: "PTV_KEY_REQUIRED",
+      trams: [],
+    });
     return;
   }
 

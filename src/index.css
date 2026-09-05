@@ -275,3 +275,16 @@
   .scrollbar-hide::-webkit-scrollbar { display: none; }
   .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 }
+/* Keep rail routes readable as track overlays, including shared CBD corridors. */
+.transit-rail-track-pane path {
+  stroke-width: 2px !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  vector-effect: non-scaling-stroke;
+}
+/* Leaflet owns marker transforms for panning and zooming. A long transform
+   transition makes trains visibly lag behind the map after every gesture. */
+.leaflet-marker-icon.live-train-marker {
+  transition: none !important;
+  will-change: transform;
+}

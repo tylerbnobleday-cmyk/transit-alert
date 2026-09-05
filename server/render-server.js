@@ -1,6 +1,7 @@
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, statSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,15 +14,96 @@ import liveBusesHandler from "../api/ptv/live-buses.js";
 import liveTrainsHandler from "../api/ptv/live-trains.js";
 import liveTramsHandler from "../api/ptv/live-trams.js";
 import timetableHandler from "../api/ptv/timetable.js";
+import ptvV3StatusHandler from "../api/ptv/v3-status.js";
+import { isPtvV3Configured } from "../api/_lib/ptv-v3.js";
 import reportsHandler from "../api/reports/[[...slug]].js";
 import telegramStatusHandler from "../api/telegram/status.js";
-import { ensureDatabaseReady, isDatabaseConfigured } from "../src/lib/db/src/index.js";
+import { ensureDatabaseReady, isDatabaseConfigured, pglite, pool } from "../src/lib/db/src/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DIST_DIR = path.resolve(__dirname, "../dist");
 const INDEX_FILE = path.join(DIST_DIR, "index.html");
 const PORT = Number(process.env.PORT || 3000);
+const GTFS_PATH = process.env.GTFS_SCHEDULE_PATH || path.resolve(__dirname, "../.local-host/gtfs.zip");
+const GHOST_TABLES = new Set(["app_users", "user_preferences", "app_config", "marker_overrides", "reports", "chat_messages", "telegram_subscribers", "tracked_consists"]);
+const GHOST_HIDDEN_COLUMNS = new Set(["password_hash"]);
+async function ghostDbQuery(text, params = []) { return pglite ? pglite.query(text, params) : pool ? pool.query(text, params) : { rows: [] }; }
+async function ghostDatabaseHandler(req, res, urlObject) {
+  const remote = req.socket.remoteAddress || "";
+  if (!/^(::1|::ffff:127\.0\.0\.1|127\.0\.0\.1)$/.test(remote)) { res.writeHead(403); res.end(JSON.stringify({ error: "Local access only" })); return true; }
+  if (req.method === "GET" && urlObject.pathname === "/api/ghost-db/tables") {
+    const result = await ghostDbQuery("SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name");
+    const tables = result.rows.filter(row => GHOST_TABLES.has(row.table_name));
+    for (const table of tables) { const count = await ghostDbQuery(`SELECT count(*)::int AS count FROM "${table.table_name}"`); table.count = Number(count.rows[0]?.count || 0); }
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ name: "TransitAlert", tables })); return true;
+  }
+  if (req.method === "POST" && urlObject.pathname === "/api/ghost-db/reset-password") {
+    let raw = ""; for await (const chunk of req) raw += chunk; const data = JSON.parse(raw || "{}");
+    const password = String(data.password || ""); if (password.length < 8) throw new Error("Password must be at least 8 characters.");
+    const salt = crypto.randomBytes(16).toString("hex"), derived = crypto.scryptSync(password, salt, 64).toString("hex");
+    await ghostDbQuery("UPDATE app_users SET password_hash=$1, must_change_password=$2, updated_at=now() WHERE id=$3", [`${salt}:${derived}`, Boolean(data.mustChange), String(data.id || "")]);
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return true;
+  }
+  const match = urlObject.pathname.match(/^\/api\/ghost-db\/table\/([a-z_]+)$/);
+  if (!match || !GHOST_TABLES.has(match[1])) return false;
+  const table = match[1], columnsResult = await ghostDbQuery("SELECT column_name, data_type FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 ORDER BY ordinal_position", [table]);
+  const columns = columnsResult.rows.filter(column => !GHOST_HIDDEN_COLUMNS.has(column.column_name));
+  if (req.method === "GET") {
+    const keysResult = await ghostDbQuery("SELECT a.attname AS name FROM pg_index i JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey) WHERE i.indrelid=$1::regclass AND i.indisprimary", [table]);
+    const primaryKeys = new Set(keysResult.rows.map(row => row.name)); columns.forEach(column => column.primaryKey = primaryKeys.has(column.column_name));
+    const selected = columns.map(column => `"${column.column_name}"`).join(",");
+    const rows = await ghostDbQuery(`SELECT ${selected} FROM "${table}" LIMIT 200`);
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ table, columns, rows: rows.rows })); return true;
+  }
+  if (req.method === "PATCH") {
+    let raw = ""; for await (const chunk of req) raw += chunk; const data = JSON.parse(raw || "{}");
+    const column = columns.find(item => item.column_name === data.column); if (!column) throw new Error("Column cannot be edited.");
+    const keysResult = await ghostDbQuery("SELECT a.attname AS name FROM pg_index i JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey) WHERE i.indrelid=$1::regclass AND i.indisprimary", [table]);
+    const key = keysResult.rows[0]?.name; if (!key || data.key === undefined) throw new Error("This table has no editable primary key.");
+    const keyColumn = columns.find(item => item.column_name === key); if (!keyColumn) throw new Error("Primary key is unavailable.");
+    let value = data.value; if (/json/.test(column.data_type) && typeof value === "string") value = JSON.parse(value); else if (/boolean/.test(column.data_type)) value = value === true || value === "true"; else if (/integer|numeric|double|real/.test(column.data_type)) value = Number(value);
+    await ghostDbQuery(`UPDATE "${table}" SET "${column.column_name}"=$1${columns.some(x=>x.column_name==='updated_at') && column.column_name!=='updated_at' ? ', updated_at=now()' : ''} WHERE "${key}"=$2`, [value, data.key]);
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return true;
+  }
+  return false;
+}
+
+function healthHandler(_req, res) {
+  res.status(200).json({ ok: true, service: "TransitAlert API", time: new Date().toISOString() });
+}
+
+function feedStatusHandler(_req, res) {
+  const gtfsInstalled = existsSync(GTFS_PATH);
+  const gtfsStats = gtfsInstalled ? statSync(GTFS_PATH) : null;
+  const hasPtvRealtimeKey = Boolean(
+    process.env.PTV_SUBSCRIPTION_KEY ||
+    process.env.PTV_subscription_key ||
+    process.env.OCP_APIM_SUBSCRIPTION_KEY ||
+    process.env.PTV_API_KEY,
+  );
+
+  res.status(200).json({
+    api: { online: true },
+    ptvTimetableV3: {
+      configured: isPtvV3Configured(),
+      status: isPtvV3Configured() ? "configured" : "key-required",
+    },
+    gtfsSchedule: {
+      installed: gtfsInstalled,
+      bytes: gtfsStats?.size ?? 0,
+      updatedAt: gtfsStats?.mtime?.toISOString() ?? null,
+      source: "Transport Victoria GTFS Schedule",
+    },
+    gtfsRealtime: {
+      configured: hasPtvRealtimeKey,
+      status: hasPtvRealtimeKey ? "configured" : "key-required",
+      message: hasPtvRealtimeKey
+        ? "Transport Victoria GTFS-Realtime is configured."
+        : "Add a Transport Victoria KeyID to enable live vehicle positions.",
+    },
+  });
+}
 
 const CONTENT_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -82,6 +164,10 @@ function getApiResolution(urlObject) {
   const query = Object.fromEntries(urlObject.searchParams.entries());
 
   switch (group) {
+    case "healthz":
+      return { handler: healthHandler, query };
+    case "feed-status":
+      return { handler: feedStatusHandler, query };
     case "auth":
       return { handler: authHandler, query: { ...query, action: remainder[0] || "" } };
     case "preferences":
@@ -97,6 +183,7 @@ function getApiResolution(urlObject) {
     case "ptv":
       if (remainder[0] === "live-buses") return { handler: liveBusesHandler, query };
       if (remainder[0] === "live-trains") return { handler: liveTrainsHandler, query };
+      if (remainder[0] === "v3-status") return { handler: ptvV3StatusHandler, query };
       if (remainder[0] === "live-trams") return { handler: liveTramsHandler, query };
       if (remainder[0] === "timetable") return { handler: timetableHandler, query };
       return null;
@@ -121,7 +208,10 @@ async function serveStaticFile(filePath, res) {
 
   const extension = path.extname(filePath).toLowerCase();
   const contentType = CONTENT_TYPES[extension] || "application/octet-stream";
-  res.writeHead(200, { "Content-Type": contentType });
+  const cacheControl = extension === ".html"
+    ? "no-cache, no-store, must-revalidate"
+    : "public, max-age=31536000, immutable";
+  res.writeHead(200, { "Content-Type": contentType, "Cache-Control": cacheControl });
   createReadStream(filePath).pipe(res);
   return true;
 }
@@ -141,7 +231,10 @@ async function serveSpa(urlObject, res) {
     }
   }
 
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+  });
   createReadStream(INDEX_FILE).pipe(res);
 }
 
@@ -165,6 +258,7 @@ const server = createServer(async (req, res) => {
   }
 
   const urlObject = new URL(req.url || "/", `http://${req.headers.host || `127.0.0.1:${PORT}`}`);
+  try { if (await ghostDatabaseHandler(req, res, urlObject)) return; } catch (error) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: error.message })); return; }
   const resolvedApi = getApiResolution(urlObject);
 
   if (resolvedApi) {

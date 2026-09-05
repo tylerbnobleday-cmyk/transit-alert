@@ -5,6 +5,18 @@ $hostDir = Join-Path $repoRoot ".local-host"
 $configPath = Join-Path $hostDir "host-config.ps1"
 $pidPath = Join-Path $hostDir "server.pid"
 $launcherPath = Join-Path $hostDir "run-server.cmd"
+$bundledNodePath = Join-Path $hostDir "node.exe"
+
+# Older launchers used port 3000 and can survive beside the managed port-3200
+# process. They have no PTV credentials and can also lock the embedded database.
+# Remove only a listener owned by this project's private Node runtime.
+$staleListeners = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue
+foreach ($listener in $staleListeners) {
+  $candidate = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+  if ($candidate -and $candidate.Path -eq $bundledNodePath) {
+    Stop-Process -Id $candidate.Id -Force -ErrorAction SilentlyContinue
+  }
+}
 
 New-Item -ItemType Directory -Path $hostDir -Force | Out-Null
 
@@ -12,7 +24,7 @@ if (!(Test-Path $configPath)) {
   $secret = [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
   $config = @"
 `$HostConfig = @{
-  Port = 3000
+  Port = 3200
   AdminUsername = "tyler"
   AdminPassword = "AppleJuice"
   AuthSessionSecret = "$secret"
@@ -20,12 +32,17 @@ if (!(Test-Path $configPath)) {
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://192.168.1.32:3000",
+    "http://localhost:3200",
+    "http://127.0.0.1:3200",
+    "http://192.168.1.32:3200",
     "https://tylerbnobleday-cmyk.github.io",
     "https://tylerbnobleday-cmyk.github.io/transit-alert/"
   )
-  DatabaseUrl = "pglite://.local-db/transit-alert"
+  DatabaseUrl = ""
   ApprovedDebugTesters = "Jack Miller,jackmiller"
   PtvSubscriptionKey = ""
+  PtvDeveloperId = ""
+  PtvApiKey = ""
   NswTransportApiKey = ""
 }
 "@
@@ -46,8 +63,10 @@ set ALLOWED_ORIGINS=$allowedOrigins
 set DATABASE_URL=$($HostConfig.DatabaseUrl)
 set APPROVED_DEBUG_TESTERS=$($HostConfig.ApprovedDebugTesters)
 set PTV_SUBSCRIPTION_KEY=$($HostConfig.PtvSubscriptionKey)
+set PTV_DEVELOPER_ID=$($HostConfig.PtvDeveloperId)
+set PTV_TIMETABLE_API_KEY=$($HostConfig.PtvApiKey)
 set NSW_TRANSPORT_API_KEY=$($HostConfig.NswTransportApiKey)
-node .\server\render-server.js 1>> ".\.local-host\server.out.log" 2>> ".\.local-host\server.err.log"
+"$bundledNodePath" .\server\render-server.js 1>> ".\.local-host\server.out.log" 2>> ".\.local-host\server.err.log"
 "@
 Set-Content -Path $launcherPath -Value $launcher -Encoding ASCII
 
@@ -67,17 +86,27 @@ if (Test-Path $pidPath) {
   Remove-Item $pidPath -Force -ErrorAction SilentlyContinue
 }
 
+$env:PORT = [string]$HostConfig.Port
+$env:ADMIN_USERNAME = [string]$HostConfig.AdminUsername
+$env:ADMIN_PASSWORD = [string]$HostConfig.AdminPassword
+$env:AUTH_SESSION_SECRET = [string]$HostConfig.AuthSessionSecret
+$env:ALLOWED_ORIGINS = $allowedOrigins
+$env:DATABASE_URL = [string]$HostConfig.DatabaseUrl
+$env:APPROVED_DEBUG_TESTERS = [string]$HostConfig.ApprovedDebugTesters
+$env:PTV_SUBSCRIPTION_KEY = [string]$HostConfig.PtvSubscriptionKey
+$env:PTV_DEVELOPER_ID = [string]$HostConfig.PtvDeveloperId
+$env:PTV_TIMETABLE_API_KEY = [string]$HostConfig.PtvApiKey
+$env:NSW_TRANSPORT_API_KEY = [string]$HostConfig.NswTransportApiKey
+
 $process = Start-Process `
-  -FilePath "C:\Windows\System32\cmd.exe" `
-  -ArgumentList @(
-    "/d",
-    "/c",
-    $launcherPath
-  ) `
+  -FilePath $bundledNodePath `
+  -ArgumentList @(".\server\render-server.js") `
   -WorkingDirectory $repoRoot `
   -WindowStyle Hidden `
+  -RedirectStandardOutput (Join-Path $hostDir "server.out.log") `
+  -RedirectStandardError (Join-Path $hostDir "server.err.log") `
   -PassThru
 
 Set-Content -Path $pidPath -Value $process.Id -Encoding ASCII
 
-Write-Output "TransitAlert host started on http://localhost:3000/ with PID $($process.Id)."
+Write-Output "TransitAlert host started on http://localhost:$($HostConfig.Port)/ with PID $($process.Id)."

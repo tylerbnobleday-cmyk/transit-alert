@@ -3,6 +3,36 @@ import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 const PTV_BASE_URL =
   "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/bus";
 
+const BUS_REGISTRATION_IDENTITIES = {
+  BS07RE: { fleetNumber: "0186", operator: "Kinetic Melbourne" },
+};
+
+// Melbourne route/operator directory, based on the public "List of bus routes in
+// Melbourne" operator table. This keeps API responses specific even when the
+// vehicle-position feed does not include an operator name.
+const BUS_ROUTE_OPERATOR_GROUPS = [
+  ["CDC Melbourne", "150 151 153 160 161 166 167 170 180 181 182 190 191 192 400 406 407 408 409 410 411 412 414 415 417 418 419 421 423 424 425 439 441 443 461 465 467 468 477 478 479 482 484 490 494 495 496 497 498 501 511 524 528 529 530 531 532 533 534 536 537 538 540 541 542 543 544 601 605 606 612 623 624 625 626 630 900".split(" ")],
+  ["Kinetic Melbourne", "200 207 215 216 219 220 223 232 234 235 236 237 246 250 251 270 271 273 279 280 281 282 284 285 293 295 302 303 304 305 309 318 350 364 370 426 503 504 505 506 508 509 510 512 546 552 553 558 567 600 603 604 609 668 669 901 902 903 905 906 907 908 922 923".split(" ")],
+  ["Dysons", "301 343 356 357 358 381 382 383 384 385 386 387 388 389 513 517 518 525 554 555 556 557 559 561 564 566 569 570 577 578 579 580 582".split(" ")],
+  ["Transit Systems Victoria", "241 400 402 404 420 422 427 428 431 432 453 455 456 457 458 459 471 472".split(" ")],
+  ["Cranbourne Transit", "789 790 791 792 795 796 798 799 881 890 891 892 893 894 895 897 898".split(" ")],
+  ["Sunbury Bus Service", "475 481 483 485 486 487 488 489".split(" ")],
+  ["McKenzie's Tourist Services", "684 685".split(" ")],
+  ["Martyrs Bus Service", ["683"]],
+  ["Ventura Bus Lines", "201 526 527 548 549 550 551 631 663 664 670 671 672 673 675 676 677 679 680 681 682 688 689 690 691 693 694 695 696 697 699 701 703 704 705 706 708 709 732 733 734 735 736 737 738 740 742 745 753 754 755 757 758 765 766 767 770 771 772 773 774 775 776 777 778 779 780 781 782 783 784 785 786 787 788 800 802 804 811 812 813 814 816 821 822 823 824 825 828 831 832 833 834 835 836 837 838 839 841 842 843 844 845 846 847 848 849 850 857 858 861 862 863 885 886 887 888 889 899 900 925 926 927 928 929 966 968".split(" ")],
+];
+
+const BUS_ROUTE_OPERATORS = BUS_ROUTE_OPERATOR_GROUPS.reduce((directory, [operator, routes]) => {
+  routes.forEach((route) => {
+    directory[route] = directory[route] ? `${directory[route]} / ${operator}` : operator;
+  });
+  return directory;
+}, {});
+
+function normaliseRegistrationKey(value) {
+  return typeof value === "string" ? value.replace(/[^a-z0-9]/gi, "").toUpperCase() : "";
+}
+
 function toNumber(value) {
   if (typeof value === "number") return value;
   if (typeof value === "bigint") return Number(value);
@@ -95,13 +125,15 @@ function buildPtvLiveBuses(feed) {
         vehicle.trip?.headsign,
         vehicle.trip?.tripShortName,
       );
+      const registration = vehicle.vehicle?.licensePlate;
+      const identity = BUS_REGISTRATION_IDENTITIES[normaliseRegistrationKey(registration)];
 
       return {
         id: entity.id || vehicle.vehicle?.id || `${route}-${latitude}-${longitude}`,
         label,
         vehicleId: vehicle.vehicle?.id,
-        fleetNumber: vehicle.vehicle?.label,
-        registration: vehicle.vehicle?.licensePlate,
+        fleetNumber: identity?.fleetNumber || vehicle.vehicle?.label,
+        registration,
         tripId: vehicle.trip?.tripId,
         lat: latitude,
         lng: longitude,
@@ -113,7 +145,7 @@ function buildPtvLiveBuses(feed) {
         status: "live",
         timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
         heading: typeof position.bearing === "number" ? position.bearing : undefined,
-        operator: "PTV Bus",
+        operator: identity?.operator || BUS_ROUTE_OPERATORS[route] || "PTV contracted bus service",
       };
     })
     .filter(Boolean);
@@ -150,7 +182,11 @@ export default async function handler(req, res) {
     process.env.PTV_API_KEY;
 
   if (!ptvSubscriptionKey) {
-    res.status(200).json({ buses: [] });
+    res.status(503).json({
+      error: "Live bus positions need a Transport Victoria KeyID. Static bus schedules remain available from GTFS.",
+      code: "PTV_KEY_REQUIRED",
+      buses: [],
+    });
     return;
   }
 

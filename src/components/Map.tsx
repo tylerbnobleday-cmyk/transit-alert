@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { Fragment, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   MapContainer,
@@ -8,6 +8,7 @@ import {
   Circle,
   Polyline,
   CircleMarker,
+  Tooltip,
   useMap,
   Pane,
 } from "react-leaflet";
@@ -25,9 +26,10 @@ import southsideComengIcon from "@/assets/icons/ss-comeng.svg";
 import northsideComengIcon from "@/assets/icons/ns-comeng.svg";
 import { fetchLiveTrains, isVlineLiveTrain, type LiveTrain } from "@/lib/live-trains";
 import { fetchLiveBuses, type LiveBus } from "@/lib/live-buses";
-import { fetchBusTrip, fetchStationDepartures } from "@/lib/timetable";
+import { fetchBusTrip, fetchStationDepartures, fetchTrainTrip, fetchTramTrip, fetchSurfaceStopDepartures, type VerifiedDeparture } from "@/lib/timetable";
 import { fetchLiveTrams, type LiveTram } from "@/lib/live-trams";
 import { GENERATED_TRAM_ROUTE_BUNDLES } from "@/lib/generated-tram-routes";
+import { GENERATED_VLINE_GTFS } from "@/lib/generated-vline-gtfs";
 import { findStationCoordinate } from "@/lib/station-coordinates";
 import { fetchConsistSnapshot, type ConsistSnapshot } from "@/lib/transportvic-bot";
 import { fetchMarkerOverrides, saveMarkerOverrides, type MarkerOverride } from "@/lib/marker-overrides";
@@ -53,6 +55,7 @@ import {
   Search,
   Star,
   Map as MapIcon,
+  Crosshair,
   X,
 } from "lucide-react";
 
@@ -409,10 +412,7 @@ function createCityLoopPillIcon(strokeColor: string, stationName: string, option
     CROSS_INTERCHANGE_PILL_STATIONS.has(stationName)
       ? getStationConnectionTags(stationName, { includeMajorInterchangeDetails: true, maxTags: 8 })
       : [];
-  const interchangeRouteTags =
-    stationName === "Caulfield"
-      ? rawInterchangeRouteTags.filter((tag) => /^tram\b/i.test(tag)).slice(0, 2)
-      : rawInterchangeRouteTags;
+  const interchangeRouteTags = rawInterchangeRouteTags.filter((tag) => !/^tram\b/i.test(tag));
   const interchangeLineBadgesMarkup = interchangeLineBadges.length > 0
     ? `<div style="
           position:absolute;
@@ -691,6 +691,7 @@ type FreightLocation = {
 
 interface MapProps {
   journeyRoute?: Station[];
+  journeyBusRoutes?: string[];
   splitCrossCityGroup?: boolean;
   transportModes?: TransportMode[];
   onTransportModesChange?: (modes: TransportMode[]) => void;
@@ -972,7 +973,8 @@ function createLiveTrainIcon(
     hideSecondaryLabel?: boolean;
   },
 ) {
-  const color = getLiveLineColor(vehicle.line);
+  const markerLine = /HCMT/i.test(getVehicleDisplayType(vehicle)) ? "Metro Tunnel" : vehicle.line;
+  const color = getLiveLineColor(markerLine);
   const arrow = "▲";
   const rotation =
     typeof vehicle.heading === "number" && Number.isFinite(vehicle.heading)
@@ -996,13 +998,53 @@ function createLiveTrainIcon(
     .replace(/\bStation\b/gi, "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 18);
+    .slice(0, 38);
+  const originLabel = (vehicle.origin ?? "")
+    .replace(/\bStreet\b/gi, "St")
+    .replace(/\bStation\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const throughDestinationLabel = destinationLabel.split("→")[0]?.trim() || "";
+  const finalDestinationLabel = destinationLabel.split("→").at(-1)?.trim() || destinationLabel;
+  const markerViaLabel = /HCMT/i.test(getVehicleDisplayType(vehicle))
+    ? "Metro Tunnel"
+    : /City Loop/i.test(destinationLabel)
+      ? "City Loop"
+      : destinationLabel.includes("→")
+        ? throughDestinationLabel.replace(/\s+via\s+.+$/i, "").trim()
+        : "";
+  const journeyLabel = originLabel && finalDestinationLabel
+    ? markerViaLabel && originLabel.toLowerCase() !== markerViaLabel.toLowerCase()
+      ? `${finalDestinationLabel} via ${originLabel} ${markerViaLabel}`
+      : `${finalDestinationLabel} via ${originLabel}`
+    : destinationLabel;
+  const formation = getVehicleFormation(vehicle);
+  const regionalCarLabel = isVlineLiveTrain(vehicle) ? getRegionalCarLengthLabel(vehicle) : "";
+  const carLabel = isVlineLiveTrain(vehicle)
+    ? regionalCarLabel.replace(/-/g, " ").toUpperCase()
+    : formation.cars > 0
+      ? `${formation.cars} CAR`
+      : "CAR COUNT TBC";
+  const typeLabel = (isVlineLiveTrain(vehicle)
+    ? getRegionalTrainFamilyLabel(vehicle)
+    : formation.family ?? getVehicleDisplayType(vehicle).replace(/\s*\(\d+-car\)\s*$/i, "")
+  ).trim() || "TYPE TBC";
+  const consistLabel = formation.family === "HCMT"
+    ? getHcmtSetLabel(vehicle.consist) ?? "SET TBC"
+    : isVlineLiveTrain(vehicle)
+      ? getRegionalAllocatedSetLabel(vehicle) || "SET TBC"
+      : getLeadingMotorCarriages(vehicle.consist) ?? "M CARS TBC";
+  const vehicleSummaryLabel = escapeInlineMarkerHtml(
+    `${carLabel} (${typeLabel.toUpperCase()}) (${consistLabel.toUpperCase()})`,
+  );
   const regionalSpecialLabel = isVlineLiveTrain(vehicle) ? getRegionalSpecialTrainLabel(vehicle) : "";
   const badgePrimaryLabel = isVlineLiveTrain(vehicle)
     ? (isExpanded ? getRegionalRealtimeTripLabel(vehicle) : `${getMarkerServiceTime(vehicle.timestamp)} ${getRegionalRouteDisplayLabel(vehicle)}`)
+    : /HCMT/i.test(getVehicleDisplayType(vehicle))
+      ? `${getMarkerServiceTime(vehicle.timestamp)} ${journeyLabel || "Metro service"}`
     : isExpanded
-      ? `${getMarkerServiceTime(vehicle.timestamp)} ${getMarkerServiceCode(vehicle.line)} Service`
-      : `${getMarkerServiceTime(vehicle.timestamp)} ${getMarkerServiceCode(vehicle.line)}`;
+      ? `${getMarkerServiceTime(vehicle.timestamp)} ${(journeyLabel || getMarkerServiceCode(markerLine)).toUpperCase()}`
+      : `${getMarkerServiceTime(vehicle.timestamp)} ${(journeyLabel || getMarkerServiceCode(markerLine)).toUpperCase()}`;
   const badgeSecondaryLabel = isVlineLiveTrain(vehicle)
     ? [regionalSpecialLabel || "V/Line live", destinationLabel].filter(Boolean).join(" · ")
     : `TDN ${vehicle.tdn}`;
@@ -1048,15 +1090,17 @@ function createLiveTrainIcon(
           border-radius:10px;
           border:1px solid ${isSelected ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.14)"};
           box-shadow:${isSelected ? "0 12px 30px rgba(0,0,0,0.52)" : "0 8px 20px rgba(0,0,0,0.38)"};
-          white-space:normal;
-          min-width:${isTrackedConsist ? "138px" : isExpanded ? "122px" : "76px"};
-          max-width:${isTrackedConsist ? "150px" : isExpanded ? "136px" : "92px"};
+          white-space:nowrap;
+          min-width:${isTrackedConsist ? "150px" : isExpanded ? "142px" : "110px"};
+          max-width:${isTrackedConsist ? "190px" : isExpanded ? "180px" : "164px"};
+          overflow:hidden;
+          text-overflow:ellipsis;
           text-align:center;
           line-height:1.12;
           backdrop-filter: blur(10px);
           opacity:${labelOpacity};
         ">
-          <div style="font-size:${isTrackedConsist ? "9px" : isExpanded ? "8px" : "7px"};font-weight:800;letter-spacing:${isExpanded ? "0.03em" : "0.08em"};text-transform:uppercase;">
+          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:${isTrackedConsist ? "9px" : isExpanded ? "8px" : "7px"};font-weight:800;letter-spacing:${isExpanded ? "0.03em" : "0.08em"};text-transform:uppercase;">
             ${badgePrimaryLabel}
           </div>
           ${isExpanded && !hideSecondaryLabel
@@ -1072,51 +1116,92 @@ function createLiveTrainIcon(
               transform:translateX(-50%);
               background:rgba(15,23,42,0.95);
               color:white;
-              font-size:${isTrackedConsist ? "10px" : "9px"};
+              font-size:${isTrackedConsist ? "9px" : "8px"};
               font-weight:700;
               padding:${isTrackedConsist ? "4px 9px" : isExpanded ? "3px 8px" : "2px 7px"};
               border-radius:9999px;
               border:1px solid ${isSelected ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.12)"};
               box-shadow:${isSelected ? "0 10px 24px rgba(0,0,0,0.42)" : "0 6px 14px rgba(0,0,0,0.3)"};
               white-space:nowrap;
-              max-width:${isExpanded ? "132px" : "112px"};
+              max-width:${isExpanded ? "310px" : "240px"};
               overflow:hidden;
               text-overflow:ellipsis;
               backdrop-filter: blur(8px);
               opacity:${labelOpacity};
             ">
-              ${destinationLabel}
+              ${vehicleSummaryLabel}
             </div>`}
       </div>
     `,
-    className: "bg-transparent border-none",
+    className: "live-train-marker bg-transparent border-none",
     iconSize: [outerSize, outerSize],
     iconAnchor: [outerSize / 2, outerSize / 2],
     popupAnchor: [0, -22],
   });
 }
 
-function createLiveBusIcon(bus: LiveBus) {
+function getCompassDirection(heading?: number) {
+  if (typeof heading !== "number" || !Number.isFinite(heading)) return "Direction TBC";
+  return ["North", "North-east", "East", "South-east", "South", "South-west", "West", "North-west"][
+    Math.round((((heading % 360) + 360) % 360) / 45) % 8
+  ];
+}
+
+const LIVE_TRAIN_MAP_CACHE_KEY = "transitalert-live-trains-v3";
+const LIVE_TRAIN_MAP_CACHE_MAX_AGE_MS = 90_000;
+
+function readInitialLiveTrainMapCache(): LiveTrain[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const cached = JSON.parse(window.localStorage.getItem(LIVE_TRAIN_MAP_CACHE_KEY) ?? "null") as
+      | { savedAt?: number; trains?: LiveTrain[] }
+      | null;
+    if (!cached?.savedAt || !Array.isArray(cached.trains)) return [];
+    if (Date.now() - cached.savedAt > LIVE_TRAIN_MAP_CACHE_MAX_AGE_MS) return [];
+    return cached.trains.filter((train) =>
+      Number.isFinite(train.lat) && Number.isFinite(train.lng) &&
+      train.lat >= -40 && train.lat <= -32 && train.lng >= 140 && train.lng <= 153,
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveLiveTrainMapCache(trains: LiveTrain[]) {
+  if (typeof window === "undefined" || trains.length === 0) return;
+  try {
+    window.localStorage.setItem(LIVE_TRAIN_MAP_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), trains }));
+  } catch {
+    // Private browsing/storage pressure must never prevent the live map loading.
+  }
+}
+
+function createLiveBusIcon(bus: LiveBus, options: { showLabel?: boolean; selected?: boolean } = {}) {
+  const showLabel = options.showLabel ?? false;
+  const selected = options.selected ?? false;
   const routeLabel = escapeInlineMarkerHtml(bus.route.slice(0, 6));
-  const destinationLabel = (bus.destination ?? "Live bus")
-    .replace(/^route\s+/i, "")
+  const operatorLabel = (bus.operator ?? "Bus operator TBC")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 18);
-  const escapedDestinationLabel = escapeInlineMarkerHtml(destinationLabel);
+    .slice(0, 36);
+  const escapedOperatorLabel = escapeInlineMarkerHtml(operatorLabel);
   const vehicleLabel = bus.fleetNumber ?? bus.registration ?? bus.vehicleId;
   const escapedVehicleLabel = vehicleLabel
     ? escapeInlineMarkerHtml(vehicleLabel.replace(/\s+/g, " ").trim().slice(0, 18))
     : "";
   const rotation = typeof bus.heading === "number" && Number.isFinite(bus.heading) ? bus.heading : 0;
+  const markerLabel = [
+    escapedOperatorLabel,
+    escapedVehicleLabel ? `Bus ${escapedVehicleLabel}` : "",
+  ].filter(Boolean).join(" · ");
 
   return L.divIcon({
     html: `
-      <div style="position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;">
-        <div style="position:absolute;inset:0;border-radius:50%;background:#f97316;opacity:0.2;animation:ping 2.2s infinite;"></div>
+      <div style="position:relative;width:42px;height:42px;display:flex;align-items:center;justify-content:center;">
+        ${selected ? '<div style="position:absolute;inset:2px;border-radius:50%;background:#f97316;opacity:0.18;animation:ping 2.2s infinite;"></div>' : ""}
         <div style="
-          width:28px;
-          height:28px;
+          width:${selected ? "27px" : "23px"};
+          height:${selected ? "27px" : "23px"};
           border-radius:9999px;
           background:#f97316;
           border:2px solid white;
@@ -1126,7 +1211,7 @@ function createLiveBusIcon(bus: LiveBus) {
           justify-content:center;
           transform:rotate(${rotation}deg);
         ">
-          <img src="${smartbusIcon}" alt="" style="width:14px;height:14px;object-fit:contain;filter:brightness(0) invert(1);" />
+          <span aria-hidden="true" style="display:block;color:white;font-size:15px;font-weight:900;line-height:1;transform:translateY(-1px);text-shadow:0 1px 3px rgba(0,0,0,.35);">▲</span>
         </div>
         <div style="
           position:absolute;
@@ -1135,7 +1220,7 @@ function createLiveBusIcon(bus: LiveBus) {
           transform:translateX(-50%);
           background:#0f172a;
           color:white;
-          font-size:9px;
+          font-size:8px;
           font-weight:700;
           padding:2px 6px;
           border-radius:6px;
@@ -1145,10 +1230,10 @@ function createLiveBusIcon(bus: LiveBus) {
         ">
           ${routeLabel}
         </div>
-        <div style="
+        ${showLabel ? `<div style="
           position:absolute;
           left:50%;
-          bottom:-16px;
+          bottom:-18px;
           transform:translateX(-50%);
           background:rgba(15,23,42,0.92);
           color:white;
@@ -1159,17 +1244,17 @@ function createLiveBusIcon(bus: LiveBus) {
           border:1px solid rgba(255,255,255,0.14);
           box-shadow:0 4px 10px rgba(0,0,0,0.35);
           white-space:nowrap;
-          max-width:120px;
+          max-width:190px;
           overflow:hidden;
           text-overflow:ellipsis;
         ">
-          ${escapedVehicleLabel || escapedDestinationLabel}
-        </div>
+          ${markerLabel || "Bus operator TBC"}
+        </div>` : ""}
       </div>
     `,
-    className: "bg-transparent border-none",
-    iconSize: [56, 56],
-    iconAnchor: [28, 28],
+    className: `live-bus-marker ${showLabel ? "live-bus-marker--labelled" : "live-bus-marker--compact"} bg-transparent border-none`,
+    iconSize: [42, 42],
+    iconAnchor: [21, 21],
     popupAnchor: [0, -22],
   });
 }
@@ -1247,15 +1332,15 @@ export const SERVICE_FILTERS: Array<{
   {
     key: "traralgonRegionalGroup",
     category: "regional",
-    label: "Tralgon line - Bairnsdale",
+    label: "Traralgon Line - Bairnsdale",
     description: "Gippsland regional corridor",
     tone: "bg-purple-500/15 border-purple-400/30 text-purple-200",
   },
   {
     key: "crossCityPink",
     category: "metro",
-    label: "Bayside / Cross City",
-    description: "Werribee, Williamstown, Sandringham",
+    label: "Cross-City: Werribee / Williamstown ↔ Sandringham",
+    description: "Through services via Southern Cross and Flinders Street",
     tone: "bg-pink-500/15 border-pink-400/30 text-pink-200",
   },
   {
@@ -1269,7 +1354,7 @@ export const SERVICE_FILTERS: Array<{
     key: "sandringhamGroup",
     category: "metro",
     label: "Sandringham",
-    description: "Sandringham line",
+    description: "Cross-City services to Werribee, Laverton and Williamstown",
     tone: "bg-pink-500/15 border-pink-400/30 text-pink-200",
   },
   {
@@ -1517,7 +1602,7 @@ const UPFIELD_STATIONS: Station[] = [
 ];
 const LILYDALE_STATIONS: Station[] = [
   { name: "Richmond", position: [-37.82359625345165, 144.9891977969667] },
-  { name: "East Richmond", position: [-37.8260, 145.0007] },
+  { name: "East Richmond", position: [-37.82632740224405, 144.9972673053531] },
   { name: "Burnley", position: [-37.8270, 145.0074] },
   { name: "Hawthorn", position: [-37.8226, 145.0226] },
   { name: "Glenferrie", position: [-37.8210, 145.0368] },
@@ -1541,7 +1626,7 @@ const LILYDALE_STATIONS: Station[] = [
 
 const BELGRAVE_STATIONS: Station[] = [
   { name: "Richmond", position: [-37.82359625345165, 144.9891977969667] },
-  { name: "East Richmond", position: [-37.8260, 145.0007] },
+  { name: "East Richmond", position: [-37.82632740224405, 144.9972673053531] },
   { name: "Burnley", position: [-37.8270, 145.0074] },
   { name: "Hawthorn", position: [-37.8226, 145.0226] },
   { name: "Glenferrie", position: [-37.8210, 145.0368] },
@@ -1665,17 +1750,17 @@ const PAKENHAM_STATIONS: Station[] = [
   { name: "Westall", position: [-37.937755318504934, 145.13805369881837] },
   { name: "Springvale", position: [-37.94893771437316, 145.15307099140574] },
   { name: "Sandown Park", position: [-37.95653055647639, 145.1628965591817] },
-  { name: "Noble Park", position: [-37.9571, 145.1631] },
-  { name: "Yarraman", position: [-37.9633, 145.1746] },
+  { name: "Noble Park", position: [-37.966678, 145.176944] },
+  { name: "Yarraman", position: [-37.978254, 145.191501] },
   { name: "Dandenong", position: [-37.98991938287247, 145.20988128532633] },
-  { name: "Hallam", position: [-37.9953, 145.2341] },
-  { name: "Narre Warren", position: [-38.0136, 145.2595] },
-  { name: "Berwick", position: [-38.0286, 145.2903] },
-  { name: "Beaconsfield", position: [-38.0436, 145.3205] },
-  { name: "Officer", position: [-38.0653, 145.3664] },
-  { name: "Cardinia Road", position: [-38.0795, 145.3953] },
-  { name: "Pakenham", position: [-38.0735, 145.4716] },
-  { name: "East Pakenham", position: [-38.0821, 145.51] },
+  { name: "Hallam", position: [-38.01774038, 145.2697768] },
+  { name: "Narre Warren", position: [-38.02777361, 145.303993] },
+  { name: "Berwick", position: [-38.03998037, 145.34541666] },
+  { name: "Beaconsfield", position: [-38.05083135, 145.36607374] },
+  { name: "Officer", position: [-38.06614572, 145.41098723] },
+  { name: "Cardinia Road", position: [-38.07129047, 145.43779101] },
+  { name: "Pakenham", position: [-38.08061397, 145.48637907] },
+  { name: "East Pakenham", position: [-38.08430672, 145.50663267] },
 ];
 
 const CRANBOURNE_STATIONS: Station[] = [
@@ -1735,6 +1820,7 @@ const NORTHERNGROUPLOOP_STATIONS: Station[] = [
 ];
 
 const WERRIBEE_STATIONS: Station[] = [
+  { name: "Flinders Street", position: [-37.8184161, 144.9664779] },
   { name: "Southern Cross", position: [-37.81934099941143, 144.9524609650515] },
   { name: "North Melbourne", position: [-37.8073, 144.9426] },
   { name: "South Kensington", position: [-37.79971717185788, 144.92584789732544] },
@@ -1872,8 +1958,8 @@ const GIPPSLAND_STATIONS: Station[] = [
   { name: "Caulfield", position: [-37.8770, 145.0424], vline: true, zone: "1" },
   { name: "Clayton", position: [-37.9247726501578, 145.12035310256484], vline: true, zone: "1" },
   { name: "Dandenong", position: [-37.98797563248677, 145.21479109451644], vline: true, zone: "2" },
-  { name: "Berwick", position: [-38.031330253111215, 145.34417492481994], vline: true, zone: "2" },
-  { name: "Pakenham", position: [-38.06853892399032, 145.4849690774776], vline: true, zone: "2" },
+  { name: "Berwick", position: [-38.03998037, 145.34541666], vline: true, zone: "2" },
+  { name: "Pakenham", position: [-38.08061397, 145.48637907], vline: true, zone: "2" },
   { name: "Warragul", position: [-38.15965088085526, 145.92871651094258], vline: true },
   { name: "Moe", position: [-38.17588027961461, 146.26083329049215], vline: true },
   { name: "Morwell", position: [-38.23555857042696, 146.39640612076153], vline: true },
@@ -2149,7 +2235,82 @@ const CLIFTONHILL_LOOP: [number, number][] = [
   [-37.815823035935786, 144.97785563825553],
    // back to Jolimont
 ];
-const SANDRINGHAM_TRACK = SANDRINGHAM_STATIONS.map((station) => station.position);
+// Official Transport Victoria GTFS shape (simplified to ~5 m tolerance).
+// Using station-to-station straight lines made the inner section cut across
+// the Yarra, parks and suburbs instead of following the railway corridor.
+const SANDRINGHAM_TRACK: [number, number][] = [
+  [-37.81856579, 144.96671057],
+  [-37.81738071, 144.97110770],
+  [-37.81706793, 144.97253693],
+  [-37.81703798, 144.97369203],
+  [-37.81732088, 144.97510247],
+  [-37.81770568, 144.97599849],
+  [-37.81947767, 144.97914165],
+  [-37.82018052, 144.98057695],
+  [-37.82120797, 144.98201241],
+  [-37.82205801, 144.98350955],
+  [-37.82306408, 144.98586227],
+  [-37.82430919, 144.99030535],
+  [-37.82457606, 144.99095706],
+  [-37.82555532, 144.99253380],
+  [-37.82612063, 144.99322095],
+  [-37.82681243, 144.99374245],
+  [-37.82745639, 144.99401609],
+  [-37.82797439, 144.99411670],
+  [-37.82864493, 144.99410445],
+  [-37.83069991, 144.99375168],
+  [-37.83419274, 144.99301961],
+  [-37.83579918, 144.99276575],
+  [-37.84028357, 144.99174316],
+  [-37.84888077, 144.98999442],
+  [-37.85145280, 144.98958781],
+  [-37.85257026, 144.98964065],
+  [-37.85358234, 144.98992878],
+  [-37.85457918, 144.99048124],
+  [-37.85532208, 144.99111789],
+  [-37.85630569, 144.99241112],
+  [-37.85715194, 144.99324346],
+  [-37.85884270, 144.99440517],
+  [-37.85953359, 144.99473585],
+  [-37.86026594, 144.99494549],
+  [-37.86093056, 144.99502546],
+  [-37.86165787, 144.99498654],
+  [-37.87066752, 144.99335197],
+  [-37.87162802, 144.99336445],
+  [-37.87256268, 144.99360056],
+  [-37.87875098, 144.99667066],
+  [-37.87965129, 144.99718166],
+  [-37.88736190, 145.00282880],
+  [-37.88874032, 145.00375240],
+  [-37.88940501, 145.00405978],
+  [-37.89105903, 145.00457048],
+  [-37.89201436, 145.00472993],
+  [-37.89318671, 145.00476787],
+  [-37.89454141, 145.00460688],
+  [-37.90836513, 145.00196514],
+  [-37.90983293, 145.00150709],
+  [-37.91099356, 145.00083461],
+  [-37.91189138, 145.00006505],
+  [-37.91543699, 144.99598546],
+  [-37.91655444, 144.99497003],
+  [-37.92485612, 144.98987754],
+  [-37.92608781, 144.98936447],
+  [-37.92712333, 144.98926902],
+  [-37.92775628, 144.98945747],
+  [-37.92848767, 144.98997955],
+  [-37.93023683, 144.99187380],
+  [-37.93231606, 144.99381071],
+  [-37.93288057, 144.99457827],
+  [-37.93390999, 144.99668388],
+  [-37.93430222, 144.99728469],
+  [-37.94034860, 145.00400288],
+  [-37.94141503, 145.00491075],
+  [-37.94205352, 145.00526240],
+  [-37.94270523, 145.00550559],
+  [-37.94338329, 145.00564543],
+  [-37.94411292, 145.00567464],
+  [-37.95028507, 145.00450534],
+];
 const CRAIGIEBURN_LINE = CRAIGIEBURN_STATIONS.map((station) => station.position);
 const UPFIELD_LINE = UPFIELD_STATIONS.map((station) => station.position);
 const WERRIBEE_LINE = WERRIBEE_STATIONS.map((station) => station.position);
@@ -2274,6 +2435,10 @@ const FRANKSTON_TRACK: [number, number][] = [
 [-37.81883627840431, 144.96497044269884], // Flinders Street
 
 ];
+const RICHMOND_TO_CITY_PORTAL_TRACK: [number, number][] = FRANKSTON_TRACK.slice(
+  FRANKSTON_TRACK.findIndex(([lat, lng]) => lat === -37.82423492722702 && lng === 144.9894),
+  FRANKSTON_TRACK.findIndex(([lat, lng]) => lat === -37.818365904421206 && lng === 144.97726539063947) + 1,
+);
 const RENDERED_FRANKSTON_STATIONS = alignStationsToPolyline(FRANKSTON_STATIONS, FRANKSTON_TRACK);
 const GLEN_WAVERLEY_LINE = GLEN_WAVERLEY_TRACK_POINTS;
 const RENDERED_GLEN_WAVERLEY_STATIONS = alignStationsToPolyline(GLEN_WAVERLEY_STATIONS, GLEN_WAVERLEY_LINE);
@@ -2293,15 +2458,55 @@ const PAKENHAM_HAWKSBURN_TO_CARNEGIE_LINE = PAKENHAM_STATIONS.slice(
   PAKENHAM_STATIONS.findIndex((station) => station.name === "Hawksburn"),
   PAKENHAM_STATIONS.findIndex((station) => station.name === "Carnegie") + 1,
 ).map((station) => station.position);
-const PAKENHAM_POST_CARNEGIE_LINE = PAKENHAM_STATIONS.slice(
-  PAKENHAM_STATIONS.findIndex((station) => station.name === "Carnegie"),
-).map((station) => station.position);
+const PAKENHAM_GTFS_OUTER_TRACK: [number, number][] = [
+  [-37.98991938, 145.20988129],
+  [-37.99366214, 145.2148343],
+  [-37.99857538, 145.21908828],
+  [-38.00335143, 145.2295034],
+  [-38.00919203, 145.24245965],
+  [-38.01596158, 145.2575713],
+  [-38.01774038, 145.2697768], // Hallam
+  [-38.01850324, 145.27679548],
+  [-38.02025243, 145.28945017],
+  [-38.02470727, 145.29820991],
+  [-38.02777361, 145.303993], // Narre Warren
+  [-38.03091679, 145.31118531],
+  [-38.03405283, 145.32478704],
+  [-38.03541554, 145.33709441],
+  [-38.03719531, 145.34242858],
+  [-38.03998037, 145.34541666], // Berwick
+  [-38.04389491, 145.34865467],
+  [-38.04680738, 145.35453987],
+  [-38.05083135, 145.36607374], // Beaconsfield
+  [-38.05416412, 145.37286641],
+  [-38.06054732, 145.38190247],
+  [-38.06614572, 145.41098723], // Officer
+  [-38.07129047, 145.43779101], // Cardinia Road
+  [-38.07570761, 145.46122386],
+  [-38.08061397, 145.48637907], // Pakenham
+  [-38.08252702, 145.49774578],
+  [-38.08430672, 145.50663267], // East Pakenham
+];
+const PAKENHAM_POST_CARNEGIE_LINE = [
+  ...PAKENHAM_STATIONS.slice(
+    PAKENHAM_STATIONS.findIndex((station) => station.name === "Carnegie"),
+    PAKENHAM_STATIONS.findIndex((station) => station.name === "Dandenong") + 1,
+  ).map((station) => station.position),
+  ...PAKENHAM_GTFS_OUTER_TRACK.slice(1),
+];
 const PAKENHAM_POST_HAWKSBURN_LINE = PAKENHAM_STATIONS.slice(
   PAKENHAM_STATIONS.findIndex((station) => station.name === "Hawksburn"),
 ).map((station) => station.position);
 const SUNBURY_LINE = SUNBURY_STATIONS.map((station) => station.position);
-const LILYDALE_LINE = LILYDALE_STATIONS.map((station) => station.position);
-const BELGRAVE_LINE = BELGRAVE_STATIONS.map((station) => station.position);
+const RICHMOND_TO_BURNLEY_TRACK = GLEN_WAVERLEY_TRACK_POINTS.slice(0, 3);
+const LILYDALE_LINE = [
+  ...RICHMOND_TO_BURNLEY_TRACK,
+  ...LILYDALE_STATIONS.slice(LILYDALE_STATIONS.findIndex((station) => station.name === "Hawthorn")).map((station) => station.position),
+];
+const BELGRAVE_LINE = [
+  ...RICHMOND_TO_BURNLEY_TRACK,
+  ...BELGRAVE_STATIONS.slice(BELGRAVE_STATIONS.findIndex((station) => station.name === "Hawthorn")).map((station) => station.position),
+];
 const ALAMEIN_LINE = ALAMEIN_STATIONS.map((station) => station.position);
 const METRO_TUNNEL_LINE = METRO_TUNNEL_STATIONS.map((station) => station.position);
 const RENDERED_MERNDA_LINE = [MERNDA_LINE[0], ...JOLIMONT_TO_WEST_RICHMOND, ...MERNDA_BRANCH_LINE.slice(1)];
@@ -2406,17 +2611,10 @@ const GIPPSLAND_LINE: [number, number][] = [
   [-37.937755318504934, 145.13805369881837], // Westall
   [-37.94893771437316, 145.15307099140574], // Springvale
   [-37.95653055647639, 145.1628965591817], // Sandown Park
-  [-37.9571, 145.1631], // Noble Park
-  [-37.9633, 145.1746], // Yarraman
+  [-37.966678, 145.176944], // Noble Park
+  [-37.978254, 145.191501], // Yarraman
   [-37.98991938287247, 145.20988128532633], // Dandenong
-  [-37.9953, 145.2341], // Hallam
-  [-38.0136, 145.2595], // Narre Warren
-  [-38.0286, 145.2903], // Berwick
-  [-38.0436, 145.3205], // Beaconsfield
-  [-38.0653, 145.3664], // Officer
-  [-38.0795, 145.3953], // Cardinia Road
-  [-38.0735, 145.4716], // Pakenham
-  [-38.0821, 145.51], // East Pakenham
+  ...PAKENHAM_GTFS_OUTER_TRACK.slice(1),
   [-38.0954, 145.5802],
   [-38.1088, 145.6761],
   [-38.1217, 145.7688],
@@ -3050,17 +3248,13 @@ function normaliseSurfaceRouteLabel(routeLabel: string) {
 
 function createLiveTramIcon(tram: LiveTram) {
   const routeLabel = normaliseSurfaceRouteLabel(tram.route).slice(0, 6);
-  const destinationLabel = (tram.destination ?? "Live tram")
-    .replace(/^route\s+/i, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 18);
+  const escapedRouteLabel = escapeInlineMarkerHtml(routeLabel);
   const rotation = typeof tram.heading === "number" && Number.isFinite(tram.heading) ? tram.heading : 0;
   const { fillColor, strokeColor } = getSurfaceRouteColors(routeLabel, "#00ab8e", "#065f56");
 
   return L.divIcon({
       html: `
-        <div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:relative;width:52px;height:52px;display:flex;align-items:center;justify-content:center;">
           <div style="position:absolute;inset:0;border-radius:50%;background:${fillColor};opacity:0.18;animation:ping 2.2s infinite;"></div>
           <div style="
             width:22px;
@@ -3076,49 +3270,49 @@ function createLiveTramIcon(tram: LiveTram) {
           ">
           <img src="${tramIcon}" alt="" style="width:11px;height:11px;object-fit:contain;filter:brightness(0) invert(1);" />
         </div>
-        <div style="
-          position:absolute;
-          top:-6px;
-          left:50%;
-          transform:translateX(-50%);
-            background:#0f172a;
-            color:white;
-            font-size:8px;
-            font-weight:700;
-            padding:2px 5px;
-            border-radius:6px;
-            border:1px solid ${strokeColor};
-            box-shadow:0 4px 10px rgba(0,0,0,0.4);
-            white-space:nowrap;
-          ">
-            ${routeLabel}
-          </div>
-        <div style="
-          position:absolute;
-          left:50%;
-          bottom:-14px;
-          transform:translateX(-50%);
-          background:rgba(15,23,42,0.92);
-          color:white;
-          font-size:8px;
-          font-weight:700;
-          padding:2px 5px;
-          border-radius:9999px;
-          border:1px solid rgba(255,255,255,0.14);
-          box-shadow:0 4px 10px rgba(0,0,0,0.35);
-          white-space:nowrap;
-          max-width:110px;
-          overflow:hidden;
-          text-overflow:ellipsis;
-        ">
-          ${destinationLabel}
+        <div style="position:absolute;top:-4px;left:50%;transform:translateX(-50%);background:#0f172a;color:white;font-size:10px;font-weight:800;padding:2px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.18);box-shadow:0 3px 9px rgba(0,0,0,.45);white-space:nowrap;line-height:1.15;">
+          ${escapedRouteLabel}
         </div>
       </div>
     `,
     className: "bg-transparent border-none",
-    iconSize: [44, 44],
-    iconAnchor: [22, 22],
-    popupAnchor: [0, -18],
+    iconSize: [52, 52],
+    iconAnchor: [26, 26],
+    popupAnchor: [0, -26],
+  });
+}
+
+function createCleanStationNodeIcon(
+  color: string,
+  options?: { interchange?: boolean; endpoint?: boolean; staffed?: boolean },
+) {
+  const interchange = options?.interchange ?? false;
+  const endpoint = options?.endpoint ?? false;
+  const staffed = options?.staffed ?? false;
+  const nodeSize = interchange ? 17 : endpoint ? 14 : 11;
+  const hitSize = 30;
+
+  return L.divIcon({
+    html: `
+      <div style="width:${hitSize}px;height:${hitSize}px;display:flex;align-items:center;justify-content:center;">
+        <div style="
+          position:relative;
+          width:${nodeSize}px;
+          height:${nodeSize}px;
+          border-radius:9999px;
+          background:#f8fafc;
+          border:${interchange ? 3 : 2}px solid ${color};
+          box-shadow:0 1px 5px rgba(0,0,0,0.6),0 0 0 1px rgba(15,23,42,0.8);
+        ">
+          ${interchange ? `<span style="position:absolute;inset:3px;border-radius:9999px;background:${color};"></span>` : ""}
+          ${staffed ? `<span style="position:absolute;right:-4px;top:-4px;width:5px;height:5px;border-radius:9999px;background:#38bdf8;border:1px solid #f8fafc;"></span>` : ""}
+        </div>
+      </div>
+    `,
+    className: "bg-transparent border-none",
+    iconSize: [hitSize, hitSize],
+    iconAnchor: [hitSize / 2, hitSize / 2],
+    popupAnchor: [0, -10],
   });
 }
 
@@ -4672,6 +4866,46 @@ export const LINES = {
   gippsland: GIPPSLAND_STATIONS,
 };
 
+type TramPatternStop = {
+  name: string;
+  position?: [number, number];
+  platform?: string;
+  stopCode?: string;
+  expectedAt?: string;
+  status?: "passed" | "upcoming" | "skipped";
+};
+
+function getMetroStoppingPatternStations(vehicle: LiveTrain): Station[] {
+  const searchable = `${vehicle.line} ${vehicle.destination}`.toLowerCase();
+  const lineKey = (
+    [
+      ["sandringham", "sandringham"], ["frankston", "frankston"], ["cranbourne", "cranbourne"],
+      ["pakenham", "pakenham"], ["sunbury", "sunbury"], ["craigieburn", "craigieburn"],
+      ["upfield", "upfield"], ["mernda", "mernda"], ["hurstbridge", "hurstbridge"],
+      ["lilydale", "lilydale"], ["belgrave", "belgrave"], ["alamein", "alamein"],
+      ["glen waverley", "glenWaverley"], ["werribee", "werribee"],
+      ["williamstown", "williamstown"], ["metro tunnel", "metroTunnel"],
+    ] as const
+  ).find(([label]) => searchable.includes(label))?.[1];
+
+  if (!lineKey) return [];
+
+  let stations = Array.from(
+    new globalThis.Map(LINES[lineKey].map((station) => [station.name, station])).values(),
+  );
+  const destinationIndex = stations.findIndex(
+    (station) => station.name.toLowerCase() === vehicle.destination.trim().toLowerCase(),
+  );
+
+  if (destinationIndex === 0) {
+    stations = [...stations].reverse();
+  } else if (destinationIndex > 0 && destinationIndex < stations.length - 1) {
+    stations = stations.slice(0, destinationIndex + 1);
+  }
+
+  return stations;
+}
+
 const PLATFORM_PRESET_PRIORITY = [
   "metroTunnel",
   "frankston",
@@ -5256,7 +5490,7 @@ const DANDENONG_PLATFORM_BOARD: PlatformBoardEntry[] = [
 const CLAYTON_PLATFORM_BOARD: PlatformBoardEntry[] = [
   {
     platform: "1",
-    label: "Platform 1 Â· City bound / Gippsland westbound",
+    label: "Platform 1 · City bound / Gippsland westbound",
     tone: "bg-[#279FD5]/12 border-[#279FD5]/25 text-[#d7f4ff]",
     services: [
       {
@@ -5279,7 +5513,7 @@ const CLAYTON_PLATFORM_BOARD: PlatformBoardEntry[] = [
   },
   {
     platform: "2",
-    label: "Platform 2 Â· Pakenham / Gippsland eastbound",
+    label: "Platform 2 · Pakenham / Gippsland eastbound",
     tone: "bg-violet-500/12 border-violet-400/20 text-violet-100",
     services: [
       {
@@ -5503,45 +5737,29 @@ const FLINDERS_STREET_PLATFORM_BOARD: PlatformBoardEntry[] = [
   },
   {
     platform: "8",
-    label: "Platform 8 - Newport / Williamstown",
+    label: "Platform 8 - Cross-City: Werribee / Williamstown / Sandringham",
     tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
     services: [
-      { destination: "Newport", etaLabel: "09:50", tdnLabel: "TDN 6255", statusLabel: "On Time" },
-      { destination: "Williamstown", etaLabel: "09:57", tdnLabel: "TDN 6335", statusLabel: "On Time" },
+      { destination: "Sandringham", etaLabel: "Live", tdnLabel: "Through service", statusLabel: "Check board" },
+      { destination: "Werribee", etaLabel: "Live", tdnLabel: "Through service", statusLabel: "Check board" },
     ],
   },
   {
     platform: "9",
-    label: "Platform 9 - Newport / Williamstown",
+    label: "Platform 9 - Cross-City: Werribee / Williamstown / Sandringham",
     tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
     services: [
-      { destination: "Williamstown", etaLabel: "09:42", tdnLabel: "TDN 6223", statusLabel: "On Time" },
-      { destination: "Newport", etaLabel: "09:47", tdnLabel: "TDN 6441", statusLabel: "On Time" },
+      { destination: "Werribee", etaLabel: "Live", tdnLabel: "Through service", statusLabel: "Check board" },
+      { destination: "Sandringham", etaLabel: "Live", tdnLabel: "Through service", statusLabel: "Check board" },
     ],
   },
   {
     platform: "10",
-    label: "Platform 10 - Newport / Williamstown",
+    label: "Platform 10 - Cross-City: Werribee / Williamstown / Sandringham",
     tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
     services: [
-      { destination: "Williamstown", etaLabel: "09:53", tdnLabel: "TDN 6319", statusLabel: "On Time" },
-      { destination: "Newport", etaLabel: "10:04", tdnLabel: "TDN 6513", statusLabel: "On Time" },
-    ],
-  },
-  {
-    platform: "12",
-    label: "Platform 12 - Sandringham overflow / 10B",
-    tone: "bg-pink-500/10 border-pink-300/15 text-pink-100/90",
-    services: [],
-    emptyState: "Usually no departures. Rare Sandringham turnbacks only.",
-  },
-  {
-    platform: "13",
-    label: "Platform 13 - Sandringham",
-    tone: "bg-pink-500/12 border-pink-400/20 text-pink-100",
-    services: [
-      { destination: "Sandringham", etaLabel: "09:51", tdnLabel: "TDN X051", statusLabel: "On Time" },
-      { destination: "Sandringham", etaLabel: "10:06", tdnLabel: "TDN X053", statusLabel: "On Time" },
+      { destination: "Sandringham", etaLabel: "Live", tdnLabel: "Through service", statusLabel: "Check board" },
+      { destination: "Williamstown / Laverton", etaLabel: "Live", tdnLabel: "Through service", statusLabel: "Check board" },
     ],
   },
 ];
@@ -6910,7 +7128,6 @@ function renderStationMarkers(
   onToggleStationLine?: (station: Station) => boolean,
   visibleBounds?: L.LatLngBounds | null,
 ) {
-  const useCompactInlineStops = stations === GLEN_WAVERLEY_STATIONS || stations === RENDERED_GLEN_WAVERLEY_STATIONS;
   return stations.map((station, index) => {
     const resolvedStation = resolveStation(station);
     const isCityLoopPill =
@@ -6919,11 +7136,9 @@ function renderStationMarkers(
     const isFrankstonGreenSharedStation = FRANKSTON_GREEN_SHARED_STATIONS.has(resolvedStation.name);
     const isSharedNorthernStation = NORTHERN_SHARED_STATIONS.has(resolvedStation.name);
     const isCraigieburnLineStation = CRAIGIEBURN_LINE_STATION_NAMES.has(resolvedStation.name);
-    const shouldRenderOnce =
-      SINGLE_RENDER_STATIONS.has(resolvedStation.name) ||
-      SPECIAL_PILL_STATIONS.has(resolvedStation.name) ||
-      isSharedCaulfieldMetroStation ||
-      isSharedNorthernStation;
+    // A physical station gets one marker even when several route arrays share it.
+    // This prevents duplicate Richmond/East Richmond/Flinders Street nodes.
+    const shouldRenderOnce = true;
     const isCombinedLoopInterchange = COMBINED_LOOP_INTERCHANGES.has(resolvedStation.name);
     const stationRenderKey = isCombinedLoopInterchange
       ? "Melbourne Central / State Library"
@@ -6979,8 +7194,13 @@ function renderStationMarkers(
       return (
         <Marker
           key={`${station.name}-${station.position[0]}-${station.position[1]}`}
+          alt={`${markerName} station`}
+          title={`${markerName} station`}
           position={markerPosition}
-          icon={createCityLoopPillIcon(strokeColor, markerName, { staffed: resolvedStation.staffed === true })}
+          icon={createCleanStationNodeIcon(strokeColor, {
+            interchange: true,
+            staffed: resolvedStation.staffed === true,
+          })}
           pane="stationPane"
           zIndexOffset={3400}
           eventHandlers={{
@@ -6990,21 +7210,28 @@ function renderStationMarkers(
               }
             },
           }}
-        />
+        >
+          <Tooltip direction="top" offset={[0, -9]} opacity={0.96} sticky>
+            {markerName}
+          </Tooltip>
+        </Marker>
       );
     }
 
     return (
       <Marker
         key={`${station.name}-${station.position[0]}-${station.position[1]}`}
+        alt={`${resolvedStation.name} station`}
+        title={`${resolvedStation.name} station`}
         position={resolvedStation.position}
         pane="stationPane"
-        icon={createInlineStationStopIcon(
-          resolvedStation.name,
-          isFrankstonGreenSharedStation
-            ? "#22c55e"
-            : strokeColor,
-          { endpoint: isEndpoint, compact: useCompactInlineStops, staffed: resolvedStation.staffed === true },
+        icon={createCleanStationNodeIcon(
+          isFrankstonGreenSharedStation ? "#22c55e" : strokeColor,
+          {
+            endpoint: isEndpoint,
+            interchange: shouldRenderOnce || isSharedCaulfieldMetroStation || isSharedNorthernStation,
+            staffed: resolvedStation.staffed === true,
+          },
         )}
         zIndexOffset={3300}
         eventHandlers={{
@@ -7014,7 +7241,11 @@ function renderStationMarkers(
             }
           },
         }}
-      />
+      >
+        <Tooltip direction="top" offset={[0, -7]} opacity={0.96} sticky>
+          {resolvedStation.name}
+        </Tooltip>
+      </Marker>
     );
   });
 }
@@ -7031,6 +7262,8 @@ function renderRouteStopMarkers(
     .map((stop, index) => (
     <Marker
       key={`${stop.name}-${stop.position[0]}-${stop.position[1]}`}
+      alt={`${stop.name} stop`}
+      title={`${stop.name} stop`}
       position={stop.position}
       icon={createInlineStationStopIcon(stop.name, strokeColor, {
         endpoint: index === 0 || index === stops.length - 1,
@@ -7054,6 +7287,8 @@ function renderFreightLocationMarkers(stops: FreightLocation[], visibleBounds?: 
     .map((stop, index) => (
     <Marker
       key={`${stop.name}-${stop.position[0]}-${stop.position[1]}`}
+      alt={`${stop.name} freight location`}
+      title={`${stop.name} freight location`}
       position={stop.position}
       icon={createInlineStationStopIcon(stop.name, FREIGHT_BROWN, {
         endpoint: index === 0 || index === stops.length - 1,
@@ -7178,7 +7413,9 @@ function createInlineStationStopIcon(
   const staffed = options?.staffed ?? false;
   const escapedName = escapeInlineMarkerHtml(stationName);
   const useRotatedPill = ROTATED_FRANKSTON_PILL_STATIONS.has(stationName);
-  const routeTags = getStationConnectionTags(stationName);
+  // Tram-route pills overwhelmed the map at mobile zoom levels. Tram lines remain
+  // visible on the map and inside stop details without duplicating every route here.
+  const routeTags = getStationConnectionTags(stationName).filter((tag) => !/^tram\b/i.test(tag));
   const routeCard = STATION_SURFACE_ROUTE_CARDS[stationName] ?? [];
   const tickHeight = useRotatedPill ? 0 : endpoint ? (compact ? 14 : 16) : compact ? 10 : 14;
   const iconHeight = useRotatedPill
@@ -8066,6 +8303,62 @@ function getDisplayConsist(consist: string) {
   return formatDisplayedConsist(parts);
 }
 
+function getLivePositionOnStopTimeline(
+  vehicle: { lat: number; lng: number },
+  stops: Array<{ name: string; position?: [number, number] }>,
+) {
+  let closest: { beforeIndex: number; progress: number; distance: number; from: string; to: string } | null = null;
+  for (let index = 0; index < stops.length - 1; index += 1) {
+    const from = stops[index];
+    const to = stops[index + 1];
+    if (!from.position || !to.position) continue;
+    const scale = Math.cos(((from.position[0] + to.position[0]) / 2) * Math.PI / 180);
+    const trainX = vehicle.lng * scale;
+    const trainY = vehicle.lat;
+    const fromX = from.position[1] * scale;
+    const fromY = from.position[0];
+    const deltaX = to.position[1] * scale - fromX;
+    const deltaY = to.position[0] - fromY;
+    const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+    if (lengthSquared === 0) continue;
+    const progress = Math.max(0, Math.min(1, ((trainX - fromX) * deltaX + (trainY - fromY) * deltaY) / lengthSquared));
+    const distance = (trainX - (fromX + progress * deltaX)) ** 2 + (trainY - (fromY + progress * deltaY)) ** 2;
+    if (!closest || distance < closest.distance) closest = { beforeIndex: index + 1, progress, distance, from: from.name, to: to.name };
+  }
+  return closest;
+}
+
+function getLeadingMotorCarriages(consist: string) {
+  const parts = normaliseDisplayedConsistParts(consist);
+  if (parts.length === 0) return null;
+
+  // A Metro six-car train is formed from two three-car sets. Show the leading
+  // motor car from each set instead of squeezing the complete consist into the map pill.
+  if (parts.length >= 6) {
+    const firstSetLead = parts.slice(0, 3).find((part) => /\d+M$/i.test(part));
+    const secondSetLead = parts.slice(3, 6).find((part) => /\d+M$/i.test(part));
+    const setLeads = [firstSetLead, secondSetLead].filter((part): part is string => Boolean(part));
+    if (setLeads.length > 0) return setLeads.join(" + ");
+  }
+
+  const motorCars = parts.filter((part) => /\d+M$/i.test(part));
+  return motorCars.length > 0 ? motorCars.slice(0, 2).join(" + ") : null;
+}
+
+function getHcmtSetLabel(consist: string) {
+  // HCMT end cars are supplied as 90xxM-99xxM. Their shared final two
+  // digits identify the fleet set (for example 9059M-9959M is Set 59).
+  const matches = [...consist.toUpperCase().matchAll(/\b(?:90|99)(\d{2})M?\b/g)];
+  const setNumbers = matches
+    .map((match) => match[1])
+    .filter((value): value is string => Boolean(value));
+  if (setNumbers.length === 0) return null;
+
+  const matchingSet = setNumbers.find((value) => setNumbers.filter((candidate) => candidate === value).length > 1)
+    ?? setNumbers[0];
+  return `SET ${Number.parseInt(matchingSet, 10)}`;
+}
+
 function getSnapshotConsistId(consist: string) {
   const trimmed = consist.trim();
   if (!trimmed || /^unknown$/i.test(trimmed) || isRouteIdentifier(trimmed)) {
@@ -8152,9 +8445,9 @@ function resolveVehicleFamilyForLine(vehicle: LiveTrain, explicitFamily: string 
       return "HCMT";
     case "clifton-hill":
     case "burnley":
-      return "Xâ€™Trapolis 100";
+      return "X'Trapolis 100";
     case "northern":
-      return explicitFamily === "Xâ€™Trapolis 100" ? explicitFamily : "Alstom Comeng";
+      return explicitFamily === "X'Trapolis 100" ? explicitFamily : "Alstom Comeng";
     case "bayside":
       if (explicitFamily === "EDI Comeng" || explicitFamily === "Siemens Nexas") {
         return explicitFamily;
@@ -8190,7 +8483,7 @@ function getVehicleFormation(vehicle: LiveTrain) {
   if (/HCMT/.test(upperTrainType) || /HCMT/.test(upperConsist) || /HCMT/.test(joinedCars)) {
     family = "HCMT";
   } else if (/X['’]?TRAPOLIS|XTRAPOLIS/.test(upperTrainType) || hasXtrapolisTrailer) {
-    family = "X’Trapolis 100";
+    family = "X'Trapolis 100";
   } else if (/SIEMENS/.test(upperTrainType) || hasSiemensTrailer) {
     family = "Siemens Nexas";
   } else if (/COMENG/.test(upperTrainType) || hasComengTrailer || /3\d{2}M|4\d{2}M|5\d{2}M|6\d{2}M/.test(joinedCars)) {
@@ -8199,7 +8492,7 @@ function getVehicleFormation(vehicle: LiveTrain) {
   family = resolveVehicleFamilyForLine(vehicle, family);
   return {
     family,
-    cars: inferredCarCount,
+    cars: family === "HCMT" ? 7 : inferredCarCount,
   };
 }
 
@@ -8233,7 +8526,7 @@ function getVehicleTypeIcon(vehicle: LiveTrain) {
       return hcmtIcon;
     case "Siemens Nexas":
       return siemensIcon;
-    case "Xâ€™Trapolis 100":
+    case "X'Trapolis 100":
       return xtrapolisIcon;
     case "EDI Comeng":
       return southsideComengIcon;
@@ -8244,8 +8537,11 @@ function getVehicleTypeIcon(vehicle: LiveTrain) {
   }
 }
 
-function getVehicleFocusKey(vehicle: Pick<LiveTrain, "consist" | "tdn">) {
-  return `${vehicle.consist}::${vehicle.tdn}`;
+function getVehicleFocusKey(vehicle: Pick<LiveTrain, "consist" | "tdn" | "tripId">) {
+  const consist = vehicle.consist.trim();
+  if (consist && !/^unknown$/i.test(consist)) return `consist:${consist}`;
+  if (vehicle.tripId) return `trip:${vehicle.tripId}`;
+  return `tdn:${vehicle.tdn}`;
 }
 
 function getDistanceInKm(a: [number, number], b: [number, number]) {
@@ -8323,8 +8619,10 @@ function createCustomIcon(report: Report) {
 // =========================
 function ViewportListener({
   onViewportChange,
+  onManualMove,
 }: {
   onViewportChange: (zoom: number, bounds: L.LatLngBounds) => void;
+  onManualMove?: () => void;
 }) {
   const map = useMap();
 
@@ -8333,12 +8631,14 @@ function ViewportListener({
     updateViewport();
     map.on("zoomend", updateViewport);
     map.on("moveend", updateViewport);
+    if (onManualMove) map.on("dragstart", onManualMove);
 
     return () => {
       map.off("zoomend", updateViewport);
       map.off("moveend", updateViewport);
+      if (onManualMove) map.off("dragstart", onManualMove);
     };
-  }, [map, onViewportChange]);
+  }, [map, onManualMove, onViewportChange]);
 
   return null;
 }
@@ -8558,6 +8858,7 @@ label: "Werribee / Williamstown / Altona",
 // =========================
 export function Map({
   journeyRoute = [],
+  journeyBusRoutes = [],
   splitCrossCityGroup = false,
   transportModes = [...DEFAULT_TRANSPORT_MODES],
   onTransportModesChange,
@@ -8603,11 +8904,17 @@ export function Map({
     };
   }, [aggressiveMobileProtectionEnabled, mapBounds]);
   const allowMobileHeavySurfaceTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 12.5;
-  const allowMobileHeavyTrainTracking = !aggressiveMobileProtectionEnabled || mapZoom >= 12.5;
+  // Keep the train query alive at every zoom. Pausing it on iPhone while the
+  // user zoomed out left the fleet frozen and stale when they zoomed back in.
+  const allowMobileHeavyTrainTracking = true;
   const allowIosSurfaceStops = !iosLeanMapEnabled || mapZoom >= 15.8;
   const allowIosFreightLayer = !iosLeanMapEnabled || mapZoom >= 13.2;
   const allowIosReportLayer = !iosLeanMapEnabled || mapZoom >= 14.8;
-  const allowIosParallelTrackCopies = !iosLeanMapEnabled || mapZoom >= 13.8;
+  const allowDenseSurfaceStops = mapZoom >= 17;
+  // Tram platforms are small and useful at neighbourhood zoom. Keep the
+  // heavier bus-stop layer at the old close-zoom threshold, but expose every
+  // tram stop much earlier and cull it to the visible viewport.
+  const allowTramStops = mapZoom >= 14.25;
   const visibleViewportBounds = useMemo(
     () =>
       L.latLngBounds(
@@ -8643,27 +8950,60 @@ export function Map({
     isLoading: isLiveTrainsLoading,
     error: liveTrainsError,
   } = useQuery({
-    queryKey: ["/api/ptv/live-trains", viewportBoundsQuery],
-    queryFn: () => fetchLiveTrains(viewportBoundsQuery),
+    // Keep one stable fleet in memory while the user pans. Viewport-scoped
+    // requests made trains disappear then reappear on every map movement.
+    queryKey: ["/api/ptv/live-trains", "full-fleet"],
+    queryFn: async () => {
+      const trains = await fetchLiveTrains();
+      saveLiveTrainMapCache(trains);
+      return trains;
+    },
+    initialData: readInitialLiveTrainMapCache,
     enabled:
       allowMobileHeavyTrainTracking &&
       (transportModes.includes("train") || transportModes.includes("vline")),
-    refetchInterval: aggressiveMobileProtectionEnabled ? 40_000 : 15_000,
-    staleTime: aggressiveMobileProtectionEnabled ? 25_000 : 5_000,
+    // Poll consistently while the map is open. The server coalesces callers
+    // into one short-lived feed cache, so this follows movement without a
+    // request burst from every marker or map pan.
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
+    staleTime: 0,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 15_000),
+  });
+  const { data: feedStatus } = useQuery({
+    queryKey: ["/api/feed-status"],
+    queryFn: async () => {
+      const response = await fetch("/api/feed-status");
+      if (!response.ok) throw new Error("Feed status unavailable");
+      return response.json() as Promise<{
+        gtfsSchedule?: { installed?: boolean };
+        gtfsRealtime?: { configured?: boolean };
+      }>;
+    },
+    staleTime: 60_000,
     retry: false,
   });
   const {
     data: liveBuses = [],
     isLoading: isLiveBusesLoading,
   } = useQuery({
-    queryKey: ["/api/ptv/live-buses", viewportBoundsQuery],
-    queryFn: () => fetchLiveBuses(viewportBoundsQuery),
+    // Viewport changes must not swap the whole cached fleet. Fetch one stable
+    // snapshot and perform viewport filtering only when rendering markers.
+    queryKey: ["/api/ptv/live-buses", "full-fleet"],
+    queryFn: () => fetchLiveBuses(),
     enabled:
       transportModes.includes("bus") &&
       allowMobileHeavySurfaceTracking,
     refetchInterval: aggressiveMobileProtectionEnabled ? 45_000 : 15_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
     staleTime: aggressiveMobileProtectionEnabled ? 30_000 : 5_000,
-    retry: false,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 15_000),
   });
   const {
     data: liveTrams = [],
@@ -8675,8 +9015,12 @@ export function Map({
       transportModes.includes("tram") &&
       allowMobileHeavySurfaceTracking,
     refetchInterval: aggressiveMobileProtectionEnabled ? 45_000 : 15_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
     staleTime: aggressiveMobileProtectionEnabled ? 30_000 : 5_000,
-    retry: false,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 15_000),
   });
   const { data: featuredConsistSnapshot } = useQuery({
     queryKey: ["consist-snapshot", FEATURED_CONSIST, "featured-marker"],
@@ -8691,6 +9035,7 @@ export function Map({
     | { type: "station"; station: Station }
     | { type: "vehicle"; vehicle: LiveTrain }
     | { type: "bus"; bus: LiveBus }
+    | { type: "tram"; tram: LiveTram }
     | { type: "surfaceStop"; stop: SurfaceStop }
     | { type: "report"; report: Report }
     | null
@@ -8699,11 +9044,182 @@ export function Map({
     vehicleKey: string;
     tdn: string;
   } | null>(null);
-  const selectedVehicle = selectedDetail?.type === "vehicle" ? selectedDetail.vehicle : null;
-  const selectedBus = selectedDetail?.type === "bus" ? selectedDetail.bus : null;
+  const [selectedStationService, setSelectedStationService] = useState<VerifiedDeparture | null>(null);
+  const [serviceTripToFit, setServiceTripToFit] = useState<string | null>(null);
+  const [showPriorStops, setShowPriorStops] = useState(false);
+  const [isSurfaceStopPanelCollapsed, setIsSurfaceStopPanelCollapsed] = useState(false);
+  const [followSelectedService, setFollowSelectedService] = useState(false);
+  const selectedVehicleSeed = selectedDetail?.type === "vehicle" ? selectedDetail.vehicle : null;
+  const selectedBusSeed = selectedDetail?.type === "bus" ? selectedDetail.bus : null;
+  const selectedTramSeed = selectedDetail?.type === "tram" ? selectedDetail.tram : null;
+  const selectedVehicle = selectedVehicleSeed
+    ? liveVehicles.find((vehicle) => vehicle.tripId === selectedVehicleSeed.tripId || getVehicleFocusKey(vehicle) === getVehicleFocusKey(selectedVehicleSeed)) ?? selectedVehicleSeed
+    : null;
+  const selectedBus = selectedBusSeed
+    ? liveBuses.find((bus) => bus.tripId === selectedBusSeed.tripId || bus.id === selectedBusSeed.id) ?? selectedBusSeed
+    : null;
+  const selectedTram = selectedTramSeed
+    ? liveTrams.find((tram) => tram.tripId === selectedTramSeed.tripId || tram.id === selectedTramSeed.id) ?? selectedTramSeed
+    : null;
   const selectedStation = selectedDetail?.type === "station" ? selectedDetail.station : null;
+  const selectedFollowTarget = selectedVehicle ?? selectedBus ?? selectedTram;
+
+  // Opening a live service should immediately frame the vehicle and keep it in view.
+  // Fitting an entire trip here can jump the map hundreds of kilometres when a feed
+  // contains one malformed stop coordinate (for example a metro run near Seymour).
+  const selectedFollowIdentity = selectedFollowTarget
+    ? `${selectedDetail?.type}:${selectedFollowTarget.tripId ?? selectedFollowTarget.id}`
+    : null;
+  const keepTrackedVehicleInVisibleMap = useCallback((lat: number, lng: number, animate = true) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const target = L.latLng(lat, lng);
+    const size = map.getSize();
+    const desiredPoint = L.point(
+      size.x / 2,
+      // The bottom service sheet occupies most of a phone screen. Put the
+      // tracked marker high in the remaining map strip, not near its edge.
+      window.innerWidth < 768 ? Math.min(185, Math.max(125, size.y * 0.13)) : size.y * 0.4,
+    );
+    const currentPoint = map.latLngToContainerPoint(target);
+    const offset = currentPoint.subtract(desiredPoint);
+    if (offset.distanceTo(L.point(0, 0)) < 10) return;
+    map.panBy(offset, { animate, duration: animate ? 0.4 : 0 });
+  }, []);
+
+  useEffect(() => {
+    if (!selectedFollowTarget || !mapRef.current) return;
+    setFollowSelectedService(true);
+    const map = mapRef.current;
+    map.once("moveend", () => {
+      keepTrackedVehicleInVisibleMap(selectedFollowTarget.lat, selectedFollowTarget.lng, true);
+    });
+    map.flyTo(
+      [selectedFollowTarget.lat, selectedFollowTarget.lng],
+      Math.max(map.getZoom(), 15),
+      { animate: true, duration: 0.75 },
+    );
+  }, [keepTrackedVehicleInVisibleMap, selectedFollowIdentity]);
+
+  useEffect(() => {
+    if (!followSelectedService || !selectedFollowTarget || !mapRef.current) return;
+    keepTrackedVehicleInVisibleMap(selectedFollowTarget.lat, selectedFollowTarget.lng, true);
+  }, [followSelectedService, keepTrackedVehicleInVisibleMap, selectedFollowTarget?.lat, selectedFollowTarget?.lng]);
+
+  useEffect(() => {
+    if (!selectedFollowTarget) setFollowSelectedService(false);
+  }, [selectedFollowTarget]);
   const selectedVehicleKey = selectedVehicle ? getVehicleFocusKey(selectedVehicle) : null;
+  const selectedVehicleMetroStops = (() => {
+      if (!selectedVehicle) return [];
+      const mappedStops = getMetroStoppingPatternStations(selectedVehicle);
+      if (mappedStops.length > 0) return mappedStops;
+
+      const currentName = "Current vehicle position";
+      const destinationName = selectedVehicle.destination || "Destination not published";
+      const fallbackStops: Station[] = [
+        { name: currentName, position: [selectedVehicle.lat, selectedVehicle.lng] },
+      ];
+      if (destinationName.toLowerCase() !== currentName.toLowerCase()) {
+        fallbackStops.push({
+          name: destinationName,
+          position: findStationCoordinate(destinationName) ?? [selectedVehicle.lat, selectedVehicle.lng],
+        });
+      }
+      return fallbackStops;
+  })();
   const selectedSurfaceStop = selectedDetail?.type === "surfaceStop" ? selectedDetail.stop : null;
+  useEffect(() => {
+    setIsSurfaceStopPanelCollapsed(false);
+  }, [selectedSurfaceStop?.id]);
+  const selectedSurfaceScheduleMode = selectedSurfaceStop?.modes.includes("bus") ? "bus" as const : selectedSurfaceStop?.modes.includes("tram") ? "tram" as const : null;
+  const {
+    data: selectedSurfaceStopDepartures,
+    isLoading: isSurfaceStopDeparturesLoading,
+    error: surfaceStopDeparturesError,
+  } = useQuery({
+    queryKey: ["verified-surface-stop-departures", selectedSurfaceScheduleMode, selectedSurfaceStop?.routeLabel, selectedSurfaceStop?.position],
+    queryFn: () => fetchSurfaceStopDepartures({
+      mode: selectedSurfaceScheduleMode!,
+      route: selectedSurfaceStop!.routeLabel,
+      lat: selectedSurfaceStop!.position[0],
+      lng: selectedSurfaceStop!.position[1],
+    }),
+    enabled: Boolean(selectedSurfaceStop && selectedSurfaceScheduleMode),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+    staleTime: 20_000,
+    retry: 2,
+  });
+  const fallbackSelectedTramStops = (() => {
+    if (!selectedTram) return [];
+    const route = normaliseSurfaceRouteLabel(selectedTram.route);
+    if (route === "67") {
+      const destination = selectedTram.destination?.toLowerCase() ?? "";
+      const headsToUniversity = /university|city/.test(destination) ||
+        (!destination && typeof selectedTram.heading === "number" && (selectedTram.heading >= 270 || selectedTram.heading <= 90));
+      return headsToUniversity ? ROUTE_67_UNIVERSITY_SURFACE_STOPS : ROUTE_67_CARNEGIE_SURFACE_STOPS;
+    }
+    return Array.from(
+      new globalThis.Map(
+        ANYTRIP_SURFACE_STOPS
+          .filter(
+            (stop) => stop.modes.includes("tram") && normaliseSurfaceRouteLabel(stop.routeLabel) === route,
+          )
+          .map((stop) => [stop.name, stop]),
+      ).values(),
+    );
+  })();
+  const {
+    data: selectedTramTrip,
+    isLoading: isTramTripLoading,
+    error: tramTripError,
+  } = useQuery({
+    queryKey: ["verified-tram-trip", selectedTram?.tripId],
+    queryFn: () => fetchTramTrip(selectedTram!.tripId!),
+    enabled: Boolean(selectedTram?.tripId),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
+    staleTime: 20_000,
+    retry: 3,
+  });
+  const selectedTramStops: TramPatternStop[] = selectedTramTrip?.stops.length
+    ? selectedTramTrip.stops.map((stop) => ({
+        ...stop,
+        position: typeof stop.lat === "number" && typeof stop.lng === "number"
+          ? [stop.lat, stop.lng] as [number, number]
+          : undefined,
+      }))
+    : fallbackSelectedTramStops.map((stop) => ({ name: stop.name, position: stop.position }));
+  const selectedTramCurrentStopIndex = (() => {
+    if (!selectedTram || selectedTramStops.length === 0) return -1;
+    // A dated trip update knows whether a tram has passed a stop. Prefer it to
+    // proximity: a tram can be physically close to its next stop while still
+    // approaching, and must not be shown as already dwelling there.
+    if (selectedTramTrip?.stops.length) {
+      const nextIndex = selectedTramTrip.stops.findIndex((stop) => stop.status === "upcoming");
+      return nextIndex >= 0 ? nextIndex : selectedTramTrip.stops.length - 1;
+    }
+    return selectedTramStops.reduce((bestIndex, stop, index, stops) => {
+      if (!stop.position) return bestIndex;
+      const distance = (stop.position[0] - selectedTram.lat) ** 2 + (stop.position[1] - selectedTram.lng) ** 2;
+      const best = stops[bestIndex];
+      if (!best.position) return index;
+      const bestDistance = (best.position[0] - selectedTram.lat) ** 2 + (best.position[1] - selectedTram.lng) ** 2;
+      return distance < bestDistance ? index : bestIndex;
+    }, 0);
+  })();
+  const selectedTramLiveTimelinePosition = selectedTram
+    ? getLivePositionOnStopTimeline(selectedTram, selectedTramStops)
+    : null;
+  const selectedTramVisibleStops = selectedTramStops
+    .map((stop, index) => ({ stop, index }))
+    .slice(showPriorStops ? 0 : selectedTramCurrentStopIndex > 0 ? selectedTramCurrentStopIndex - 1 : 0);
+  const selectedTramDestination = selectedTram?.destination ||
+    selectedTramStops.at(-1)?.name.replace(/\/.*$/, "").replace(/\s+#\d+.*$/, "") ||
+    undefined;
   const {
     data: selectedStationDepartures,
     isLoading: isStationDeparturesLoading,
@@ -8713,8 +9229,11 @@ export function Map({
     queryFn: () => fetchStationDepartures(selectedStation!.name),
     enabled: Boolean(selectedStation?.name),
     refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
     staleTime: 20_000,
-    retry: false,
+    retry: 3,
   });
   const {
     data: selectedBusTrip,
@@ -8725,9 +9244,102 @@ export function Map({
     queryFn: () => fetchBusTrip(selectedBus!.tripId!),
     enabled: Boolean(selectedBus?.tripId),
     refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
     staleTime: 20_000,
-    retry: false,
+    retry: 3,
   });
+  const selectedBusCurrentStopIndex = selectedBus && selectedBusTrip?.stops.length
+    ? selectedBusTrip.stops.reduce((bestIndex, stop, index, stops) => {
+        if (typeof stop.lat !== "number" || typeof stop.lng !== "number") return bestIndex;
+        const best = stops[bestIndex];
+        if (typeof best?.lat !== "number" || typeof best?.lng !== "number") return index;
+        const distance = (stop.lat - selectedBus.lat) ** 2 + (stop.lng - selectedBus.lng) ** 2;
+        const bestDistance = (best.lat - selectedBus.lat) ** 2 + (best.lng - selectedBus.lng) ** 2;
+        return distance < bestDistance ? index : bestIndex;
+      }, 0)
+    : -1;
+  const selectedBusLiveTimelinePosition = selectedBus && selectedBusTrip?.stops.length
+    ? getLivePositionOnStopTimeline(selectedBus, selectedBusTrip.stops.map((stop) => ({
+        name: stop.name,
+        position: typeof stop.lat === "number" && typeof stop.lng === "number"
+          ? [stop.lat, stop.lng] as [number, number]
+          : undefined,
+      })))
+    : null;
+  const selectedBusVisibleStops = selectedBusTrip?.stops
+    ? selectedBusTrip.stops
+        .map((stop, index) => ({ stop, index }))
+        .slice(showPriorStops ? 0 : selectedBusCurrentStopIndex > 0 ? selectedBusCurrentStopIndex - 1 : 0)
+    : [];
+  const activeTrainTripId = selectedVehicle?.tripId ?? selectedStationService?.tripId ?? null;
+  const {
+    data: selectedTrainTrip,
+    isLoading: isTrainTripLoading,
+    error: trainTripError,
+  } = useQuery({
+    queryKey: ["verified-train-trip", activeTrainTripId],
+    queryFn: () => fetchTrainTrip(activeTrainTripId!),
+    enabled: Boolean(activeTrainTripId),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
+    staleTime: 20_000,
+    retry: 3,
+  });
+  useEffect(() => {
+    if (!serviceTripToFit || selectedTrainTrip?.tripId !== serviceTripToFit || !mapRef.current) return;
+    if (selectedVehicle) {
+      const map = mapRef.current;
+      map.once("moveend", () => {
+        keepTrackedVehicleInVisibleMap(selectedVehicle.lat, selectedVehicle.lng, true);
+      });
+      map.flyTo(
+        [selectedVehicle.lat, selectedVehicle.lng],
+        Math.max(map.getZoom(), 15),
+        { animate: true, duration: 0.75 },
+      );
+      setFollowSelectedService(true);
+      setServiceTripToFit(null);
+      return;
+    }
+    const coordinates = selectedTrainTrip.stops
+      .filter((stop) => typeof stop.lat === "number" && typeof stop.lng === "number")
+      .map((stop) => [stop.lat!, stop.lng!] as [number, number]);
+    // Keep station-board trip fitting within metropolitan Melbourne and reject
+    // isolated bad coordinates before calculating the bounds.
+    const metroCoordinates = coordinates.filter(([lat, lng]) =>
+      lat >= -38.5 && lat <= -37.35 && lng >= 144.3 && lng <= 146.2
+    );
+    if (metroCoordinates.length > 1) {
+      mapRef.current.fitBounds(L.latLngBounds(metroCoordinates), {
+        animate: true,
+        duration: 0.9,
+        paddingTopLeft: [28, 90],
+        paddingBottomRight: [28, 150],
+        maxZoom: 14,
+      });
+    } else if (metroCoordinates.length === 1) {
+      mapRef.current.flyTo(metroCoordinates[0], 15, { animate: true, duration: 0.85 });
+    }
+    setServiceTripToFit(null);
+  }, [keepTrackedVehicleInVisibleMap, selectedTrainTrip, serviceTripToFit, selectedVehicle]);
+  const selectedVehiclePatternStops: Station[] = selectedTrainTrip?.stops.length
+    ? selectedTrainTrip.stops.map((stop) => ({
+        name: stop.name,
+        position:
+          typeof stop.lat === "number" && typeof stop.lng === "number"
+            ? [stop.lat, stop.lng]
+            : findStationCoordinate(stop.name) ?? selectedStation?.position ??
+              (selectedVehicle ? [selectedVehicle.lat, selectedVehicle.lng] : [-37.8184, 144.9665]),
+      }))
+    // A regional vehicle without a matched GTFS trip must not inherit a metro
+    // line pattern. That created false stops such as a next stop named “V/Line”.
+    : selectedVehicle && isVlineLiveTrain(selectedVehicle)
+      ? []
+      : selectedVehicleMetroStops;
   const selectedVehicleSnapshotConsist = selectedVehicle ? getSnapshotConsistId(selectedVehicle.consist) : null;
   const { data: selectedVehicleSnapshot } = useQuery({
     queryKey: ["consist-snapshot", selectedVehicleSnapshotConsist],
@@ -8739,14 +9351,83 @@ export function Map({
   const selectedRegionalProfile = selectedVehicle
     ? getRegionalServiceProfile(selectedVehicle, selectedVehicleSnapshot)
     : null;
+  const selectedVehicleIsHcmtMetroTunnel = Boolean(
+    selectedVehicle &&
+      (/HCMT/i.test(getVehicleDisplayType(selectedVehicle)) ||
+        (/metro tunnel|special/i.test(selectedVehicle.line) &&
+          selectedTrainTrip?.stops.some((stop) => /town hall/i.test(stop.name)))),
+  );
+  const selectedTrainFormationSegments = selectedTrainTrip?.formationSegments?.length
+    ? selectedTrainTrip.formationSegments
+    : selectedTrainTrip?.segments ?? [];
+  const selectedTrainFormationOrigin = selectedTrainFormationSegments[0]?.origin
+    ?.replace(/\s+Station$/i, "");
+  const selectedTrainFormationDestination = selectedTrainFormationSegments.at(-1)?.destination
+    ?.replace(/\s+Station$/i, "")
+    .replace(/\s+via\s+.+$/i, "");
+  const selectedHcmtOrigin = selectedVehicleIsHcmtMetroTunnel
+    ? selectedTrainFormationOrigin ?? selectedTrainTrip?.stops[0]?.name.replace(/\s+Station$/i, "")
+    : undefined;
+  const selectedHcmtDestination = selectedVehicleIsHcmtMetroTunnel
+    ? selectedTrainFormationDestination ?? selectedTrainTrip?.destination?.replace(/\s+via\s+Metro Tunnel.*$/i, "").replace(/\s+Station$/i, "")
+    : undefined;
+  const selectedTrainCurrentFormationIndex = selectedTrainTrip
+    ? selectedTrainFormationSegments.findIndex((segment) => segment.tripId === selectedTrainTrip.tripId)
+    : -1;
+  const selectedTrainCurrentFormation = selectedTrainCurrentFormationIndex >= 0
+    ? selectedTrainFormationSegments[selectedTrainCurrentFormationIndex]
+    : undefined;
+  const selectedTrainNextFormation = selectedTrainCurrentFormationIndex >= 0
+    ? selectedTrainFormationSegments.at(-1)
+    : undefined;
+  const selectedTrainCurrentOrigin = (
+    selectedTrainCurrentFormation?.origin ?? selectedTrainTrip?.stops[0]?.name
+  )?.replace(/\s+Station$/i, "");
+  const selectedTrainCurrentDestination = (
+    selectedTrainCurrentFormation?.destination ?? selectedTrainTrip?.stops.at(-1)?.name
+  )?.replace(/\s+Station$/i, "");
+  const selectedTrainFinalDestination = selectedTrainCurrentFormationIndex >= 0
+    && selectedTrainCurrentFormationIndex < selectedTrainFormationSegments.length - 1
+    ? selectedTrainNextFormation?.destination
+        ?.replace(/\s+Station$/i, "")
+        .replace(/\s+via\s+.+$/i, "")
+    : undefined;
+  const selectedTrainUsesCityLoop = Boolean(selectedTrainTrip?.stops.some((stop) =>
+    /^(Parliament|Melbourne Central|Flagstaff)( Station)?$/i.test(stop.name)
+  ));
+  const selectedTrainCrossCityVia = selectedTrainUsesCityLoop
+    ? "City Loop"
+    : selectedTrainCurrentDestination;
+  const selectedTrainCrossCityDestination = selectedTrainFinalDestination
+    && selectedTrainCurrentDestination
+    ? `${selectedTrainCurrentDestination}${selectedTrainUsesCityLoop ? " via City Loop" : ""} → ${selectedTrainFinalDestination}`
+    : undefined;
+  const selectedTrainFormationHandover = selectedTrainFormationSegments[0]?.destination
+    ?.replace(/\s+Station$/i, "") ?? "";
+  const selectedServiceViaLabel = selectedVehicleIsHcmtMetroTunnel
+    ? "Metro Tunnel"
+    : selectedTrainUsesCityLoop
+      ? "City Loop"
+      : /Flinders Street|Flinders St/i.test(selectedTrainFormationHandover)
+        ? "Flinders St"
+        : selectedTrainFormationSegments.length > 1 && selectedTrainFormationHandover
+          ? selectedTrainFormationHandover
+          : "";
   const selectedVehicleOriginLabel = selectedVehicle
-    ? selectedVehicleSnapshot?.current_trip?.origin ??
+    ? selectedHcmtOrigin ??
+      selectedTrainFormationOrigin ??
+      selectedTrainCurrentOrigin ??
+      selectedVehicleSnapshot?.current_trip?.origin ??
       selectedRegionalProfile?.origin ??
       selectedVehicleSnapshot?.next_trip?.origin ??
       getVehicleOriginFallback(selectedVehicle)
     : "";
   const selectedVehicleDestinationLabel = selectedVehicle
-    ? selectedVehicleSnapshot?.current_trip?.destination ??
+    ? selectedHcmtDestination ??
+      selectedTrainFormationDestination ??
+      selectedTrainCrossCityDestination ??
+      selectedTrainCurrentDestination ??
+      selectedVehicleSnapshot?.current_trip?.destination ??
       selectedRegionalProfile?.destination ??
       selectedVehicleSnapshot?.next_trip?.destination ??
       (isGenericRegionalPlaceholder(selectedVehicle.destination)
@@ -8754,7 +9435,13 @@ export function Map({
         : selectedVehicle.destination)
     : "";
   const selectedVehiclePatternLabel = selectedVehicle
-    ? selectedVehicleSnapshot?.current_trip
+    ? selectedServiceViaLabel && selectedVehicleOriginLabel && selectedVehicleDestinationLabel
+      ? `${selectedVehicleOriginLabel} → ${selectedVehicleDestinationLabel} via ${selectedServiceViaLabel} service`
+      : selectedTrainFormationSegments.length > 1 && selectedTrainFormationOrigin && selectedTrainFormationDestination
+        ? `${selectedTrainFormationOrigin} → ${selectedTrainFormationDestination} through service`
+      : selectedTrainCrossCityDestination && selectedTrainCurrentOrigin && selectedTrainCrossCityVia && selectedTrainFinalDestination
+        ? `${selectedTrainCurrentOrigin} → ${selectedTrainUsesCityLoop ? "City Loop → " : ""}${selectedTrainCurrentDestination} → ${selectedTrainFinalDestination} through service`
+      : selectedVehicleSnapshot?.current_trip
       ? `${selectedVehicleSnapshot.current_trip.origin} to ${selectedVehicleSnapshot.current_trip.destination}`
       : selectedRegionalProfile
         ? `${selectedRegionalProfile.origin} to ${selectedRegionalProfile.destination}`
@@ -8771,24 +9458,48 @@ export function Map({
         ? `Running ${selectedVehicleSnapshot.current_trip.origin} to ${selectedVehicleSnapshot.current_trip.destination}`
         : selectedVehicleSnapshot?.next_trip
           ? `Waiting to form ${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
-          : `Following ${selectedVehicleOriginLabel} to ${selectedVehicleDestinationLabel}`
+          : (() => {
+              const candidateStops = selectedTrainTrip?.stops.filter((stop) => typeof stop.lat === "number" && typeof stop.lng === "number") ?? [];
+              if (!candidateStops.length) return `Last reported toward ${selectedVehicleDestinationLabel}`;
+              const nearestIndex = candidateStops.reduce((bestIndex, stop, index, stops) =>
+                getDistanceInMetres([selectedVehicle.lat, selectedVehicle.lng], [stop.lat!, stop.lng!]) <
+                getDistanceInMetres([selectedVehicle.lat, selectedVehicle.lng], [stops[bestIndex].lat!, stops[bestIndex].lng!]) ? index : bestIndex, 0);
+              const nearest = candidateStops[nearestIndex];
+              const nearestDistance = getDistanceInMetres([selectedVehicle.lat, selectedVehicle.lng], [nearest.lat!, nearest.lng!]);
+              const next = candidateStops[Math.min(nearestIndex + (nearestDistance < 120 ? 0 : 1), candidateStops.length - 1)];
+              const distance = getDistanceInMetres([selectedVehicle.lat, selectedVehicle.lng], [next.lat!, next.lng!]);
+              // Vehicle position alone cannot prove a station dwell. Only the
+              // explicit STOPPED_AT feed status above may use that wording.
+              if (distance < 120) return `Approaching ${next.name} · ${Math.round(distance)} m away`;
+              if (distance < 800) return `Approaching ${next.name} · ${Math.round(distance)} m away`;
+              return `Last reported ${distance < 1000 ? `${Math.round(distance)} m` : `${(distance / 1000).toFixed(1)} km`} from ${next.name}`;
+            })()
     : "";
   const selectedRegionalRestrictionSummary = getRegionalRestrictionSummary(selectedRegionalProfile);
   const selectedVehicleAccent = selectedVehicle ? getLiveLineColor(selectedVehicle.line) : "#3b82f6";
   const selectedVehicleIsRegional = Boolean(selectedVehicle && isVlineLiveTrain(selectedVehicle));
-  const selectedVehicleDelayMinutes = selectedRegionalProfile?.stops[selectedRegionalProfile.stops.length - 1]?.delayMinutes ?? 0;
+  const selectedVehicleDelayMinutes = selectedRegionalProfile?.stops[selectedRegionalProfile.stops.length - 1]?.delayMinutes ??
+    Math.round((selectedTrainTrip?.stops[selectedTrainTrip.stops.length - 1]?.delaySeconds ?? 0) / 60);
   const selectedVehicleWindowLabel = selectedRegionalProfile?.window ?? (selectedVehicle ? getVehicleWindowLabel(selectedVehicleSnapshot, selectedVehicle) : "");
   const selectedVehicleDurationLabel = selectedRegionalProfile?.duration ?? "Live trip";
   const selectedVehicleDateLabel = selectedVehicle ? formatRegionalServiceDate(selectedVehicle.timestamp) : "";
-  const selectedVehicleServiceTypeLabel = selectedRegionalProfile?.serviceType ?? (selectedVehicleIsRegional ? "Regional Service" : "Metro Service");
+  const selectedVehicleServiceTypeLabel = selectedRegionalProfile?.serviceType ?? (selectedVehicleIsHcmtMetroTunnel ? "HCMT Metro Tunnel" : selectedVehicleIsRegional ? "Regional Service" : "Metro Service");
   const selectedVehicleHeadingLabel = selectedVehicle
-    ? selectedVehicleSnapshot?.current_trip
+    ? selectedServiceViaLabel && selectedVehicleDestinationLabel
+      ? `${selectedVehicleDestinationLabel} via ${selectedServiceViaLabel} service`
+      : selectedTrainCrossCityDestination
+      ? `${selectedTrainCrossCityDestination} service`
+      : selectedTrainCurrentDestination
+        ? `${selectedTrainCurrentDestination} service`
+      : selectedVehicleSnapshot?.current_trip
       ? `${selectedVehicleSnapshot.current_trip.origin} to ${selectedVehicleSnapshot.current_trip.destination}`
       : selectedVehicleSnapshot?.next_trip
         ? `${selectedVehicleSnapshot.next_trip.origin} to ${selectedVehicleSnapshot.next_trip.destination}`
+        : selectedVehicleIsHcmtMetroTunnel
+          ? `${selectedVehicleDestinationLabel || selectedVehicle.destination} service`
         : selectedVehicleIsRegional
           ? `${getRegionalFallbackMeta(selectedVehicle)?.serviceLabel ?? "Regional"} service`
-          : `${selectedVehicle.line} service`
+          : `${selectedVehicleIsHcmtMetroTunnel ? "Metro Tunnel" : selectedVehicle.line} service`
     : "";
   const selectedVehicleJourneyId = selectedVehicle
     ? (selectedBoardServiceContext?.vehicleKey === selectedVehicleKey ? selectedBoardServiceContext.tdn : null) ??
@@ -8797,9 +9508,7 @@ export function Map({
       (isRegionalSetIdentifier(selectedVehicle.tdn) ? "" : selectedVehicle.tdn)
     : "";
   const selectedVehicleJourneyLabel = selectedVehicle
-    ? isPremium
-      ? (selectedVehicleJourneyId ? `TDN ${selectedVehicleJourneyId}` : "")
-      : getPublicServiceReference(selectedVehicle.destination, getMarkerServiceTime(selectedVehicle.timestamp))
+    ? `${getMarkerServiceTime(selectedVehicle.timestamp)} ${selectedVehicleOriginLabel || "Origin"} → ${selectedVehicleDestinationLabel || selectedVehicle.destination}`
     : "";
   const selectedVehicleRegionalSetLabel = selectedVehicleIsRegional && selectedVehicle
     ? getRegionalAllocatedSetLabel(selectedVehicle)
@@ -8814,6 +9523,9 @@ export function Map({
     ? getRegionalSpecialTrainLabel(selectedVehicle)
     : "";
   const selectedVehicleDisplayConsist = selectedVehicle ? getDisplayConsist(selectedVehicle.consist) : "";
+  const selectedVehiclePassengerConsistLabel = selectedVehicleIsHcmtMetroTunnel && selectedVehicleDisplayConsist
+    ? `HCMT SET ${(selectedVehicleDisplayConsist.match(/\d{4}/)?.[0] ?? selectedVehicleDisplayConsist).slice(-2)}`
+    : selectedVehicleRegionalSetLabel || selectedVehicleDisplayConsist;
   const selectedVehicleIsFavouriteConsist = Boolean(
     selectedVehicleDisplayConsist &&
       favouriteConsists.some(
@@ -8835,10 +9547,72 @@ export function Map({
       return keywords.some((keyword) => searchable.includes(keyword));
     });
   }, [selectedVehicle, selectedVehicleSnapshot]);
+  const selectedVehicleIsStoppedAtPublishedStop = Boolean(
+    selectedVehicleSnapshot?.position?.vehicle_stop_status === "STOPPED_AT" &&
+    selectedVehicleSnapshot?.position?.current_stop,
+  );
+  const selectedVehicleCurrentStopIndex = (() => {
+    if (!selectedVehicle || selectedVehiclePatternStops.length === 0) return -1;
+
+    const publishedStop = selectedVehicleSnapshot?.position?.current_stop?.trim().toLowerCase();
+    if (publishedStop && selectedVehicleIsStoppedAtPublishedStop) {
+      const publishedIndex = selectedVehiclePatternStops.findIndex(
+        (station) => station.name.toLowerCase() === publishedStop,
+      );
+      if (publishedIndex >= 0) return publishedIndex;
+    }
+
+    // A nearby station is not proof that the train is stopped there. Until
+    // the feed explicitly reports STOPPED_AT, the map marker stays at the
+    // vehicle GPS point and this list highlights only the next stop.
+    const nextScheduledIndex = selectedTrainTrip?.stops.findIndex((stop) => stop.status === "upcoming");
+    if (typeof nextScheduledIndex === "number" && nextScheduledIndex >= 0) return nextScheduledIndex;
+
+    return selectedVehiclePatternStops.reduce(
+      (bestIndex, station, index, stations) => {
+        const distance = (station.position[0] - selectedVehicle.lat) ** 2 + (station.position[1] - selectedVehicle.lng) ** 2;
+        const best = stations[bestIndex];
+        const bestDistance = (best.position[0] - selectedVehicle.lat) ** 2 + (best.position[1] - selectedVehicle.lng) ** 2;
+        return distance < bestDistance ? index : bestIndex;
+      },
+      0,
+    );
+  })();
+  const selectedVehicleLiveTimelinePosition = (() => {
+    if (!selectedVehicle || selectedVehicleIsStoppedAtPublishedStop || selectedVehiclePatternStops.length < 2) return null;
+    let closest: { beforeIndex: number; progress: number; distance: number; from: string; to: string } | null = null;
+    const trainY = selectedVehicle.lat;
+
+    for (let index = 0; index < selectedVehiclePatternStops.length - 1; index += 1) {
+      const from = selectedVehiclePatternStops[index];
+      const to = selectedVehiclePatternStops[index + 1];
+      const averageLat = (from.position[0] + to.position[0]) / 2;
+      const scale = Math.cos(averageLat * Math.PI / 180);
+      const trainX = selectedVehicle.lng * scale;
+      const fromX = from.position[1] * scale;
+      const fromY = from.position[0];
+      const toX = to.position[1] * scale;
+      const toY = to.position[0];
+      const deltaX = toX - fromX;
+      const deltaY = toY - fromY;
+      const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+      if (lengthSquared === 0) continue;
+      const progress = Math.max(0, Math.min(1, ((trainX - fromX) * deltaX + (trainY - fromY) * deltaY) / lengthSquared));
+      const projectedX = fromX + progress * deltaX;
+      const projectedY = fromY + progress * deltaY;
+      const distance = (trainX - projectedX) ** 2 + (trainY - projectedY) ** 2;
+      if (!closest || distance < closest.distance) {
+        closest = { beforeIndex: index + 1, progress, distance, from: from.name, to: to.name };
+      }
+    }
+    return closest;
+  })();
+  const selectedVehicleVisiblePatternStops = selectedVehiclePatternStops
+    .map((station, index) => ({ station, index }))
+    .slice(showPriorStops ? 0 : selectedVehicleCurrentStopIndex > 0 ? selectedVehicleCurrentStopIndex - 1 : 0);
   useEffect(() => {
-    if (!isGuest) return;
-    setSelectedDetail((current) => (current?.type === "vehicle" ? null : current));
-  }, [isGuest]);
+    setShowPriorStops(false);
+  }, [selectedVehicle?.tripId, selectedBus?.tripId, selectedTram?.tripId]);
   const featuredConsistLiveVehicle = useMemo(
     () => liveVehicles.find((vehicle) => vehicle.consist === FEATURED_CONSIST) ?? null,
     [liveVehicles],
@@ -8887,38 +9661,27 @@ export function Map({
   const regularLiveVehicles = useMemo(
     () => {
       const filtered = liveVehicles.filter((vehicle) => vehicle.consist !== FEATURED_CONSIST);
-      if (!aggressiveMobileProtectionEnabled) {
-        return filtered;
-      }
-
-      const limited = sortVehiclesByViewportDistance(filtered, visibleViewportBounds);
-      // Keep iPhone stable without making the opening map look empty.
-      const cap = mapZoom >= 14.4 ? 28 : mapZoom >= 13.5 ? 16 : 10;
-      return limited.slice(0, cap);
+      return filtered;
     },
-    [aggressiveMobileProtectionEnabled, liveVehicles, mapZoom, visibleViewportBounds],
+    [liveVehicles],
   );
   const metroLiveVehicles = useMemo(
     () =>
       regularLiveVehicles.filter(
         (vehicle) =>
           !isVlineLiveTrain(vehicle) &&
-          getVehicleLayerVisibility(vehicle, layers) &&
-          (visibleViewportBounds.contains(L.latLng(vehicle.lat, vehicle.lng)) ||
-            getVehicleFocusKey(vehicle) === focusedVehicleKey),
+          getVehicleLayerVisibility(vehicle, layers),
       ),
-    [focusedVehicleKey, layers, regularLiveVehicles, visibleViewportBounds],
+    [focusedVehicleKey, layers, regularLiveVehicles, selectedVehicle?.tripId, selectedVehicleKey],
   );
   const vlineLiveVehicles = useMemo(
     () =>
       regularLiveVehicles.filter(
         (vehicle) =>
           isVlineLiveTrain(vehicle) &&
-          getVehicleLayerVisibility(vehicle, layers) &&
-          (visibleViewportBounds.contains(L.latLng(vehicle.lat, vehicle.lng)) ||
-            getVehicleFocusKey(vehicle) === focusedVehicleKey),
+          getVehicleLayerVisibility(vehicle, layers),
       ),
-    [focusedVehicleKey, layers, regularLiveVehicles, visibleViewportBounds],
+    [focusedVehicleKey, layers, regularLiveVehicles, selectedVehicle?.tripId, selectedVehicleKey],
   );
   const focusVehicleOnMap = useCallback((vehicle: LiveTrain) => {
     setSelectedDetail({ type: "vehicle", vehicle });
@@ -9390,11 +10153,28 @@ export function Map({
     [activeSurfaceRouteFilters],
   );
 
+  // Journey/selection focus is deliberately separate from the user's saved
+  // filters. Closing the trip or bus sheet therefore restores the exact prior
+  // network view without writing any preference state.
+  const focusedBusRoutes = useMemo(() => {
+    if (selectedBus?.route && selectedBus.route !== "Bus") {
+      return new Set([normaliseSurfaceRouteLabel(selectedBus.route)]);
+    }
+    const routes = journeyBusRoutes
+      .map(normaliseSurfaceRouteLabel)
+      .filter((route) => route && route !== "Bus");
+    return routes.length > 0 ? new Set(routes) : null;
+  }, [journeyBusRoutes, selectedBus?.route]);
+  const isBusRouteFocused = useCallback(
+    (route: string) => !focusedBusRoutes || focusedBusRoutes.has(normaliseSurfaceRouteLabel(route)),
+    [focusedBusRoutes],
+  );
+
   const visibleLiveBuses = useMemo(
     () => {
       const filtered = liveBuses.filter(
         (bus) =>
-          isSurfaceRouteVisible("bus", bus.route) &&
+          isBusRouteFocused(bus.route) && isSurfaceRouteVisible("bus", bus.route) &&
           visibleViewportBounds.contains(L.latLng(bus.lat, bus.lng)),
       );
 
@@ -9405,8 +10185,43 @@ export function Map({
       const cap = mapZoom >= 14 ? 90 : mapZoom >= 13.25 ? 50 : 18;
       return sortVehiclesByViewportDistance(filtered, visibleViewportBounds).slice(0, cap);
     },
-    [isMobile, isSurfaceRouteVisible, liveBuses, mapZoom, visibleViewportBounds],
+    [isBusRouteFocused, isMobile, isSurfaceRouteVisible, liveBuses, mapZoom, visibleViewportBounds],
   );
+  const labelledLiveBusIds = useMemo(() => {
+    const selectedId = selectedBus?.id;
+    if (mapZoom < 14 || !mapRef.current) return new Set(selectedId ? [selectedId] : []);
+
+    const map = mapRef.current;
+    const size = map.getSize();
+    const occupied: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+    const labelled = new Set<string>();
+    const maximumLabels = mapZoom >= 16 ? 30 : mapZoom >= 15 ? 18 : 10;
+    const candidates = [...visibleLiveBuses].sort((left, right) => {
+      if (left.id === selectedId) return -1;
+      if (right.id === selectedId) return 1;
+      return left.id.localeCompare(right.id);
+    });
+
+    for (const bus of candidates) {
+      if (labelled.size >= maximumLabels && bus.id !== selectedId) break;
+      const point = map.latLngToContainerPoint([bus.lat, bus.lng]);
+      const labelWidth = Math.min(132, Math.max(76, ((bus.destination?.length ?? 8) + 10) * 5.2));
+      const rectangle = {
+        left: point.x - labelWidth / 2 - 5,
+        right: point.x + labelWidth / 2 + 5,
+        top: point.y + 21,
+        bottom: point.y + 48,
+      };
+      const insideSafeViewport = rectangle.left >= 12 && rectangle.right <= size.x - 12 && rectangle.bottom <= size.y - 92;
+      const collides = occupied.some((other) =>
+        rectangle.left < other.right && rectangle.right > other.left && rectangle.top < other.bottom && rectangle.bottom > other.top,
+      );
+      if (bus.id !== selectedId && (!insideSafeViewport || collides)) continue;
+      labelled.add(bus.id);
+      occupied.push(rectangle);
+    }
+    return labelled;
+  }, [mapBounds, mapZoom, selectedBus?.id, visibleLiveBuses]);
   const visibleLiveTrams = useMemo(
     () => {
       const filtered = liveTrams.filter(
@@ -9620,6 +10435,10 @@ export function Map({
       if (station.name === "Melbourne Central") {
         return { ...station, position: MELBOURNE_CENTRAL_POSITION };
       }
+      const canonicalPosition = findStationCoordinate(station.name);
+      if (canonicalPosition) {
+        station = { ...station, position: canonicalPosition };
+      }
       const override = markerOverrideMap[station.name];
       if (!override) return station;
       if (!isMarkerEditMode && getDistanceInKm(station.position, [override.lat, override.lng]) > 0.75) {
@@ -9705,6 +10524,32 @@ export function Map({
         .leaflet-control-attribution {
           display: none;
         }
+
+        .transit-alert-map .leaflet-overlay-pane svg path {
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+
+        @media (max-width: 700px) {
+          .transit-alert-map .leaflet-overlay-pane svg path {
+            stroke-width: 3px;
+          }
+        }
+
+        .transit-alert-map .leaflet-tooltip {
+          border: 1px solid rgba(148, 163, 184, 0.24);
+          border-radius: 8px;
+          background: rgba(8, 13, 24, 0.94);
+          color: #f8fafc;
+          box-shadow: 0 5px 18px rgba(0, 0, 0, 0.45);
+          padding: 4px 7px;
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .transit-alert-map .leaflet-tooltip::before {
+          display: none;
+        }
       `}</style>
 
       <MapContainer
@@ -9721,7 +10566,7 @@ export function Map({
         scrollWheelZoom={!isMarkerEditMode}
         boxZoom={!isMarkerEditMode}
         keyboard={!isMarkerEditMode}
-        className="w-full h-full"
+        className="transit-alert-map w-full h-full"
         style={{ background: "#0f172a" }}
         ref={(mapInstance) => {
           if (mapInstance) mapRef.current = mapInstance;
@@ -9732,6 +10577,7 @@ export function Map({
             setMapZoom(zoom);
             setMapBounds(bounds);
           }}
+          onManualMove={() => setFollowSelectedService(false)}
         />
         <Pane name="stationPane" style={{ zIndex: 950 }} />
         {consistData?.active && consistData.currentTrip?.estimatedPos && (
@@ -9747,7 +10593,7 @@ export function Map({
                   </div>
                 </div>
               `,
-              className: "bg-transparent border-none",
+    className: "bg-transparent border-none",
               iconSize: [48, 48],
               iconAnchor: [24, 24],
             })}
@@ -9814,9 +10660,13 @@ export function Map({
         )}
 
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='© <a href="https://carto.com">CARTO</a> © <a href="https://openstreetmap.org">OSM</a>'
+          // Keep the core map independent from commercial API keys. Transit data is
+          // layered above these public OSM tiles, so a missing provider credential
+          // must never prevent someone from using the live map.
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
           maxZoom={19}
+          crossOrigin="anonymous"
         />
         <Polyline
           positions={ZONE_1_2_BOUNDARY}
@@ -9829,6 +10679,7 @@ export function Map({
           }}
         />
 
+        <Pane name="railRoutePane" className="transit-rail-track-pane" style={{ zIndex: 360 }}>
 {modeIsTrainVisible && layers.frankstonLine && (
   <>
   <Polyline
@@ -9884,7 +10735,7 @@ export function Map({
     {layers.craigieburnLine ? (
       <>
         <Polyline
-          positions={offsetPolylineCoordinates(NORTHERN_LOOP, "left", 0.42)}
+          positions={NORTHERN_LOOP}
           pathOptions={{ color: "#FFD200", weight: 4.5, opacity: 0.88 }}
         />
       </>
@@ -9910,8 +10761,12 @@ export function Map({
 {modeIsTrainVisible && (layers.lilydaleLine || layers.belgraveLine || layers.alameinLine || layers.glenWaverleyLine || layers.burnleyLoop) && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(BURNLEY_LOOP, "left", 0.45)}
+      positions={BURNLEY_LOOP}
   pathOptions={{ color: "#003A8F", weight: 3, opacity: 0.6 }}
+    />
+    <Polyline
+      positions={RICHMOND_TO_CITY_PORTAL_TRACK}
+      pathOptions={{ color: "#003A8F", weight: 3, opacity: 0.72 }}
     />
     {renderStationMarkers(renderedStationKeys, RENDERED_BURNLEY_LOOP_STATIONS, "#003A8F", "#003A8F", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
@@ -9974,23 +10829,13 @@ export function Map({
 {modeIsTrainVisible && layers.craigieburnLine && (
   <>
     <Polyline
-      positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "left", 0.45)}
+      positions={CRAIGIEBURN_LINE}
       pathOptions={{
         color: "#FFD200",
         weight: 4.75,
         opacity: 0.88,
       }}
     />
-    {allowIosParallelTrackCopies && (
-      <Polyline
-        positions={offsetPolylineCoordinates(CRAIGIEBURN_LINE, "right", 0.45)}
-        pathOptions={{
-          color: "#7c3aed",
-          weight: 4.75,
-          opacity: 0.84,
-        }}
-      />
-    )}
     {renderStationMarkers(renderedStationKeys, CRAIGIEBURN_STATIONS, "#FFD200", "#cca700", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
   </>
 )}
@@ -10011,19 +10856,9 @@ export function Map({
         {modeIsTrainVisible && layers.cranbourneLine && (
           <>
             <Polyline
-              positions={offsetPolylineCoordinates(CRANBOURNE_LINE, "left", 0.6)}
+              positions={CRANBOURNE_LINE}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {allowIosParallelTrackCopies && (
-              <Polyline
-                positions={offsetPolylineCoordinates(
-                  CRANBOURNE_LINE,
-                  "right",
-                  0.6
-                )}
-                pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
-              />
-            )}
             {renderStationMarkers(renderedStationKeys, CRANBOURNE_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
           </>
         )}
@@ -10031,21 +10866,15 @@ export function Map({
         {modeIsTrainVisible && layers.pakenhamLine && (
           <>
             <Polyline
-              positions={offsetPolylineCoordinates(PAKENHAM_PRE_HAWKSBURN_LINE, "left", 0.6)}
+              positions={PAKENHAM_PRE_HAWKSBURN_LINE}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {allowIosParallelTrackCopies && (
-              <Polyline
-                positions={offsetPolylineCoordinates(PAKENHAM_PRE_HAWKSBURN_LINE, "right", 0.6)}
-                pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
-              />
-            )}
             <Polyline
               positions={PAKENHAM_HAWKSBURN_TO_CARNEGIE_LINE}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
             <Polyline
-              positions={offsetPolylineCoordinates(PAKENHAM_POST_CARNEGIE_LINE, "left", 0.38)}
+              positions={PAKENHAM_POST_CARNEGIE_LINE}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
             {renderStationMarkers(renderedStationKeys, PAKENHAM_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), toggleStationPillLine, stationMarkerVisibleBounds)}
@@ -10055,15 +10884,9 @@ export function Map({
         {modeIsTrainVisible && layers.sunburyLine && (
           <>
             <Polyline
-              positions={offsetPolylineCoordinates(SUNBURY_LINE, "left", 0.6)}
+              positions={SUNBURY_LINE}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {allowIosParallelTrackCopies && (
-              <Polyline
-                positions={offsetPolylineCoordinates(SUNBURY_LINE, "right", 0.6)}
-                pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
-              />
-            )}
             {renderStationMarkers(renderedStationKeys, SUNBURY_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
@@ -10071,15 +10894,9 @@ export function Map({
         {modeIsTrainVisible && layers.metroTunnel && (
           <>
             <Polyline
-              positions={offsetPolylineCoordinates(METRO_TUNNEL_LINE, "left", 0.6)}
+              positions={METRO_TUNNEL_LINE}
               pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
             />
-            {allowIosParallelTrackCopies && (
-              <Polyline
-                positions={offsetPolylineCoordinates(METRO_TUNNEL_LINE, "right", 0.6)}
-                pathOptions={{ color: "#279FD5", weight: 5, opacity: 0.85 }}
-              />
-            )}
             {renderStationMarkers(renderedStationKeys, METRO_TUNNEL_STATIONS, "#279FD5", "#1e7ba8", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
           </>
         )}
@@ -10087,7 +10904,7 @@ export function Map({
   <>
     {/* Werribee main line */}
     <Polyline
-      positions={offsetPolylineCoordinates(WERRIBEE_LINE, "left", 0.5)}
+      positions={WERRIBEE_LINE}
       pathOptions={{
         color: "#F178AF",
         weight: 5,
@@ -10098,43 +10915,23 @@ export function Map({
 
     {/* Williamstown branch */}
     <Polyline
-      positions={offsetPolylineCoordinates(WILLIAMSTOWN_LINE, "left", 0.35)}
+      positions={WILLIAMSTOWN_LINE}
       pathOptions={{
         color: "#F178AF",
         weight: 5,
         opacity: 0.85,
       }}
     />
-    {allowIosParallelTrackCopies && (
-      <Polyline
-        positions={offsetPolylineCoordinates(WILLIAMSTOWN_LINE, "right", 0.35)}
-        pathOptions={{
-          color: "#F178AF",
-          weight: 5,
-          opacity: 0.85,
-        }}
-      />
-    )}
 
     {/* Altona loop branch */}
     <Polyline
-      positions={offsetPolylineCoordinates(ALTONA_LOOP_LINE, "left", 0.35)}
+      positions={ALTONA_LOOP_LINE}
       pathOptions={{
         color: "#F178AF",
         weight: 5,
         opacity: 0.85,
       }}
     />
-    {allowIosParallelTrackCopies && (
-      <Polyline
-        positions={offsetPolylineCoordinates(ALTONA_LOOP_LINE, "right", 0.35)}
-        pathOptions={{
-          color: "#F178AF",
-          weight: 5,
-          opacity: 0.85,
-        }}
-      />
-    )}
 
     {renderStationMarkers(renderedStationKeys, RENDERED_WERRIBEE_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
     {renderStationMarkers(renderedStationKeys, RENDERED_WILLIAMSTOWN_STATIONS, "#F178AF", "#9f5d7c", resolveStation, (station) => setSelectedDetail({ type: "station", station }), undefined, stationMarkerVisibleBounds)}
@@ -10153,96 +10950,39 @@ export function Map({
 
         {modeIsVlineVisible && (
           <>
-            {(layers.geelongRegional || layers.ballaratRegional || layers.bendigoRegional) && (
-              <>
-                <Polyline
-                  positions={BALLARAT_SHARED_VLINE_TRUNK}
-                  pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
-                />
-                <Polyline
-                  positions={SUNSHINE_VLINE_EXPRESS_OVERLAY}
-                  pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.96 }}
-                />
-                <Polyline
-                  positions={SUNSHINE_VLINE_STOPPING_OVERLAY}
-                  pathOptions={{ color: "#7c3aed", weight: 4, opacity: 0.9 }}
-                />
-              </>
-            )}
-            {layers.ballaratRegional && (
-              <>
-                <Polyline
-                  positions={BALLARAT_LINE}
-                  pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
-                />
-                <Polyline
-                  positions={ARARAT_BRANCH_LINE}
-                  pathOptions={{ color: "#7c3aed", weight: 4, opacity: 0.82, dashArray: "9 7" }}
-                />
-                <Polyline
-                  positions={MARYBOROUGH_BRANCH_LINE}
-                  pathOptions={{ color: "#7c3aed", weight: 4, opacity: 0.82, dashArray: "9 7" }}
-                />
-              </>
-            )}
-            {layers.geelongRegional && (
-              <Polyline
-                positions={GEELONG_LINE}
-                pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
-              />
-            )}
-            {layers.bendigoRegional && (
-              <Polyline
-                positions={BENDIGO_REGIONAL_LINE}
-                pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
-              />
-            )}
-            {layers.seymourRegional && (
-              <>
-                <Polyline
-                  positions={
-                    layers.craigieburnLine
-                      ? offsetPolylineCoordinates(SEYMOUR_REGIONAL_LINE, "right", 0.45)
-                      : SEYMOUR_REGIONAL_LINE
-                  }
-                  pathOptions={{ color: "#7c3aed", weight: 4.75, opacity: 0.92 }}
-                />
-                {renderStationMarkers(
-                  renderedStationKeys,
-                  layers.craigieburnLine
-                    ? RENDERED_SEYMOUR_REGIONAL_OFFSET_STATIONS
-                    : RENDERED_SEYMOUR_REGIONAL_STATIONS,
-                  "#7c3aed",
-                  "#5b21b6",
-                  resolveStation,
-                  (station) => setSelectedDetail({ type: "station", station }),
-                  toggleStationPillLine,
-                  stationMarkerVisibleBounds,
-                )}
-              </>
-            )}
-            {layers.traralgonRegional && (
-              <>
-                <Polyline
-                  positions={GIPPSLAND_VISIBLE_PRE_CARNEGIE_LINE}
-                  pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
-                />
-                <Polyline
-                  positions={offsetPolylineCoordinates(GIPPSLAND_POST_CARNEGIE_LINE, "right", 0.38)}
-                  pathOptions={{ color: "#7c3aed", weight: 5, opacity: 0.92 }}
-                />
-                {renderStationMarkers(
-                  renderedStationKeys,
-                  RENDERED_GIPPSLAND_STATIONS,
-                  "#7c3aed",
-                  "#5b21b6",
-                  resolveStation,
-                  (station) => setSelectedDetail({ type: "station", station }),
-                  toggleStationPillLine,
-                  stationMarkerVisibleBounds,
-                )}
-              </>
-            )}
+            {GENERATED_VLINE_GTFS.map((route) => {
+              const routeKey = route.id.split("-").at(-1)?.replace(":", "") ?? "";
+              const visible =
+                (["GEL", "WBL"].includes(routeKey) && layers.geelongRegional) ||
+                (["BAT", "ART", "MBY"].includes(routeKey) && layers.ballaratRegional) ||
+                (["BGO", "ECH", "SWL"].includes(routeKey) && layers.bendigoRegional) ||
+                (["SER", "SNH", "ABY"].includes(routeKey) && layers.seymourRegional) ||
+                (["TRN", "BDE"].includes(routeKey) && layers.traralgonRegional);
+              if (!visible) return null;
+              const stations: Station[] = route.stations.map((station) => ({
+                name: station.name,
+                position: [station.position[0], station.position[1]],
+                vline: true,
+              }));
+              return (
+                <Fragment key={route.id}>
+                  <Polyline
+                    positions={route.shape as unknown as [number, number][]}
+                    pathOptions={{ color: route.color, weight: 4.75, opacity: 0.92 }}
+                  />
+                  {renderStationMarkers(
+                    renderedStationKeys,
+                    stations,
+                    route.color,
+                    "#5b21b6",
+                    resolveStation,
+                    (station) => setSelectedDetail({ type: "station", station }),
+                    toggleStationPillLine,
+                    stationMarkerVisibleBounds,
+                  )}
+                </Fragment>
+              );
+            })}
             <Polyline
               positions={XPT_INTERSTATE_LINE}
               pathOptions={{ color: "#d9480f", weight: 4, opacity: 0.9, dashArray: "10 7" }}
@@ -10274,6 +11014,7 @@ export function Map({
             {renderFreightLocationMarkers(FREIGHT_LOCATIONS, visibleViewportBounds)}
           </>
         )}
+        </Pane>
 
         {journeyRoute && journeyRoute.length > 1 && (
           <>
@@ -10314,6 +11055,29 @@ export function Map({
           </>
         )}
 
+        {modeIsBusVisible && selectedBusTrip?.stops.length ? (
+          <>
+            <Polyline
+              positions={selectedBusTrip.stops
+                .filter((stop) => typeof stop.lat === "number" && typeof stop.lng === "number")
+                .map((stop) => [stop.lat!, stop.lng!] as [number, number])}
+              pathOptions={{ color: "#fb923c", weight: 7, opacity: 0.92 }}
+            />
+            {selectedBusTrip.stops
+              .filter((stop) => typeof stop.lat === "number" && typeof stop.lng === "number")
+              .map((stop) => (
+                <CircleMarker
+                  key={`focused-bus-stop-${selectedBusTrip.tripId}-${stop.stopId}-${stop.stopSequence}`}
+                  center={[stop.lat!, stop.lng!]}
+                  radius={stop.stopSequence === selectedBusTrip.stops[selectedBusCurrentStopIndex]?.stopSequence ? 6 : 3.5}
+                  pathOptions={{ color: "#fed7aa", fillColor: "#fb923c", fillOpacity: 1, weight: 2 }}
+                >
+                  <Tooltip direction="top">{stop.name}</Tooltip>
+                </CircleMarker>
+              ))}
+          </>
+        ) : null}
+
         {layers.heatCircles &&
           allowIosReportLayer &&
           inspectorReports.map((report) => (
@@ -10329,7 +11093,7 @@ export function Map({
             />
           ))}
 
-        {userLoc && (
+        {userLoc && !selectedFollowTarget && (
           <Circle
             center={userLoc}
             radius={80}
@@ -10383,17 +11147,24 @@ export function Map({
         {modeIsTrainVisible &&
           metroLiveVehicles.map((vehicle) => {
             const vehicleKey = getVehicleFocusKey(vehicle);
-            const isSelected = selectedVehicleKey === vehicleKey;
+            const isSelected = selectedVehicleKey === vehicleKey || Boolean(selectedVehicle?.tripId && vehicle.tripId === selectedVehicle.tripId);
             const isHovered = hoveredVehicleKey === vehicleKey;
             const priority = getTrainLabelPriority(vehicle);
             const isZoomedOut = mapZoom <= 13;
-            const hideSecondaryLabel = isZoomedOut && priority !== "high" && !isSelected && !isHovered;
+            const hideSecondaryLabel = false;
+            const markerVehicle = isSelected && selectedTrainTrip?.tripId === vehicle.tripId
+              ? {
+                  ...vehicle,
+                  origin: selectedTrainFormationOrigin ?? selectedTrainCurrentOrigin ?? vehicle.origin,
+                  destination: selectedTrainFormationDestination ?? selectedTrainFinalDestination ?? selectedTrainCurrentDestination ?? vehicle.destination,
+                }
+              : vehicle;
 
             return (
               <Marker
-                key={`${vehicle.consist}-${vehicle.tdn}`}
+                key={vehicleKey}
                 position={[vehicle.lat, vehicle.lng]}
-                icon={createLiveTrainIcon(vehicle, {
+                icon={createLiveTrainIcon(markerVehicle, {
                   expanded: isSelected || isHovered,
                   selected: isSelected,
                   dimmed: isZoomedOut && priority !== "high" && !isSelected && !isHovered,
@@ -10404,10 +11175,7 @@ export function Map({
                 eventHandlers={{
                   mouseover: () => setHoveredVehicleKey(vehicleKey),
                   mouseout: () => setHoveredVehicleKey((current) => (current === vehicleKey ? null : current)),
-                  mousedown: () => setSelectedDetail({ type: "vehicle", vehicle }),
-                  touchstart: () => setSelectedDetail({ type: "vehicle", vehicle }),
                   click: () => setSelectedDetail({ type: "vehicle", vehicle }),
-                  popupopen: () => setSelectedDetail({ type: "vehicle", vehicle }),
                 }}
               />
             );
@@ -10415,40 +11183,45 @@ export function Map({
         {modeIsVlineVisible &&
           vlineLiveVehicles.map((vehicle) => {
             const vehicleKey = getVehicleFocusKey(vehicle);
-            const isSelected = selectedVehicleKey === vehicleKey;
+            const isSelected = selectedVehicleKey === vehicleKey || Boolean(selectedVehicle?.tripId && vehicle.tripId === selectedVehicle.tripId);
             const isHovered = hoveredVehicleKey === vehicleKey;
             const isZoomedOut = mapZoom <= 13;
+            const markerVehicle = isSelected && selectedTrainTrip?.tripId === vehicle.tripId
+              ? {
+                  ...vehicle,
+                  destination: selectedTrainCrossCityDestination ?? selectedTrainCurrentDestination ?? vehicle.destination,
+                }
+              : vehicle;
 
             return (
               <Marker
-                key={`${vehicle.consist}-${vehicle.tdn}`}
+                key={vehicleKey}
                 position={[vehicle.lat, vehicle.lng]}
-                icon={createLiveTrainIcon(vehicle, {
+                icon={createLiveTrainIcon(markerVehicle, {
                   expanded: isSelected || isHovered || mapZoom >= 14.5,
                   selected: isSelected,
                   dimmed: false,
-                  hideSecondaryLabel: isZoomedOut && !isSelected && !isHovered,
+                  hideSecondaryLabel: false,
                 })}
                 zIndexOffset={isSelected ? 4700 : isHovered ? 4300 : 4000}
                 riseOnHover
                 eventHandlers={{
                   mouseover: () => setHoveredVehicleKey(vehicleKey),
                   mouseout: () => setHoveredVehicleKey((current) => (current === vehicleKey ? null : current)),
-                  mousedown: () => setSelectedDetail({ type: "vehicle", vehicle }),
-                  touchstart: () => setSelectedDetail({ type: "vehicle", vehicle }),
                   click: () => setSelectedDetail({ type: "vehicle", vehicle }),
-                  popupopen: () => setSelectedDetail({ type: "vehicle", vehicle }),
                 }}
               />
             );
           })}
         {modeIsBusVisible &&
-          visibleLiveBuses.map((bus) => (
+          visibleLiveBuses.map((bus) => {
+            const isSelected = selectedBus?.id === bus.id || Boolean(selectedBus?.tripId && selectedBus.tripId === bus.tripId);
+            return (
             <Marker
-              key={bus.id}
+              key={bus.vehicleId || bus.registration || bus.fleetNumber || bus.id}
               position={[bus.lat, bus.lng]}
-              icon={createLiveBusIcon(bus)}
-              zIndexOffset={1000}
+              icon={createLiveBusIcon(bus, { showLabel: isSelected || labelledLiveBusIds.has(bus.id), selected: isSelected })}
+              zIndexOffset={isSelected ? 3100 : labelledLiveBusIds.has(bus.id) ? 1500 : 1000}
               riseOnHover
               eventHandlers={{
                 mousedown: () => setSelectedDetail({ type: "bus", bus }),
@@ -10464,23 +11237,26 @@ export function Map({
                         {bus.route === "Bus" ? "Live bus" : `Route ${bus.route}`}
                       </p>
                       <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-300/80">
-                        {bus.operator ?? "PTV Bus"}
+                        Operated by {bus.operator ?? "Operator not published"}
                       </p>
                     </div>
                     <span className="rounded-full bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold text-orange-200">
                       Live
                     </span>
                   </div>
-                  <p className="mt-2 text-sm font-semibold text-white/90">
-                    {bus.destination ? `To ${bus.destination}` : "Destination not supplied by PTV"}
-                  </p>
+                  <div className="mt-2">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-white/40">Route direction</p>
+                    <p className="mt-0.5 text-sm font-semibold text-white/90">
+                      {bus.destination ? `To ${bus.destination}` : "Not supplied by PTV"}
+                    </p>
+                  </div>
                   {getLiveBusStopLabel(bus) ? (
                     <p className="mt-1.5 text-xs font-medium text-sky-200">{getLiveBusStopLabel(bus)}</p>
                   ) : null}
                   <div className="mt-2 grid grid-cols-2 gap-1.5 text-[11px]">
                     {bus.fleetNumber ? (
                       <div className="rounded-lg bg-white/5 px-2 py-1.5 text-white/70">
-                        <span className="block text-[9px] font-bold uppercase tracking-wider text-white/40">Fleet</span>
+                        <span className="block text-[9px] font-bold uppercase tracking-wider text-white/40">Bus number</span>
                         {bus.fleetNumber}
                       </div>
                     ) : null}
@@ -10511,7 +11287,8 @@ export function Map({
                 </div>
               </Popup>
             </Marker>
-          ))}
+            );
+          })}
         {modeIsTramVisible &&
           visibleLiveTrams.map((tram) => (
             <Marker
@@ -10520,6 +11297,12 @@ export function Map({
               icon={createLiveTramIcon(tram)}
               zIndexOffset={1100}
               riseOnHover
+              eventHandlers={{
+                mousedown: () => setSelectedDetail({ type: "tram", tram }),
+                touchstart: () => setSelectedDetail({ type: "tram", tram }),
+                click: () => setSelectedDetail({ type: "tram", tram }),
+                popupopen: () => setSelectedDetail({ type: "tram", tram }),
+              }}
             >
               <Popup>
                 <div className="w-56 p-3">
@@ -10547,10 +11330,10 @@ export function Map({
             </Marker>
           ))}
         {modeIsBusVisible &&
-          allowIosSurfaceStops &&
+          allowIosSurfaceStops && allowDenseSurfaceStops &&
           renderSurfaceStops(
             ANYTRIP_SURFACE_STOPS.filter(
-              (stop) => stop.modes.includes("bus") && isSurfaceRouteVisible("bus", stop.routeLabel),
+              (stop) => stop.modes.includes("bus") && isBusRouteFocused(stop.routeLabel) && isSurfaceRouteVisible("bus", stop.routeLabel),
             ),
             "#FF8200",
             "#FF8200",
@@ -10559,7 +11342,7 @@ export function Map({
             "bus",
           )}
         {modeIsTramVisible &&
-          allowIosSurfaceStops &&
+          allowTramStops &&
           renderSurfaceStops(
             ANYTRIP_SURFACE_STOPS.filter(
               (stop) => stop.modes.includes("tram") && isSurfaceRouteVisible("tram", stop.routeLabel),
@@ -10695,16 +11478,12 @@ export function Map({
       <LayerControl layers={layers} onChange={toggleLayer} />
 
       {modeIsTrainVisible && (
-      <div className="pointer-events-none absolute left-3 top-[7.25rem] z-[1000] max-w-[8.5rem] sm:left-4 sm:top-28 sm:max-w-xs">
-        <div className={`rounded-xl border px-2.5 py-2 shadow-xl backdrop-blur-xl sm:rounded-2xl sm:px-3 sm:py-2.5 ${liveTrainStatusTone}`}>
-          <div className="flex items-center gap-2">
+        <div className="pointer-events-none absolute left-3 top-[7.25rem] z-[1000] sm:left-4 sm:top-28">
+          <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold shadow-lg backdrop-blur-xl ${liveTrainStatusTone}`}>
             <Train className="h-3.5 w-3.5" />
-            <p className="text-xs font-semibold leading-tight sm:text-sm">{isGuest ? `TransitAlert Guest Preview ${GUEST_PREVIEW_VERSION}` : `TransitAlert Version ${APP_VERSION}`}</p>
+            <span>{liveTrainStatusLabel}</span>
           </div>
-          <p className="mt-1 text-[11px] leading-tight sm:mt-1.5 sm:text-sm">{liveTrainStatusLabel}</p>
-          <p className="mt-1 hidden text-[11px] leading-4 opacity-80 sm:block sm:text-xs">{liveTrainStatusDetail}</p>
         </div>
-      </div>
       )}
 
         {!isGuest && (modeIsTrainVisible || modeIsVlineVisible) && (
@@ -11029,10 +11808,25 @@ export function Map({
         >
           <Navigation className="h-4 w-4 text-white" />
         </button>
+        {selectedFollowTarget && (
+          <button
+            type="button"
+            onClick={() => {
+              setFollowSelectedService((value) => !value);
+              mapRef.current?.flyTo([selectedFollowTarget.lat, selectedFollowTarget.lng], mapRef.current.getZoom(), { animate: true, duration: 0.65 });
+            }}
+            className={`rounded-xl border p-2.5 shadow-lg backdrop-blur-md transition-colors ${followSelectedService ? "border-white/60 text-white" : "border-white/20 text-white/80"}`}
+            style={{ backgroundColor: selectedVehicle ? "rgba(37,99,235,.86)" : selectedBus ? "rgba(234,88,12,.86)" : "rgba(5,150,105,.86)" }}
+            title={followSelectedService ? "Stop following selected service" : "Follow selected service"}
+            aria-label={followSelectedService ? "Stop following selected service" : "Follow selected service"}
+          >
+            <Crosshair className={`h-4 w-4 ${followSelectedService ? "animate-pulse" : ""}`} />
+          </button>
+        )}
       </div>
 
       {selectedDetail?.type === "vehicle" && (
-        <div className="absolute inset-x-3 bottom-28 z-[1001] mx-auto w-auto max-w-[calc(100%-1.5rem)] rounded-[1.6rem] border border-white/10 bg-slate-950/96 p-3 shadow-2xl backdrop-blur-2xl max-md:max-h-[44vh] max-md:overflow-y-auto md:inset-x-auto md:bottom-6 md:right-4 md:top-24 md:max-h-[calc(100%-7rem)] md:w-[24rem] md:p-3.5 md:overflow-y-auto">
+        <div onWheel={(event) => event.stopPropagation()} onTouchMove={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 z-[1003] mx-auto h-[72dvh] w-full max-w-full touch-pan-y overscroll-contain overflow-x-hidden overflow-y-auto rounded-t-[1.6rem] border border-white/10 bg-slate-950/98 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl backdrop-blur-2xl md:inset-x-auto md:bottom-6 md:right-4 md:top-24 md:h-auto md:max-h-[calc(100%-7rem)] md:w-[24rem] md:rounded-[1.6rem] md:p-3.5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p
@@ -11045,20 +11839,20 @@ export function Map({
                 {selectedVehicleHeadingLabel}
               </p>
               {selectedVehicleJourneyLabel && (
-                <p className="mt-1 text-xs text-white/55">
+                <p className="mt-1 text-sm font-medium text-white/65">
                   {selectedVehicleJourneyLabel}
                 </p>
               )}
-              <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Stopping pattern</p>
-                <p className="mt-1 text-sm font-semibold text-white">
-                  {selectedVehiclePatternLabel}
-                </p>
-              </div>
+              {selectedVehicleJourneyId && (
+                <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/35">TDN {selectedVehicleJourneyId}</p>
+              )}
             </div>
             <button
               type="button"
-              onClick={() => setSelectedDetail(null)}
+              onClick={() => {
+                setSelectedStationService(null);
+                setSelectedDetail(null);
+              }}
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white/70"
             >
               ×
@@ -11068,10 +11862,8 @@ export function Map({
           <div
             className="mt-3 rounded-[1.35rem] border p-3.5"
             style={{
-              borderColor: selectedVehicleIsRegional ? "rgba(124,58,237,0.28)" : "rgba(34,211,238,0.15)",
-              background: selectedVehicleIsRegional
-                ? "linear-gradient(90deg, rgba(124,58,237,0.16), rgba(168,85,247,0.08))"
-                : "linear-gradient(90deg, rgba(6,182,212,0.10), rgba(16,185,129,0.08))",
+              borderColor: selectedVehicleDelayMinutes >= 10 ? "rgba(248,113,113,0.30)" : selectedVehicleDelayMinutes > 0 ? "rgba(251,191,36,0.28)" : "rgba(52,211,153,0.24)",
+              background: selectedVehicleDelayMinutes >= 10 ? "rgba(127,29,29,0.18)" : selectedVehicleDelayMinutes > 0 ? "rgba(120,53,15,0.16)" : "rgba(6,78,59,0.16)",
             }}
           >
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
@@ -11087,7 +11879,9 @@ export function Map({
                   ? `${selectedVehicleServiceTypeLabel} · Platform ${selectedRegionalProfile.platform} · Updated live`
                 : selectedVehicleSnapshot?.next_trip
                   ? `Departs ${formatRouteWindow(selectedVehicleSnapshot.next_trip.departs)} and arrives ${formatRouteWindow(selectedVehicleSnapshot.next_trip.arrives)}`
-                  : "Using the live feed fallback while trip-level timing is unavailable."}
+                  : selectedTrainTrip?.stops.length
+                    ? "Verified GTFS schedule with live stop updates."
+                    : "Using the live feed fallback while trip-level timing is unavailable."}
             </p>
             {selectedRegionalRestrictionSummary ? (
               <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
@@ -11146,12 +11940,12 @@ export function Map({
           )}
 
           <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 sm:gap-4">
+              <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
                   Origin
                 </p>
-                <p className="mt-1.5 text-[1.9rem] font-semibold leading-none text-white">
+                <p className="mt-1.5 break-words text-[clamp(.85rem,4vw,1.5rem)] font-semibold leading-tight tracking-tight text-white [overflow-wrap:anywhere]">
                   {selectedVehicleOriginLabel}
                 </p>
               </div>
@@ -11160,11 +11954,11 @@ export function Map({
                 <ArrowRight className="h-4 w-4" />
                 <div className="h-px w-5 bg-emerald-400/30" />
               </div>
-              <div className="text-right">
+              <div className="min-w-0 text-right">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
                   Destination
                 </p>
-                <p className="mt-1.5 text-[1.9rem] font-semibold leading-none text-white">
+                <p className="mt-1.5 break-words text-[clamp(.85rem,4vw,1.5rem)] font-semibold leading-tight tracking-tight text-white [overflow-wrap:anywhere]">
                   {selectedVehicleDestinationLabel}
                 </p>
               </div>
@@ -11181,7 +11975,7 @@ export function Map({
               >
                 {selectedVehicleSnapshot?.position?.vehicle_stop_status === "STOPPED_AT"
                   ? `Stopped at ${selectedVehicleSnapshot.position.current_stop}`
-                  : getVehicleStoppingPattern(selectedDetail.vehicle)}
+                  : selectedVehiclePatternLabel}
               </span>
               {selectedVehicleSnapshot?.current_trip?.url && (
                 <a
@@ -11196,7 +11990,7 @@ export function Map({
               )}
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-2.5 border-t border-white/10 pt-3.5 text-sm text-white/70">
+            <div className="mt-4 grid grid-cols-2 gap-2.5 border-t border-white/10 pt-3.5 text-sm text-white/70 [&>*]:min-w-0 [&_p]:break-words">
               <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Type</p>
                 <p className="mt-1 text-sm font-semibold text-white">
@@ -11221,16 +12015,6 @@ export function Map({
           <div className="mt-3 rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3.5">
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-start gap-3">
-                {getVehicleTypeIcon(selectedDetail.vehicle) && (
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 p-2">
-                    <img
-                      src={getVehicleTypeIcon(selectedDetail.vehicle) ?? undefined}
-                      alt={`${getVehicleDisplayType(selectedDetail.vehicle)} icon`}
-                      className="max-h-full max-w-full object-contain"
-                    />
-                  </div>
-                )}
-
                 <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
                   Train type
@@ -11250,8 +12034,11 @@ export function Map({
                       {selectedVehicleIsRegional ? "Allocated set" : "Consist"}
                     </p>
                     <p className="mt-1.5 text-sm font-semibold text-white">
-                      {selectedVehicleRegionalSetLabel || selectedVehicleDisplayConsist}
+                      {selectedVehiclePassengerConsistLabel}
                     </p>
+                    {selectedVehicleIsHcmtMetroTunnel && selectedVehicleDisplayConsist && (
+                      <p className="mt-0.5 text-[10px] font-medium text-white/35">Raw consist {selectedVehicleDisplayConsist}</p>
+                    )}
                   </div>
 
                   {selectedVehicleDisplayConsist ? (
@@ -11292,6 +12079,234 @@ export function Map({
                 </div>
               ) : null}
           </div>
+
+          {(!selectedVehicleIsRegional || !selectedRegionalProfile) && selectedVehiclePatternStops.length > 0 && (
+            <div className="mt-3 overflow-hidden rounded-[1.35rem] border border-white/10 bg-white/[0.03]">
+              <div className="border-b border-white/10 px-3.5 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/40">
+                      Stopping pattern
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-white">
+                      {selectedVehiclePatternStops.length} stops toward {selectedVehicleDestinationLabel}
+                    </p>
+                  </div>
+                  <span
+                    className="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.15em]"
+                    style={{
+                      borderColor: selectedVehicleDelayMinutes >= 10 ? "rgba(248,113,113,.45)" : selectedVehicleDelayMinutes > 0 || selectedDetail.vehicle.status === "delayed" ? "rgba(251,191,36,.4)" : "rgba(52,211,153,.4)",
+                      backgroundColor: selectedVehicleDelayMinutes >= 10 ? "rgba(239,68,68,.14)" : selectedVehicleDelayMinutes > 0 || selectedDetail.vehicle.status === "delayed" ? "rgba(245,158,11,.14)" : "rgba(16,185,129,.14)",
+                      color: selectedVehicleDelayMinutes >= 10 ? "#fecaca" : selectedVehicleDelayMinutes > 0 || selectedDetail.vehicle.status === "delayed" ? "#fde68a" : "#a7f3d0",
+                    }}
+                  >
+                    {selectedVehicleDelayMinutes >= 10
+                      ? "Major delay"
+                      : selectedDetail.vehicle.status === "delayed" || selectedVehicleDelayMinutes > 0
+                      ? "Minor delay"
+                      : selectedDetail.vehicle.status === "early"
+                        ? "Running early"
+                        : "On time"}
+                  </span>
+                </div>
+                {selectedVehicleRelevantAlerts.length > 0 && (
+                  <div className="mt-3 flex gap-2 rounded-xl border border-rose-400/20 bg-rose-500/10 px-3 py-2.5 text-xs text-rose-50">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" />
+                    <span className="line-clamp-2">{selectedVehicleRelevantAlerts[0]}</span>
+                  </div>
+                )}
+              </div>
+
+              {isTrainTripLoading && (
+                <p className="px-3.5 py-3 text-sm text-white/60">Loading verified trip times and platforms...</p>
+              )}
+              {trainTripError && selectedDetail.vehicle.tripId && (
+                <p className="mx-3.5 mt-3 rounded-xl border border-amber-300/20 bg-amber-500/10 p-3 text-xs text-amber-100">
+                  Verified trip details are temporarily unavailable. Showing the mapped stopping pattern.
+                </p>
+              )}
+              {selectedVehiclePatternStops.length > 0 && (
+                <div className="px-3.5 pt-3">
+                  <button type="button" disabled={selectedVehicleCurrentStopIndex <= 1} onClick={() => setShowPriorStops((value) => !value)} className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/75 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-45">
+                    {showPriorStops ? "Hide prior stops" : selectedVehicleCurrentStopIndex > 1 ? `Show ${selectedVehicleCurrentStopIndex - 1} prior stops` : "No hidden prior stops"}
+                  </button>
+                </div>
+              )}
+              <div className="px-3.5 py-2">
+                {selectedVehicleVisiblePatternStops.map(({ station, index }, visibleIndex) => {
+                  const tripStop = selectedTrainTrip?.stops[index];
+                  const isCurrent = selectedVehicleIsStoppedAtPublishedStop && index === selectedVehicleCurrentStopIndex;
+                  const isPassed = tripStop?.status === "passed" || (selectedVehicleCurrentStopIndex >= 0 && index < selectedVehicleCurrentStopIndex);
+                  const isLast = visibleIndex === selectedVehicleVisiblePatternStops.length - 1;
+                  const isPrevious = selectedVehicleCurrentStopIndex > 0 && index === selectedVehicleCurrentStopIndex - 1;
+                  const isNext = selectedVehicleCurrentStopIndex >= 0 && (isCurrent ? index === selectedVehicleCurrentStopIndex + 1 : index === selectedVehicleCurrentStopIndex);
+                  const publishedTime = isCurrent
+                    ? selectedVehicleSnapshot?.position?.current_stop_time
+                    : null;
+                  const arrivalTime = tripStop?.expectedArrivalAt
+                    ? new Date(tripStop.expectedArrivalAt).toLocaleTimeString("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" })
+                    : null;
+                  const departureTime = tripStop?.expectedDepartureAt
+                    ? new Date(tripStop.expectedDepartureAt).toLocaleTimeString("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" })
+                    : null;
+                  const delayMinutes = Math.round((tripStop?.delaySeconds ?? 0) / 60);
+
+                  const showLivePositionBefore = selectedVehicleLiveTimelinePosition?.beforeIndex === index;
+
+                  return (
+                    <Fragment key={`${selectedDetail.vehicle.tdn}-${station.name}-${index}`}>
+                    {showLivePositionBefore && selectedVehicleLiveTimelinePosition && (
+                      <div className="grid grid-cols-[4.25rem_1.25rem_minmax(0,1fr)] gap-2.5">
+                        <div className="py-2 text-right text-[9px] font-semibold uppercase tracking-[0.12em] text-cyan-300/75">
+                          Live
+                        </div>
+                        <div className="relative flex justify-center">
+                          <div className="absolute inset-y-0 w-1" style={{ backgroundColor: `${selectedVehicleAccent}aa` }} />
+                          <div
+                            className="relative z-10 my-2 h-4 w-4 animate-pulse rounded-full border-2 border-white shadow-[0_0_0_5px_rgba(56,189,248,0.18)]"
+                            style={{ backgroundColor: selectedVehicleAccent }}
+                          />
+                        </div>
+                        <div className="my-1 rounded-xl border border-cyan-300/20 bg-cyan-400/10 px-2.5 py-2">
+                          <p className="text-xs font-bold uppercase tracking-[0.12em] text-cyan-100">Train is here</p>
+                          <p className="mt-0.5 text-[10px] text-white/55">
+                            {selectedVehicleLiveTimelinePosition.from} → {selectedVehicleLiveTimelinePosition.to} · {Math.round(selectedVehicleLiveTimelinePosition.progress * 100)}%
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    <div
+                      className={`grid grid-cols-[4.25rem_1.25rem_minmax(0,1fr)] gap-2.5 ${isPassed ? "opacity-45" : ""}`}
+                    >
+                      <div className="py-3 text-right">
+                        <p className={`text-sm font-semibold ${isCurrent ? "text-white" : "text-white/70"}`}>{arrivalTime || (publishedTime ? formatRouteWindow(publishedTime) : isCurrent ? "Now" : "Time TBC")}</p>
+                        {departureTime && departureTime !== arrivalTime && <p className="text-xs font-semibold text-white/55">{departureTime} dep</p>}
+                        <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                          {tripStop?.status === "skipped" ? "Not stopping" : isPrevious ? "Last stop" : isCurrent ? "Stopped here" : isNext ? "Next stop" : tripStop ? `${Math.round(tripStop.dwellSeconds / 60)}m dwell` : "Schedule unavailable"}
+                        </p>
+                      </div>
+
+                      <div className="relative flex justify-center">
+                        {!isLast && (
+                          <div
+                            className="absolute bottom-0 top-0 w-1"
+                            style={{ backgroundColor: isPassed ? `${selectedVehicleAccent}55` : `${selectedVehicleAccent}aa` }}
+                          />
+                        )}
+                        <div
+                          className={`relative z-10 mt-[1.15rem] rounded-full border-2 ${isCurrent ? "h-5 w-5 shadow-[0_0_0_5px_rgba(255,255,255,0.08)]" : "h-2.5 w-2.5"}`}
+                          style={{
+                            borderColor: isCurrent ? "white" : selectedVehicleAccent,
+                            backgroundColor: isCurrent ? selectedVehicleAccent : isPassed ? selectedVehicleAccent : "rgb(2 6 23)",
+                          }}
+                        />
+                      </div>
+
+                      <div className={`py-3 ${isCurrent ? "rounded-xl bg-white/[0.055] px-2.5" : ""}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className={`truncate font-semibold ${isCurrent ? "text-base text-white" : "text-sm text-white/90"}`}>
+                              {station.name}
+                            </p>
+                            <p className="mt-0.5 text-xs text-white/45">{tripStop?.platform ? `Platform ${tripStop.platform}` : "Platform TBC"}</p>
+                            {tripStop && <p className={`mt-1 text-[10px] font-semibold ${delayMinutes >= 10 ? "text-red-300" : delayMinutes > 0 ? "text-amber-300" : "text-emerald-300"}`}>{delayMinutes > 0 ? `${delayMinutes} min late` : delayMinutes < 0 ? `${Math.abs(delayMinutes)} min early` : "On time"}</p>}
+                          </div>
+                          {isCurrent && (
+                            <span className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/75">
+                              Stopped
+                            </span>
+                          )}
+                          {isNext && !isCurrent && (
+                            <span className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/75">
+                              Next
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    </Fragment>
+                  );
+                })}
+              </div>
+
+              {selectedTrainTrip?.segments?.length ? (
+                <div className="grid gap-2 border-t border-white/10 px-3.5 py-3">
+                  {(() => {
+                    const available = selectedTrainTrip.formationSegments?.length
+                      ? selectedTrainTrip.formationSegments
+                      : selectedTrainTrip.segments;
+                    const currentIndex = available.findIndex((segment) => segment.tripId === selectedTrainTrip.tripId);
+                    const currentSegment = currentIndex >= 0 ? available[currentIndex] : undefined;
+                    const cards = [
+                      { label: "Previous service", segment: currentIndex > 0 ? available[currentIndex - 1] : undefined, from: true },
+                      { label: "Next service", segment: currentIndex >= 0 && currentIndex < available.length - 1 ? available[currentIndex + 1] : undefined, from: false },
+                    ].filter(({ segment }) => Boolean(segment) && segment!.tripId !== currentSegment?.tripId && segment!.tdn !== currentSegment?.tdn);
+                    if (cards.length === 0) {
+                      return <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs leading-5 text-white/50">No separately published previous or next service is available for this run.</p>;
+                    }
+                    return cards.map(({ label, segment, from }) => {
+                    if (!segment) return null;
+                    const segmentLine = segment.route || selectedDetail.vehicle.line;
+                    const segmentColor = getLiveLineColor(segmentLine);
+                    const time = segment.departsAt
+                      ? new Date(segment.departsAt).toLocaleTimeString("en-AU", {
+                          timeZone: "Australia/Melbourne",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "Time TBC";
+                    const place = (from ? segment.origin : segment.destination)?.replace(/\s+Station$/i, "") || "Not published";
+                    return (
+                      <button
+                        type="button"
+                        key={`${label}-${segment.tripId}`}
+                        onClick={() => {
+                          const segmentPosition = findStationCoordinate(segment.origin || "") ?? [selectedDetail.vehicle.lat, selectedDetail.vehicle.lng];
+                          setServiceTripToFit(segment.tripId);
+                          setSelectedDetail({
+                            type: "vehicle",
+                            vehicle: {
+                              ...selectedDetail.vehicle,
+                              tdn: segment.tdn,
+                              tripId: segment.tripId,
+                              lat: segmentPosition[0],
+                              lng: segmentPosition[1],
+                              line: segmentLine,
+                              destination: segment.destination?.replace(/\s+Station$/i, "") || selectedDetail.vehicle.destination,
+                              direction: segment.direction === "UP" ? "up" : "down",
+                              serviceDescription: `${segmentLine} service to ${segment.destination?.replace(/\s+Station$/i, "") || "destination"}`,
+                            },
+                          });
+                        }}
+                        className="relative w-full overflow-hidden rounded-[1.15rem] border px-4 py-3 text-left transition hover:brightness-110 active:scale-[0.99]"
+                        style={{ borderColor: `${segmentColor}45`, backgroundColor: `${segmentColor}14` }}
+                      >
+                        <div className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: segmentColor }} />
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: segmentColor }}>
+                              {label}
+                            </p>
+                            <p className="mt-1 text-lg font-bold" style={{ color: segmentColor }}>TDN {segment.tdn}</p>
+                            <p className="mt-0.5 text-sm font-semibold text-white/75">
+                              {time} {segment.direction} {from ? "from" : "to"} {place}
+                            </p>
+                          </div>
+                          <span className="grid h-9 w-9 place-items-center rounded-full border text-xl" style={{ borderColor: `${segmentColor}45`, color: segmentColor }}>→</span>
+                        </div>
+                      </button>
+                    );
+                    });
+                  })()}
+                  <p className="text-[10px] leading-4 text-white/40">
+                    Formation links use the official GTFS vehicle block for this service.
+                  </p>
+                </div>
+              ) : null}
+
+              <p className="border-t border-white/10 px-3.5 py-2.5 text-[10px] leading-4 text-white/40">{selectedTrainTrip?.source || (selectedDetail.vehicle.tripId ? "Checking the verified Transport Victoria timetable." : "This vehicle feed did not publish a trip ID, so exact times and platforms cannot be matched safely.")}</p>
+            </div>
+          )}
 
           {selectedRegionalProfile && (
             <div
@@ -11350,16 +12365,145 @@ export function Map({
         </div>
       )}
 
-      {selectedDetail?.type === "bus" && (
-        <div className="absolute inset-x-3 bottom-28 z-[1001] mx-auto max-h-[52vh] w-auto max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-[1.6rem] border border-orange-300/15 bg-slate-950/96 p-3.5 shadow-2xl backdrop-blur-2xl md:inset-x-auto md:bottom-6 md:right-4 md:top-24 md:max-h-[calc(100%-7rem)] md:w-[24rem]">
+      {selectedDetail?.type === "tram" && (
+        <div onWheel={(event) => event.stopPropagation()} onTouchMove={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 z-[1003] h-[72dvh] w-full touch-pan-y overscroll-contain overflow-y-auto rounded-t-[1.6rem] border border-emerald-300/15 bg-slate-950/96 p-3.5 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl backdrop-blur-2xl md:inset-x-auto md:bottom-6 md:right-4 md:top-24 md:h-auto md:max-h-[calc(100%-7rem)] md:w-[24rem] md:rounded-[1.6rem]">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-orange-300/80">Live bus</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-emerald-300/80">Live tram</p>
+              <h2 className="mt-1.5 text-xl font-semibold text-white">
+                {selectedDetail.tram.route === "Tram" ? "Yarra Trams service" : `Route ${selectedDetail.tram.route}`}
+              </h2>
+              <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">Route direction</p>
+              <p className="mt-0.5 text-sm text-white/60">
+                {selectedTramDestination ? `To ${selectedTramDestination}` : "Direction not published"}
+              </p>
+            </div>
+            <button type="button" onClick={() => setSelectedDetail(null)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70">Close</button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
+              <p className="uppercase tracking-[0.16em] text-white/40">Operator</p>
+              <p className="mt-1 font-semibold text-white">{selectedDetail.tram.operator ?? "Yarra Trams"}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
+              <p className="uppercase tracking-[0.16em] text-white/40">Position</p>
+              <p className="mt-1 font-semibold text-emerald-100">
+                {selectedDetail.tram.timestamp ? formatDistanceToNow(new Date(selectedDetail.tram.timestamp), { addSuffix: true }) : "Live"}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 overflow-hidden rounded-[1.25rem] border border-white/10 bg-white/[0.03]">
+            <div className="flex items-start justify-between gap-3 border-b border-white/10 px-3 py-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-200/80">Stopping pattern</p>
+                <p className="mt-1 text-xs text-white/55">
+                  {selectedTramTrip
+                    ? "Official scheduled stops and live trip updates."
+                    : isTramTripLoading
+                      ? "Loading the official tram schedule…"
+                      : "Approximate route order from the published tram stop pattern."}
+                </p>
+              </div>
+              <span className="rounded-full border border-emerald-300/15 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-100">
+                {selectedTramStops.length ? `${selectedTramStops.length} stops` : "Route only"}
+              </span>
+            </div>
+
+            {selectedTramStops.length ? (
+              <div className="max-h-[23rem] overflow-y-auto px-3 py-2">
+                <button type="button" disabled={selectedTramCurrentStopIndex <= 1} onClick={() => setShowPriorStops((value) => !value)} className="my-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/75 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-45">
+                  {showPriorStops ? "Hide prior stops" : selectedTramCurrentStopIndex > 1 ? `Show ${selectedTramCurrentStopIndex - 1} prior stops` : "No hidden prior stops"}
+                </button>
+                {selectedTramVisibleStops.map(({ stop, index }, visibleIndex) => {
+                  const hasVerifiedTrip = Boolean(selectedTramTrip?.stops.length);
+                  const isCurrent = !hasVerifiedTrip && index === selectedTramCurrentStopIndex;
+                  const isPassed = hasVerifiedTrip
+                    ? stop.status === "passed"
+                    : selectedTramCurrentStopIndex >= 0 && index < selectedTramCurrentStopIndex;
+                  const isLast = visibleIndex === selectedTramVisibleStops.length - 1;
+                  const stopState = isPassed
+                    ? "Passed"
+                    : hasVerifiedTrip && index === selectedTramCurrentStopIndex
+                      ? "Next stop"
+                    : index === selectedTramCurrentStopIndex - 1
+                    ? "Last stop"
+                    : isCurrent
+                      ? "Live position"
+                      : index === selectedTramCurrentStopIndex + 1
+                        ? "Next stop"
+                        : "Upcoming";
+                  const showLivePositionBefore = selectedTramLiveTimelinePosition?.beforeIndex === index;
+                  return (
+                    <Fragment key={`${selectedDetail.tram.id}-${stop.name}-${index}`}>
+                    {showLivePositionBefore && selectedTramLiveTimelinePosition && (
+                      <div className="grid grid-cols-[3.5rem_1.1rem_minmax(0,1fr)] gap-2">
+                        <div className="py-2 text-right text-[9px] font-bold uppercase text-emerald-200">Live</div>
+                        <div className="relative flex justify-center"><div className="absolute inset-y-0 w-1 bg-emerald-400/65" /><div className="relative z-10 my-2 h-4 w-4 animate-pulse rounded-full border-2 border-white bg-emerald-500 ring-4 ring-emerald-400/20" /></div>
+                        <div className="my-1 rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-2.5 py-2 text-xs text-emerald-50"><strong>Tram is here</strong><span className="mt-0.5 block text-[10px] text-white/55">{selectedTramLiveTimelinePosition.from} → {selectedTramLiveTimelinePosition.to} · {Math.round(selectedTramLiveTimelinePosition.progress * 100)}%</span></div>
+                      </div>
+                    )}
+                    <div className={`grid grid-cols-[3.5rem_1.1rem_minmax(0,1fr)] gap-2 ${isPassed ? "opacity-45" : ""}`}>
+                      <div className="py-3 text-right">
+                        <p className="text-xs font-semibold text-white/80">
+                          {stop.expectedAt
+                            ? new Date(stop.expectedAt).toLocaleTimeString("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" })
+                            : isCurrent ? "Now" : "Time TBC"}
+                        </p>
+                        <p className="mt-0.5 text-[9px] font-semibold uppercase text-white/45">{stopState}</p>
+                      </div>
+                      <div className="relative flex justify-center">
+                        {!isLast && <div className="absolute inset-y-0 w-1 bg-emerald-400/65" />}
+                        <div className={`relative z-10 mt-3.5 rounded-full border-2 border-emerald-300 ${isCurrent ? "h-5 w-5 bg-emerald-500 shadow-[0_0_0_5px_rgba(16,185,129,0.12)]" : "h-2.5 w-2.5 bg-slate-950"}`} />
+                      </div>
+                      <div className={`py-3 ${isCurrent ? "rounded-xl bg-white/[0.055] px-2.5" : ""}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-white">{stop.name}</p>
+                            <p className="mt-0.5 text-xs text-white/40">
+                              {stop.stopCode ? `Stop ${stop.stopCode}` : stop.platform ?? (hasVerifiedTrip ? "Stop details unavailable" : "Published route stop")}
+                              {stop.status === "skipped" ? " · Not stopping" : ""}
+                            </p>
+                          </div>
+                          {isCurrent && <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-[9px] font-semibold uppercase text-emerald-100">Current</span>}
+                        </div>
+                      </div>
+                    </div>
+                    </Fragment>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="m-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/60">
+                {isTramTripLoading
+                  ? "Loading the official stop sequence…"
+                  : tramTripError
+                    ? "The official schedule for this live tram is temporarily unavailable."
+                    : "The live feed has not supplied a matching scheduled trip for this tram yet."}
+              </p>
+            )}
+            {selectedTramTrip?.source && (
+              <p className="border-t border-white/10 px-3 py-2 text-[10px] leading-4 text-white/40">{selectedTramTrip.source}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {selectedDetail?.type === "bus" && (
+        <div onWheel={(event) => event.stopPropagation()} onTouchMove={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 z-[1003] h-[72dvh] w-full touch-pan-y overscroll-contain overflow-y-auto rounded-t-[1.6rem] border border-orange-300/15 bg-slate-950/96 p-3.5 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl backdrop-blur-2xl md:inset-x-auto md:bottom-6 md:right-4 md:top-24 md:h-auto md:max-h-[calc(100%-7rem)] md:w-[24rem] md:rounded-[1.6rem]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-orange-300/80">Operated by {selectedDetail.bus.operator ?? "Operator not published"}</p>
               <h2 className="mt-1.5 text-xl font-semibold text-white">
                 {selectedDetail.bus.route === "Bus" ? "PTV bus" : `Route ${selectedDetail.bus.route}`}
               </h2>
               <p className="mt-1 text-sm text-white/60">
-                {selectedDetail.bus.destination ? `To ${selectedDetail.bus.destination}` : "Destination not published"}
+                {selectedBusTrip?.destination || selectedDetail.bus.destination
+                  ? `To ${selectedBusTrip?.destination || selectedDetail.bus.destination}`
+                  : isBusTripLoading
+                    ? "Checking this trip's destination…"
+                    : "Destination not published"}
               </p>
             </div>
             <button
@@ -11371,17 +12515,18 @@ export function Map({
             </button>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
+              <span className="text-white/40">Vehicle heading </span><span className="font-semibold text-white">{getCompassDirection(selectedDetail.bus.heading)}</span>
+            </div>
             {selectedDetail.bus.fleetNumber && (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
-                <p className="uppercase tracking-[0.16em] text-white/40">Fleet</p>
-                <p className="mt-1 font-semibold text-white">{selectedDetail.bus.fleetNumber}</p>
+              <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
+                <span className="text-white/40">Bus number </span><span className="font-semibold text-white">{selectedDetail.bus.fleetNumber}</span>
               </div>
             )}
             {selectedDetail.bus.registration && (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
-                <p className="uppercase tracking-[0.16em] text-white/40">Registration</p>
-                <p className="mt-1 font-semibold text-white">{selectedDetail.bus.registration}</p>
+              <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
+                <span className="text-white/40">Registration </span><span className="font-semibold text-white">{selectedDetail.bus.registration}</span>
               </div>
             )}
           </div>
@@ -11404,12 +12549,34 @@ export function Map({
                 {busTripError instanceof Error ? busTripError.message : "Bus stops are unavailable right now."}
               </p>
             ) : selectedBusTrip?.stops.length ? (
-              <div className="mt-3 space-y-1.5">
-                {selectedBusTrip.stops.map((stop) => (
+              <div className="mt-3">
+                <button type="button" disabled={selectedBusCurrentStopIndex <= 1} onClick={() => setShowPriorStops((value) => !value)} className="mb-3 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/75 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-45">
+                  {showPriorStops ? "Hide prior stops" : selectedBusCurrentStopIndex > 1 ? `Show ${selectedBusCurrentStopIndex - 1} prior stops` : "No hidden prior stops"}
+                </button>
+                <div className="border-l-[3px] border-orange-400/75 pl-4">
+                {selectedBusVisibleStops.map(({ stop, index }) => {
+                  const showLivePositionBefore = selectedBusLiveTimelinePosition?.beforeIndex === index;
+                  return (
+                  <Fragment key={`${selectedBusTrip.tripId}-${stop.stopSequence}-${stop.stopId}`}>
+                  {showLivePositionBefore && selectedBusLiveTimelinePosition && (
+                    <div className="relative grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 pb-3">
+                      <span className="absolute -left-[1.45rem] top-2 h-4 w-4 animate-pulse rounded-full border-2 border-white bg-orange-400 ring-4 ring-orange-400/25" />
+                      <div className="pt-2 text-right text-[9px] font-bold uppercase text-orange-200">Live</div>
+                      <div className="rounded-xl border border-orange-300/20 bg-orange-400/10 px-2.5 py-2 text-xs text-orange-50"><strong>Bus is here</strong><span className="mt-0.5 block text-[10px] text-white/55">{selectedBusLiveTimelinePosition.from} → {selectedBusLiveTimelinePosition.to} · {Math.round(selectedBusLiveTimelinePosition.progress * 100)}%</span></div>
+                    </div>
+                  )}
                   <div
-                    key={`${selectedBusTrip.tripId}-${stop.stopSequence}-${stop.stopId}`}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/15 px-3 py-2.5"
+                    className={`relative grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 pb-4 last:pb-0 ${index < selectedBusCurrentStopIndex ? "opacity-45" : ""}`}
                   >
+                    <span className={`absolute -left-[1.32rem] top-1 h-3 w-3 rounded-full border-2 border-slate-950 ${index === selectedBusCurrentStopIndex ? "scale-125 bg-white ring-4 ring-orange-400/25" : "bg-orange-400"}`} />
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-white">
+                        {stop.expectedAt
+                          ? new Date(stop.expectedAt).toLocaleTimeString("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" })
+                          : "Time TBC"}
+                      </p>
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-white/35">{index === selectedBusCurrentStopIndex - 1 ? "Last stop" : index === selectedBusCurrentStopIndex ? "Live position" : index === selectedBusCurrentStopIndex + 1 ? "Next stop" : stop.status}</p>
+                    </div>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-white">{stop.name}</p>
                       <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-white/40">
@@ -11417,17 +12584,10 @@ export function Map({
                         {stop.status === "skipped" ? " · Skipped" : ""}
                       </p>
                     </div>
-                    <p className="shrink-0 text-sm font-semibold text-sky-100">
-                      {stop.expectedAt
-                        ? new Date(stop.expectedAt).toLocaleTimeString("en-AU", {
-                            timeZone: "Australia/Melbourne",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        : "No time"}
-                    </p>
                   </div>
-                ))}
+                  </Fragment>
+                );})}
+                </div>
               </div>
             ) : (
               <p className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/60">
@@ -11442,11 +12602,48 @@ export function Map({
               {selectedBusTrip?.source ?? "Transport Victoria GTFS-Realtime"}
             </p>
           </div>
+
+          {selectedBusTrip?.formationSegments?.length ? (
+            <div className="mt-3 grid gap-2">
+              {selectedBusTrip.formationSegments.map((segment, index) => {
+                const linkedBus = visibleLiveBuses.find((bus) => bus.tripId === segment.tripId);
+                const isPrevious = index === 0 && segment.arrivesAt && selectedBusTrip.stops[0]?.expectedAt
+                  ? Date.parse(segment.arrivesAt) <= Date.parse(selectedBusTrip.stops[0].expectedAt)
+                  : false;
+                const label = isPrevious ? "Previous service" : "Next service";
+                const time = (isPrevious ? segment.arrivesAt : segment.departsAt)
+                  ? new Date((isPrevious ? segment.arrivesAt : segment.departsAt)!).toLocaleTimeString("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" })
+                  : "Time TBC";
+                return (
+                  <button
+                    type="button"
+                    key={`${label}-${segment.tripId}`}
+                    onClick={() => setSelectedDetail({
+                      type: "bus",
+                      bus: linkedBus ?? {
+                        ...selectedDetail.bus,
+                        id: segment.tripId,
+                        tripId: segment.tripId,
+                        route: segment.route || selectedDetail.bus.route,
+                        destination: segment.destination || selectedDetail.bus.destination,
+                      },
+                    })}
+                    className="relative overflow-hidden rounded-[1.15rem] border border-orange-300/25 bg-orange-400/10 px-4 py-3 text-left transition hover:bg-orange-400/15 active:scale-[0.99]"
+                  >
+                    <span className="absolute inset-y-0 left-0 w-1 bg-orange-400" />
+                    <span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-300">{label}</span>
+                    <span className="mt-1 block text-base font-bold text-orange-200">Route {segment.route || selectedDetail.bus.route}</span>
+                    <span className="mt-0.5 block text-sm font-semibold text-white/70">{time} {isPrevious ? "from" : "to"} {isPrevious ? segment.origin : segment.destination || "destination"}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       )}
 
-      {selectedDetail && selectedDetail.type !== "vehicle" && selectedDetail.type !== "bus" && (
-        <div className="absolute inset-x-3 bottom-32 z-[1001] mx-auto max-h-[52vh] w-full max-w-[95vw] overflow-y-auto rounded-[1.8rem] border border-white/10 bg-slate-950/90 p-3.5 shadow-2xl backdrop-blur-2xl sm:bottom-24 sm:p-4 lg:max-w-[980px]">
+      {selectedDetail && (selectedDetail.type === "station" || selectedDetail.type === "surfaceStop" || selectedDetail.type === "report") && (
+        <div onWheel={(event) => event.stopPropagation()} onTouchMove={(event) => event.stopPropagation()} className={`absolute inset-x-3 bottom-32 z-[1001] mx-auto w-full max-w-[95vw] touch-pan-y overscroll-contain overflow-y-auto rounded-[1.5rem] border border-white/10 bg-slate-950/90 p-3 shadow-2xl backdrop-blur-2xl sm:bottom-24 sm:p-3.5 lg:max-w-[760px] ${selectedDetail.type === "surfaceStop" ? (isSurfaceStopPanelCollapsed ? "max-h-24" : "max-h-[42vh]") : "max-h-[52vh]"}`}>
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-300/75">
@@ -11464,19 +12661,63 @@ export function Map({
                     : selectedDetail.report.locationName}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setSelectedDetail(null)}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70"
-            >
-              Close
-            </button>
+            <div className="flex shrink-0 gap-2">
+              {selectedDetail.type === "surfaceStop" && (
+                <button type="button" onClick={() => setIsSurfaceStopPanelCollapsed((value) => !value)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70">
+                  {isSurfaceStopPanelCollapsed ? "Expand" : "Collapse"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setSelectedDetail(null)}
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70"
+              >
+                Close
+              </button>
+            </div>
           </div>
 
           {selectedDetail.type === "station" && (
             <div className="mt-3 space-y-3 text-sm text-white/70">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-3">{getStationDetails(selectedDetail.station)}</div>
               {renderStationBoardingGuide(selectedDetail.station.name)}
+
+              {selectedStationService && (
+                <div className="rounded-[1.35rem] border border-blue-300/25 bg-blue-500/[0.08] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-200/80">Selected service</p>
+                      <p className="mt-1 text-base font-semibold text-white">
+                        {selectedStationService.route} to {selectedStationService.destination}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => setSelectedStationService(null)} className="rounded-full border border-white/10 px-2.5 py-1 text-xs text-white/65">Back</button>
+                  </div>
+                  {isTrainTripLoading ? (
+                    <p className="mt-3 text-sm text-white/60">Loading the complete stopping pattern...</p>
+                  ) : trainTripError ? (
+                    <p className="mt-3 text-sm text-amber-100">The trip details could not be loaded right now.</p>
+                  ) : selectedTrainTrip?.stops.length ? (
+                    <div className="mt-3 max-h-[46dvh] space-y-0 overflow-y-auto border-l-2 border-blue-300/60 pl-4">
+                      {selectedTrainTrip.stops.map((stop) => (
+                        <div key={`${stop.stopId}-${stop.stopSequence}`} className="relative pb-4 last:pb-0">
+                          <span className={`absolute -left-[1.28rem] top-1 h-2.5 w-2.5 rounded-full border-2 border-slate-950 ${stop.status === "passed" ? "bg-white/35" : "bg-blue-300"}`} />
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-white">{stop.name}</p>
+                              <p className="text-xs text-white/45">{stop.platform ? `Platform ${stop.platform}` : "Platform TBC"}</p>
+                            </div>
+                            <div className="shrink-0 text-right text-xs text-white/65">
+                              <p>{new Date(stop.expectedDepartureAt).toLocaleTimeString("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" })}</p>
+                              <p className={stop.delaySeconds >= 600 ? "text-red-200" : stop.delaySeconds > 0 ? "text-amber-200" : "text-emerald-200"}>{stop.delaySeconds > 0 ? `${Math.round(stop.delaySeconds / 60)} min late` : "On time"}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              )}
 
               <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.03] p-3">
                 <div className="flex items-start justify-between gap-3">
@@ -11508,9 +12749,31 @@ export function Map({
                       const scheduled = new Date(departure.scheduledAt);
                       const delayMinutes = Math.round((departure.delaySeconds ?? 0) / 60);
                       return (
-                        <div
+                        <button
+                          type="button"
                           key={`${departure.tripId}-${departure.platform ?? "na"}`}
-                          className="rounded-2xl border border-white/10 bg-black/15 p-3"
+                          onClick={() => {
+                            const liveService = liveVehicles.find((vehicle) => vehicle.tripId === departure.tripId);
+                            const serviceVehicle: LiveTrain = liveService ?? {
+                              tdn: departure.tripId.match(/-([A-Z]?\d+)$/i)?.[1] || departure.tripId,
+                              tripId: departure.tripId,
+                              lat: selectedDetail.station.position[0],
+                              lng: selectedDetail.station.position[1],
+                              line: departure.route,
+                              destination: departure.destination.replace(/\s+via\s+.+$/i, ""),
+                              status: (departure.delaySeconds ?? 0) > 60 ? "delayed" : (departure.delaySeconds ?? 0) < -60 ? "early" : "on_time",
+                              timestamp: departure.expectedAt,
+                              direction: "outbound",
+                              trainType: "Metro Train",
+                              consist: "Set not published",
+                              serviceDescription: `${departure.route} service to ${departure.destination}`,
+                            };
+                            setSelectedStationService(null);
+                            setServiceTripToFit(departure.tripId);
+                            setSelectedDetail({ type: "vehicle", vehicle: serviceVehicle });
+                            mapRef.current?.flyTo([serviceVehicle.lat, serviceVehicle.lng], Math.max(mapZoom, 14.5), { animate: true, duration: 0.8 });
+                          }}
+                          className="w-full rounded-2xl border border-white/10 bg-black/15 p-3 text-left transition hover:border-blue-300/35 hover:bg-blue-500/10 active:scale-[0.99]"
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
@@ -11537,7 +12800,7 @@ export function Map({
                                 minute: "2-digit",
                               })}
                             </span>
-                            <span className={departure.status === "cancelled" || departure.status === "skipped" ? "font-semibold text-rose-200" : delayMinutes > 0 ? "font-semibold text-amber-200" : "font-semibold text-emerald-200"}>
+                            <span className={departure.status === "cancelled" || departure.status === "skipped" || delayMinutes >= 10 ? "font-semibold text-red-200" : delayMinutes > 0 ? "font-semibold text-amber-200" : "font-semibold text-emerald-200"}>
                               {departure.status === "cancelled"
                                 ? "Cancelled"
                                 : departure.status === "skipped"
@@ -11551,7 +12814,8 @@ export function Map({
                                     : "Scheduled"}
                             </span>
                           </div>
-                        </div>
+                          <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-200/70">View trip and live location →</p>
+                        </button>
                       );
                     })}
                   </div>
@@ -11883,7 +13147,7 @@ export function Map({
             </div>
           )}
 
-          {selectedDetail.type === "surfaceStop" && (
+          {selectedDetail.type === "surfaceStop" && !isSurfaceStopPanelCollapsed && (
             <div className="mt-3 space-y-3 text-sm text-white/70">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                 <p className="text-sm font-semibold text-white">{selectedDetail.stop.locality}</p>
@@ -11903,14 +13167,53 @@ export function Map({
                 </div>
               </div>
 
-              <div className="rounded-[1.35rem] border border-amber-300/20 bg-amber-500/[0.06] p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-200/85">
-                  Verified departures unavailable
-                </p>
-                <p className="mt-1 text-sm font-semibold text-white">No bus or tram schedule is generated.</p>
-                <p className="mt-1 text-xs leading-relaxed text-white/60">
-                  Live vehicle markers use connected feed positions. Use the official operator timetable until a verified stop-departures feed is connected.
-                </p>
+              <div className="rounded-[1.35rem] border border-sky-300/20 bg-sky-500/[0.06] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-200/85">Official departures</p>
+                    <p className="mt-1 text-sm font-semibold text-white">
+                      {isSurfaceStopDeparturesLoading ? "Loading timetable…" : `${selectedSurfaceStopDepartures?.departures.length ?? 0} upcoming services`}
+                    </p>
+                  </div>
+                  {selectedSurfaceStopDepartures?.stopId && <span className="rounded-full border border-sky-300/20 bg-sky-500/10 px-2 py-1 text-[9px] font-semibold text-sky-100">PTV stop</span>}
+                </div>
+
+                {isSurfaceStopDeparturesLoading ? (
+                  <p className="mt-3 text-xs text-white/60">Fetching scheduled and live departures from PTV…</p>
+                ) : surfaceStopDeparturesError ? (
+                  <p className="mt-3 text-xs leading-relaxed text-white/60">No scheduled departures available. Timetable information isn’t currently available for this stop.</p>
+                ) : selectedSurfaceStopDepartures?.departures.length ? (
+                  <div className="mt-3 divide-y divide-white/10 overflow-hidden rounded-xl border border-white/10 bg-black/15">
+                    {selectedSurfaceStopDepartures.departures.map((departure) => {
+                      const expected = new Date(departure.expectedAt);
+                      const scheduled = new Date(departure.scheduledAt);
+                      const isLive = departure.status === "live";
+                      const hasValidExpectedTime = Number.isFinite(expected.getTime());
+                      const hasValidScheduledTime = Number.isFinite(scheduled.getTime());
+                      const showScheduledTime = isLive
+                        && hasValidExpectedTime
+                        && hasValidScheduledTime
+                        && expected.getTime() !== scheduled.getTime();
+                      return (
+                        <div key={`${departure.runId ?? departure.expectedAt}-${departure.destination}`} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-white">{departure.route} to {departure.destination}</p>
+                            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/45">
+                              {departure.platform ? `Platform ${departure.platform} · ` : ""}{isLive ? "Live PTV update" : "Scheduled PTV timetable"}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-sm font-semibold text-white">{hasValidExpectedTime ? expected.toLocaleTimeString("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" }) : "Time unavailable"}</p>
+                            {showScheduledTime && <p className="text-[10px] text-amber-200">was {scheduled.toLocaleTimeString("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" })}</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs leading-relaxed text-white/60">No scheduled departures available for this route at the moment.</p>
+                )}
+                {selectedSurfaceStopDepartures?.source && <p className="mt-3 text-[10px] text-white/40">{selectedSurfaceStopDepartures.source}</p>}
               </div>
 
               {unverifiedTransitPanelsEnabled() && (isPremium ? (
@@ -12119,8 +13422,9 @@ export function Map({
                       ))}
                     </div>
                   ) : (
-                    <div className="mt-3 rounded-2xl border border-dashed border-white/10 bg-black/10 p-3 text-sm text-white/55">
-                      No route {selectedDetail.stop.routeLabel} buses are reporting live near this stop right now.
+                    <div className="mt-3 rounded-2xl border border-dashed border-white/10 bg-black/10 p-3">
+                      <p className="text-sm font-semibold text-white/80">No nearby Route {selectedDetail.stop.routeLabel} buses</p>
+                      <p className="mt-1 text-xs text-white/55">There are currently no reporting Route {selectedDetail.stop.routeLabel} vehicles near this stop.</p>
                     </div>
                   )}
                 </div>
@@ -12188,7 +13492,7 @@ export function Map({
         </div>
       )}
 
-      <button
+      {!selectedDetail && <button
         type="button"
         onClick={() => setIsMobileMapKeyOpen((open) => !open)}
         className="absolute bottom-[6.5rem] left-3 z-[1002] inline-flex h-10 items-center gap-2 rounded-full border border-white/15 bg-slate-950/88 px-3 text-xs font-semibold text-white shadow-xl backdrop-blur-xl sm:hidden"
@@ -12196,9 +13500,9 @@ export function Map({
       >
         {isMobileMapKeyOpen ? <X className="h-4 w-4" /> : <MapIcon className="h-4 w-4" />}
         {isMobileMapKeyOpen ? "Close key" : "Map key"}
-      </button>
+      </button>}
 
-      <div className={`pointer-events-none absolute bottom-[9.5rem] left-3 z-[1001] max-w-[calc(100%-1.5rem)] sm:bottom-32 sm:left-4 sm:block sm:max-w-[20rem] ${isMobileMapKeyOpen ? "block" : "hidden"}`}>
+      {!selectedDetail && <div className={`pointer-events-none absolute bottom-[9.5rem] left-3 z-[1001] max-w-[calc(100%-1.5rem)] sm:bottom-32 sm:left-4 sm:block sm:max-w-[20rem] ${isMobileMapKeyOpen ? "block" : "hidden"}`}>
         <div className="rounded-2xl border border-white/10 bg-slate-950/94 p-3 shadow-xl backdrop-blur-xl">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">
             Map key
@@ -12244,7 +13548,7 @@ export function Map({
             Metro staffed-station hours vary by station. Regional station staffing can vary more widely again.
           </p>
         </div>
-      </div>
+      </div>}
 
       <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_120px_rgba(10,10,20,0.7)] z-[500]" />
     </div>

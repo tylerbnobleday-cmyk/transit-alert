@@ -28,6 +28,14 @@ if ($HostConfig.PtvSubscriptionKey) {
   $env:PTV_SUBSCRIPTION_KEY = [string]$HostConfig.PtvSubscriptionKey
 }
 
+if ($HostConfig.PtvDeveloperId) {
+  $env:PTV_DEVELOPER_ID = [string]$HostConfig.PtvDeveloperId
+}
+
+if ($HostConfig.PtvApiKey) {
+  $env:PTV_TIMETABLE_API_KEY = [string]$HostConfig.PtvApiKey
+}
+
 if ($HostConfig.NswTransportApiKey) {
   $env:NSW_TRANSPORT_API_KEY = [string]$HostConfig.NswTransportApiKey
 }

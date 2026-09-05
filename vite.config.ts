@@ -1697,7 +1697,11 @@ function githubPagesSpaFallback(): Plugin {
 export default defineConfig(async ({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const port = Number(env.PORT || process.env.PORT || 5173);
-  const basePath = env.BASE_PATH || process.env.BASE_PATH || (mode === "production" ? "/transit-alert/" : "/");
+  // The primary deployment is served from the root of transit-alert.com.
+  // GitHub Pages builds explicitly set BASE_PATH=/transit-alert/ in package.json.
+  // Defaulting every production build to the Pages subdirectory makes the
+  // custom domain request HTML instead of its JS/CSS bundles.
+  const basePath = env.BASE_PATH || process.env.BASE_PATH || "/";
   const runtimeConfig: RuntimeConfig = {
     ptvSubscriptionKey:
       env.PTV_SUBSCRIPTION_KEY ||

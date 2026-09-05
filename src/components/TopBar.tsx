@@ -141,6 +141,7 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
   const [notificationActive, setNotificationActive] = useState(notificationsEnabled);
   const [isNotificationGuideOpen, setIsNotificationGuideOpen] = useState(false);
   const seenAlertIdsRef = useRef<string[]>([]);
+  const seenAlertStorageKey = "transitalert-notified-delay-alerts";
   const { data: metroAlerts = [] } = useQuery({
     queryKey: ["/api/metro-notify/alerts", "topbar"],
     queryFn: fetchMetroNotifyAlerts,
@@ -168,12 +169,15 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
   useEffect(() => {
     const currentIds = headlineAlerts.map((alert) => alert.id);
     if (seenAlertIdsRef.current.length === 0) {
-      seenAlertIdsRef.current = currentIds;
-      return;
+      try {
+        seenAlertIdsRef.current = JSON.parse(window.localStorage.getItem(seenAlertStorageKey) || "[]");
+      } catch {
+        seenAlertIdsRef.current = [];
+      }
     }
 
     const newAlerts = headlineAlerts.filter((alert) => !seenAlertIdsRef.current.includes(alert.id));
-    if (notificationActive && document.visibilityState === "hidden") {
+    if (notificationActive) {
       newAlerts.slice(0, 3).forEach((alert) => {
         const summary = getAlertCategory(alert);
         void showAppNotification(summary.typeLabel, {
@@ -184,6 +188,7 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
       });
     }
     seenAlertIdsRef.current = currentIds;
+    window.localStorage.setItem(seenAlertStorageKey, JSON.stringify(currentIds.slice(0, 100)));
   }, [headlineAlerts, notificationActive]);
 
   const enableNotifications = async () => {
@@ -210,6 +215,18 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
   };
 
   const iosNeedsInstall = isIosDevice() && !isStandaloneApp();
+
+  useEffect(() => {
+    const refreshPermission = () => {
+      if ("Notification" in window) setNotificationPermission(Notification.permission);
+    };
+    window.addEventListener("focus", refreshPermission);
+    document.addEventListener("visibilitychange", refreshPermission);
+    return () => {
+      window.removeEventListener("focus", refreshPermission);
+      document.removeEventListener("visibilitychange", refreshPermission);
+    };
+  }, []);
 
   return (
     <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex items-start justify-between gap-2 px-2.5 pt-2.5 sm:px-6 sm:pt-5">
@@ -342,6 +359,26 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
                   <p className="text-sm text-white/75"><span className="font-semibold text-white">3. Tap the bell</span> again and allow notifications.</p>
                 </div>
               </div>
+            ) : notificationPermission === "denied" ? (
+              <div className="mt-5 rounded-2xl border border-amber-300/25 bg-amber-500/10 p-4">
+                <p className="font-semibold text-amber-50">Notifications are blocked by device settings</p>
+                {isIosDevice() ? (
+                  <div className="mt-3 space-y-2 text-sm leading-5 text-amber-50/75">
+                    <p><span className="font-semibold text-white">1.</span> Open iPhone <span className="font-semibold text-white">Settings → Apps → TransitAlert → Notifications</span>.</p>
+                    <p><span className="font-semibold text-white">2.</span> Turn on <span className="font-semibold text-white">Allow Notifications</span>, then return here.</p>
+                    <p className="text-xs text-white/50">If TransitAlert is not listed, remove its Home Screen icon, open transit-alert.com in Safari, choose Add to Home Screen, then open the installed app and tap the bell again.</p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm leading-5 text-amber-50/75">Open this site&apos;s permissions from the browser address bar, change Notifications to Allow, then return to TransitAlert.</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setNotificationPermission("Notification" in window ? Notification.permission : "unsupported")}
+                  className="mt-4 w-full rounded-xl border border-amber-200/25 bg-amber-200/10 px-3 py-2.5 text-sm font-semibold text-amber-50"
+                >
+                  I changed it — check again
+                </button>
+              </div>
             ) : notificationActive ? (
               <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
                 <div className="flex items-center gap-3">
@@ -359,7 +396,7 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
               <button
                 type="button"
                 onClick={() => void enableNotifications()}
-                disabled={notificationPermission === "denied" || notificationPermission === "unsupported"}
+                disabled={notificationPermission === "unsupported"}
                 className="mt-5 w-full rounded-2xl bg-blue-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-950/40 transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
               >
                 {notificationPermission === "denied" ? "Notifications blocked in settings" : "Enable live alert notifications"}

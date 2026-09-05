@@ -5,9 +5,11 @@ import { getApiUrl } from "@/lib/api-config";
 
 export type LiveTrain = {
   tdn: string;
+  tripId?: string;
   lat: number;
   lng: number;
   line: string;
+  origin?: string;
   destination: string;
   status?: "on_time" | "delayed" | "early";
   timestamp?: string;
@@ -57,6 +59,75 @@ type LiveTrainResponse =
       trains?: LiveTrain[];
     };
 
+type StableTrainRecord = {
+  train: LiveTrain;
+  feedTime: number;
+  seenAt: number;
+};
+
+const stableTrainRecords = new Map<string, StableTrainRecord>();
+const RETAIN_MISSING_TRAIN_MS = 75_000;
+const MAX_PLAUSIBLE_TRAIN_SPEED_KMH = 220;
+
+function getStableTrainIdentity(train: LiveTrain) {
+  const consist = train.consist.trim();
+  if (consist && !/^unknown$/i.test(consist)) return `consist:${consist}`;
+  if (train.tripId) return `trip:${train.tripId}`;
+  return `tdn:${train.tdn}`;
+}
+
+function coordinateDistanceKm(left: LiveTrain, right: LiveTrain) {
+  const radians = (value: number) => value * Math.PI / 180;
+  const deltaLat = radians(right.lat - left.lat);
+  const deltaLng = radians(right.lng - left.lng);
+  const lat1 = radians(left.lat);
+  const lat2 = radians(right.lat);
+  const value = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
+
+function reconcileTrainSnapshot(trains: LiveTrain[]) {
+  const now = Date.now();
+  const snapshot = new Map<string, LiveTrain>();
+
+  for (const train of trains) {
+    if (!Number.isFinite(train.lat) || !Number.isFinite(train.lng)) continue;
+    if (train.lat < -40 || train.lat > -32 || train.lng < 140 || train.lng > 153) continue;
+
+    const identity = getStableTrainIdentity(train);
+    const candidateFeedTime = train.timestamp ? Date.parse(train.timestamp) : now;
+    const feedTime = Number.isFinite(candidateFeedTime) ? candidateFeedTime : now;
+    const previous = stableTrainRecords.get(identity);
+
+    if (previous && feedTime < previous.feedTime) {
+      snapshot.set(identity, previous.train);
+      previous.seenAt = now;
+      continue;
+    }
+
+    if (previous && feedTime > previous.feedTime) {
+      const elapsedHours = Math.max((feedTime - previous.feedTime) / 3_600_000, 1 / 3600);
+      const speedKmh = coordinateDistanceKm(previous.train, train) / elapsedHours;
+      if (speedKmh > MAX_PLAUSIBLE_TRAIN_SPEED_KMH) {
+        snapshot.set(identity, previous.train);
+        previous.seenAt = now;
+        continue;
+      }
+    }
+
+    stableTrainRecords.set(identity, { train, feedTime, seenAt: now });
+    snapshot.set(identity, train);
+  }
+
+  for (const [identity, record] of stableTrainRecords) {
+    if (snapshot.has(identity)) continue;
+    if (now - record.seenAt <= RETAIN_MISSING_TRAIN_MS) snapshot.set(identity, record.train);
+    else stableTrainRecords.delete(identity);
+  }
+
+  return [...snapshot.values()];
+}
+
 export type LiveViewportBounds = {
   minLat: number;
   maxLat: number;
@@ -96,9 +167,11 @@ function normaliseLiveTrain(raw: Partial<LiveTrain> & Record<string, unknown>, i
 
   return {
     tdn: typeof raw.tdn === "string" && raw.tdn.trim() ? raw.tdn : `train-${index}`,
+    tripId: typeof raw.tripId === "string" && raw.tripId.trim() ? raw.tripId : undefined,
     lat: raw.lat,
     lng: raw.lng,
     line: inferredLine,
+    origin: typeof raw.origin === "string" && raw.origin.trim() ? raw.origin.trim() : undefined,
     destination,
     status:
       raw.status === "on_time" || raw.status === "delayed" || raw.status === "early"
@@ -294,13 +367,13 @@ export async function fetchLiveTrains(bounds?: LiveViewportBounds): Promise<Live
     .filter((train): train is LiveTrain => train !== null);
 
   if (normalisedTrains.some((train) => train.consist === "430M")) {
-    return normalisedTrains;
+    return reconcileTrainSnapshot(normalisedTrains);
   }
 
   try {
     const consistFallback = await fetchTrackedConsistFallback();
-    return [...normalisedTrains, ...consistFallback];
+    return reconcileTrainSnapshot([...normalisedTrains, ...consistFallback]);
   } catch {
-    return normalisedTrains;
+    return reconcileTrainSnapshot(normalisedTrains);
   }
 }

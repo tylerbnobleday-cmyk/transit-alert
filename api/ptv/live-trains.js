@@ -1,4 +1,6 @@
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
+import { isPtvV3Configured, ptvV3Fetch } from "../_lib/ptv-v3.js";
+import { getVerifiedTrainMarkerDestination } from "../_lib/ptv-timetable.js";
 
 const PTV_FEEDS = [
   {
@@ -16,6 +18,15 @@ const PTV_FEEDS = [
 ];
 
 const NSW_TRAINS_VEHICLE_POSITIONS_URL = "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/nswtrains";
+let ptvV3Cache = { loadedAt: 0, trains: [] };
+// Realtime feeds update in short bursts. Keep this cache just long enough to
+// coalesce simultaneous clients, not long enough to make moving trains stale.
+const LIVE_TRAIN_CACHE_MS = 4_000;
+const LIVE_TRAIN_STALE_MS = 15 * 60_000;
+const RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
+let liveTrainCache = { loadedAt: 0, trains: [] };
+let liveTrainRefreshPromise = null;
+let liveTrainCooldownUntil = 0;
 const NSW_SOUTHEASTERN_BOUNDS = {
   minLat: -39.8,
   maxLat: -32.0,
@@ -65,7 +76,8 @@ function withinBounds(item, bounds) {
 }
 
 function normalisePtvRouteId(routeId) {
-  const code = routeId?.match(/vic-02-([A-Z0-9]+):/i)?.[1]?.toUpperCase() ?? String(routeId || "Metro");
+  const routeText = String(routeId || "Metro");
+  const code = routeText.match(/vic-02-([A-Z0-9]+):/i)?.[1]?.toUpperCase() ?? routeText;
   const routeMap = {
     ALM: "Alamein",
     ARA: "Ararat",
@@ -246,6 +258,7 @@ function buildNswLiveTrains(feed) {
 
       return {
         tdn,
+        tripId,
         lat: latitude,
         lng: longitude,
         line: serviceLabel,
@@ -283,9 +296,12 @@ function buildPtvLiveTrains(feed, source) {
       const timestamp = toNumber(vehicle.timestamp);
       const label = vehicle.vehicle?.label || vehicle.vehicle?.id || entity.id || routeId;
       const consist = normaliseConsistLabel(vehicle.vehicle?.label, vehicle.vehicle?.id);
+      const tripId = vehicle.trip?.tripId || undefined;
+      const publishedTdn = tripId?.match(/-([A-Z]?\d+)$/i)?.[1];
 
       return {
-        tdn: label,
+        tdn: publishedTdn || label,
+        tripId,
         lat: latitude,
         lng: longitude,
         line: resolvedLine,
@@ -302,6 +318,151 @@ function buildPtvLiveTrains(feed, source) {
     .filter(Boolean);
 }
 
+function buildPtvV3LiveTrains(data) {
+  return (data?.runs ?? [])
+    .map((run) => {
+      const position = run.vehicle_position;
+      const latitude = Number(position?.latitude);
+      const longitude = Number(position?.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+      if (latitude === 0 || longitude === 0) return null;
+
+      const destination = String(run.destination_name || "Metro service");
+      const descriptor = run.vehicle_descriptor || {};
+      const vehicleLabel = String(descriptor.id || descriptor.description || run.run_id || "Metro train");
+      const routeLabel = normalisePtvRouteId(run.route_id || "Metro");
+
+      return {
+        tdn: vehicleLabel,
+        tripId: run.run_id ? String(run.run_id) : undefined,
+        lat: latitude,
+        lng: longitude,
+        line: routeLabel === run.route_id ? "Metro" : routeLabel,
+        destination,
+        status: String(run.status || "on_time").toLowerCase(),
+        timestamp: new Date().toISOString(),
+        direction: Number(run.direction_id) === 0 ? "up" : "down",
+        heading: Number.isFinite(Number(position.bearing)) ? Number(position.bearing) : undefined,
+        trainType: String(descriptor.description || "Metro Train"),
+        consist: normaliseConsistLabel(descriptor.id, descriptor.description),
+        serviceDescription: [routeLabel, destination].filter(Boolean).join(" · "),
+        source: "PTV Timetable v3",
+      };
+    })
+    .filter(Boolean);
+}
+
+async function fetchPtvV3LiveTrains() {
+  if (Date.now() - ptvV3Cache.loadedAt < 8_000) return ptvV3Cache.trains;
+  const routeData = await ptvV3Fetch("/v3/routes", { route_types: 0 });
+  const routes = (routeData?.routes ?? []).filter((route) => route.route_id);
+  const results = await Promise.allSettled(
+    routes.map(async (route) => {
+      const data = await ptvV3Fetch(`/v3/runs/route/${encodeURIComponent(route.route_id)}`, {
+        expand: "VehiclePosition",
+      });
+      return buildPtvV3LiveTrains(data).map((train) => ({
+        ...train,
+        line: route.route_name || train.line,
+        serviceDescription: [route.route_name, train.destination].filter(Boolean).join(" · "),
+      }));
+    }),
+  );
+  const routeFailures = results.filter((result) => result.status === "rejected");
+  if (routeFailures.length) {
+    console.warn(
+      `[live-trains] ${routeFailures.length}/${results.length} PTV v3 route requests failed:`,
+      [...new Set(routeFailures.map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason)))].join(" | "),
+    );
+  }
+  const trains = results.filter((result) => result.status === "fulfilled").flatMap((result) => result.value);
+  ptvV3Cache = { loadedAt: Date.now(), trains };
+  return trains;
+}
+
+async function refreshLiveTrains({ ptvSubscriptionKey, ptvV3Configured, nswTransportApiKey }) {
+  const feedRequests = [
+    ...(ptvV3Configured && !ptvSubscriptionKey
+      ? [fetchPtvV3LiveTrains()]
+      : []),
+    ...(ptvSubscriptionKey
+      ? PTV_FEEDS.map(async (source) => {
+          const response = await fetch(`${source.baseUrl}/vehicle-positions`, {
+            headers: {
+              KeyID: ptvSubscriptionKey,
+              "Ocp-Apim-Subscription-Key": ptvSubscriptionKey,
+            },
+            signal: AbortSignal.timeout(20_000),
+          });
+
+          if (!response.ok) {
+            throw buildFeedError(source.key, response.status);
+          }
+
+          const buffer = await response.arrayBuffer();
+          const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+          return buildPtvLiveTrains(feed, source);
+        })
+      : []),
+    ...(nswTransportApiKey
+      ? [
+          (async () => {
+            const response = await fetch(NSW_TRAINS_VEHICLE_POSITIONS_URL, {
+              headers: {
+                Authorization: `apikey ${nswTransportApiKey}`,
+                Accept: "application/x-google-protobuf",
+              },
+              signal: AbortSignal.timeout(20_000),
+            });
+
+            if (!response.ok) {
+              throw buildFeedError("nswtrains", response.status);
+            }
+
+            const buffer = await response.arrayBuffer();
+            const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+            return buildNswLiveTrains(feed);
+          })(),
+        ]
+      : []),
+  ];
+
+  const responses = await Promise.allSettled(feedRequests);
+  const failures = responses.filter((result) => result.status === "rejected");
+  const rateLimited = failures.some((result) => /rate-limited|:429\b/i.test(
+    result.reason instanceof Error ? result.reason.message : String(result.reason),
+  ));
+
+  if (rateLimited) {
+    liveTrainCooldownUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+  }
+
+  for (const result of failures) {
+    console.warn("[live-trains] feed request failed:", result.reason instanceof Error ? result.reason.message : result.reason);
+  }
+
+  const rawTrains = responses
+    .filter((result) => result.status === "fulfilled")
+    .flatMap((result) => result.value);
+  const trains = await Promise.all(rawTrains.map(async (train) => {
+    const verifiedJourney = await getVerifiedTrainMarkerDestination(train.tripId);
+    return verifiedJourney
+      ? {
+          ...train,
+          origin: verifiedJourney.origin,
+          destination: verifiedJourney.destination,
+          serviceDescription: `${train.line} · ${verifiedJourney.origin} → ${verifiedJourney.destination}`,
+        }
+      : train;
+  }));
+
+  if (trains.length > 0) {
+    liveTrainCache = { loadedAt: Date.now(), trains };
+  }
+
+  return { responses, trains };
+}
+
 export default async function handler(req, res) {
   const ptvSubscriptionKey =
     process.env.PTV_SUBSCRIPTION_KEY ||
@@ -313,64 +474,60 @@ export default async function handler(req, res) {
     process.env.TRANSPORT_NSW_API_KEY ||
     process.env.TFNSW_API_KEY ||
     process.env.NSW_OPENDATA_API_KEY;
+  const ptvV3Configured = isPtvV3Configured();
 
-  if (!ptvSubscriptionKey && !nswTransportApiKey) {
-    res.status(200).json({ trains: [] });
+  if (!ptvSubscriptionKey && !ptvV3Configured && !nswTransportApiKey) {
+    res.status(503).json({
+      error: "Live train positions need a Transport Victoria KeyID. The installed GTFS timetable remains available for scheduled departures.",
+      code: "PTV_KEY_REQUIRED",
+      trains: [],
+    });
     return;
   }
 
   try {
     const bounds = readBoundsFilter(req.query ?? {});
-    const feedRequests = [
-      ...(ptvSubscriptionKey
-        ? PTV_FEEDS.map(async (source) => {
-            const response = await fetch(`${source.baseUrl}/vehicle-positions`, {
-              headers: {
-                KeyID: ptvSubscriptionKey,
-                "Ocp-Apim-Subscription-Key": ptvSubscriptionKey,
-              },
-            });
+    const cacheAge = Date.now() - liveTrainCache.loadedAt;
+    if (liveTrainCache.trains.length > 0 && cacheAge < LIVE_TRAIN_CACHE_MS) {
+      res.status(200).json({
+        trains: liveTrainCache.trains.filter((train) => withinBounds(train, bounds)),
+        cached: true,
+      });
+      return;
+    }
 
-            if (!response.ok) {
-              throw buildFeedError(source.key, response.status);
-            }
+    if (Date.now() < liveTrainCooldownUntil && liveTrainCache.trains.length > 0 && cacheAge < LIVE_TRAIN_STALE_MS) {
+      res.status(200).json({
+        trains: liveTrainCache.trains.filter((train) => withinBounds(train, bounds)),
+        cached: true,
+        stale: true,
+        warning: "Live train feed is temporarily rate limited; showing the last verified positions.",
+      });
+      return;
+    }
 
-            const buffer = await response.arrayBuffer();
-            const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
-            return buildPtvLiveTrains(feed, source);
-          })
-        : []),
-      ...(nswTransportApiKey
-        ? [
-            (async () => {
-              const response = await fetch(NSW_TRAINS_VEHICLE_POSITIONS_URL, {
-                headers: {
-                  Authorization: `apikey ${nswTransportApiKey}`,
-                  Accept: "application/x-google-protobuf",
-                },
-              });
+    if (!liveTrainRefreshPromise) {
+      liveTrainRefreshPromise = refreshLiveTrains({ ptvSubscriptionKey, ptvV3Configured, nswTransportApiKey })
+        .finally(() => {
+          liveTrainRefreshPromise = null;
+        });
+    }
 
-              if (!response.ok) {
-                throw buildFeedError("nswtrains", response.status);
-              }
-
-              const buffer = await response.arrayBuffer();
-              const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
-              return buildNswLiveTrains(feed);
-            })(),
-          ]
-        : []),
-    ];
-
-    const responses = await Promise.allSettled(feedRequests);
-
-    const fulfilled = responses
-      .filter((result) => result.status === "fulfilled")
-      .flatMap((result) => result.value)
-      .filter((train) => withinBounds(train, bounds));
+    const { responses, trains } = await liveTrainRefreshPromise;
+    const fulfilled = trains.filter((train) => withinBounds(train, bounds));
 
     if (fulfilled.length > 0) {
-      res.status(200).json({ trains: fulfilled });
+      res.status(200).json({ trains: fulfilled, cached: false });
+      return;
+    }
+
+    if (liveTrainCache.trains.length > 0 && Date.now() - liveTrainCache.loadedAt < LIVE_TRAIN_STALE_MS) {
+      res.status(200).json({
+        trains: liveTrainCache.trains.filter((train) => withinBounds(train, bounds)),
+        cached: true,
+        stale: true,
+        warning: "Live feeds are unavailable; showing the last verified positions.",
+      });
       return;
     }
 

@@ -3,6 +3,8 @@ import { getApiUrl } from "@/lib/api-config";
 
 export type LiveTram = {
   id: string;
+  /** Official GTFS trip ID. Required to match this vehicle to its dated timetable. */
+  tripId?: string;
   label: string;
   lat: number;
   lng: number;
@@ -117,6 +119,7 @@ function normaliseLiveTram(raw: Partial<LiveTram> & Record<string, unknown>, ind
 
   return {
     id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `tram-${index}`,
+    tripId: typeof raw.tripId === "string" && raw.tripId.trim() ? raw.tripId.trim() : undefined,
     label,
     lat: raw.lat,
     lng: raw.lng,

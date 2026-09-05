@@ -2,7 +2,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { ChevronDown, ChevronUp, MapPin, Plus, Search } from "lucide-react";
+import {
+  Bell,
+  ChevronDown,
+  ChevronUp,
+  CircleUserRound,
+  Info,
+  Map as MapIcon,
+  MapPin,
+  Menu,
+  Plus,
+  Search,
+  Settings,
+  Shield,
+  X,
+} from "lucide-react";
 import {
   Map as TransitMap,
   ADMIN_DEBUG_LINE_OPTIONS,
@@ -16,12 +30,11 @@ import {
   type ServiceFilterKey,
   type TransportMode,
 } from "@/components/Map";
-import { TopBar } from "@/components/TopBar";
 import { RiskyRoutes } from "@/components/RiskyRoutes";
 import { AddReportDrawer } from "@/components/AddReportDrawer";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs } from "@/components/ui/tabs";
 import { TRANSITALERT_WEB_VERSION } from "@/lib/version";
-import { clearGuestIntent, fetchAuthSession, hasGuestIntent, logoutSession } from "@/lib/auth";
+import { fetchAuthSession, logoutSession } from "@/lib/auth";
 import {
   fetchAdminAccounts,
   fetchAdminConfig,
@@ -49,6 +62,7 @@ import {
   writeLocalPreferences,
 } from "@/lib/preferences";
 import { fetchMetroNotifyAlerts, isAlertCurrent, type MetroNotifyAlert } from "@/lib/todays-alerts";
+import { fetchStationDepartures } from "@/lib/timetable";
 
 const TRAIN_BOARDING_HINTS: Record<string, { zone: string; reason: string }> = {
   "North Melbourne": {
@@ -98,6 +112,18 @@ const SIMPLE_SURFACE_ROUTES = [
     stops: ["Elwood", "Elsternwick", "Ormond", "Huntingdale", "Monash University"],
     summary: "Useful orbital bus for rail interchanges between the bayside and Monash corridor.",
   },
+  {
+    name: "Route 630 bus",
+    mode: "bus" as const,
+    stops: ["Hawthorn Rd/North Rd", "Huntingdale Station/Haughton Rd"],
+    summary: "Direct Brighton East connection to Huntingdale for Pakenham and Cranbourne line trains.",
+  },
+  {
+    name: "Route 703 bus",
+    mode: "bus" as const,
+    stops: ["Lilac Cres/Centre Rd", "Clayton Station/Carinish Rd"],
+    summary: "Direct Brighton East to Clayton connection for Pakenham and Cranbourne line services.",
+  },
 ];
 
 const SURFACE_PLANNER_STATIONS: Station[] = [
@@ -107,9 +133,13 @@ const SURFACE_PLANNER_STATIONS: Station[] = [
   { name: "East Brighton", position: [-37.9152, 145.0165] },
   { name: "Elwood", position: [-37.8842, 144.9853] },
   { name: "Monash University", position: [-37.9105, 145.1362] },
+  { name: "Lilac Cres/Centre Rd", position: [-37.9142, 145.0208] },
+  { name: "Clayton Station/Carinish Rd", position: [-37.9249, 145.1202] },
+  { name: "Hawthorn Rd/North Rd", position: [-37.9027, 145.0197] },
+  { name: "Huntingdale Station/Haughton Rd", position: [-37.9108, 145.1027] },
 ];
 
-const HOME_ORIGIN_LABEL = "Home Â· 15 Louise St, Brighton East";
+const HOME_ORIGIN_LABEL = "Home · 15 Louise St, Brighton East";
 const CURRENT_LOCATION_LABEL = "Current location";
 const JOURNEY_STORAGE_KEY = "transitalert-active-journey-v1";
 const ADMIN_DEBUG_STORAGE_KEY = "transitalert-admin-debug-line-v1";
@@ -129,6 +159,7 @@ type DockedPanelSheetProps = {
   eyebrow: string;
   title: string;
   summary: string;
+  fullPage?: boolean;
   children: ReactNode;
 };
 
@@ -160,7 +191,7 @@ type FleetTypeKey =
   | "xplorer"
   | "metropolis";
 type FleetFilterKey = "all" | FleetTypeKey;
-type HomeTabKey = "map" | "fleets" | "pid" | "admin";
+type HomeTabKey = "map" | "journey" | "fleets" | "pid" | "admin";
 
 type FleetTripStatus = "running" | "upcoming";
 
@@ -517,7 +548,14 @@ const VERSION_HIGHLIGHT_CARDS = [
 const PLANNER_LINES = [
   { name: "Frankston", stations: LINES.frankston },
   { name: "Cranbourne", stations: LINES.cranbourne },
-  { name: "Pakenham", stations: LINES.pakenham },
+  {
+    name: "Pakenham",
+    // Metro Tunnel services run directly between Anzac and Caulfield. The
+    // legacy surface corridor stations are not valid Pakenham stopping points.
+    stations: LINES.pakenham.filter(
+      (station) => !["Hawksburn", "Toorak", "Armadale", "Malvern"].includes(station.name),
+    ),
+  },
   { name: "Sunbury", stations: LINES.sunbury },
   { name: "Metro Tunnel", stations: LINES.metroTunnel },
   { name: "Sandringham", stations: LINES.sandringham },
@@ -950,8 +988,8 @@ const STATION_DEPARTURES: Record<string, StationDeparture[]> = {
     { id: "thl-4", destination: "West Footscray", platform: "1", status: "Delayed", time: "23:03", tdn: "Z141", lineLabel: "Sunbury", lineTone: "bg-cyan-500/15 text-cyan-200" },
   ],
   "Flinders Street": [
-    { id: "fss-1", destination: "Sandringham", platform: "10", status: "On Time", time: "22:41", tdn: "601M", lineLabel: "Bayside / Cross City", lineTone: "bg-pink-500/15 text-pink-200" },
-    { id: "fss-2", destination: "Werribee", platform: "9", status: "Boarding", time: "22:44", tdn: "715M", lineLabel: "Bayside / Cross City", lineTone: "bg-pink-500/15 text-pink-200" },
+    { id: "fss-1", destination: "Sandringham", platform: "10", status: "On Time", time: "Live", tdn: "Through service", lineLabel: "Cross-City", lineTone: "bg-pink-500/15 text-pink-200" },
+    { id: "fss-2", destination: "Werribee", platform: "9", status: "On Time", time: "Live", tdn: "Through service", lineLabel: "Cross-City", lineTone: "bg-pink-500/15 text-pink-200" },
     { id: "fss-3", destination: "Mernda", platform: "1", status: "On Time", time: "22:47", tdn: "804M", lineLabel: "Clifton Hill", lineTone: "bg-rose-500/15 text-rose-200" },
   ],
 };
@@ -1019,8 +1057,10 @@ function getPidServiceTypeLabel(departure?: StationDeparture) {
 function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
   return (
     <div
-      className={`pointer-events-none overflow-hidden rounded-t-[1.4rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[1.85rem] ${
-        isOpen ? "translate-y-0" : "translate-y-[calc(100%-52px)] sm:translate-y-[calc(100%-66px)]"
+      className={`pointer-events-none overflow-hidden transition-all duration-300 ${
+        isOpen
+          ? "translate-y-0 rounded-t-[1.4rem] border border-white/10 bg-slate-950 shadow-2xl sm:rounded-[1.85rem]"
+          : "ml-auto w-fit translate-y-0 border-0 bg-transparent shadow-none"
       }`}
     >
       <button
@@ -1029,14 +1069,14 @@ function PlannerSheet({ isOpen, onToggle, children }: PlannerSheetProps) {
         aria-expanded={isOpen}
         aria-label={isOpen ? "Hide planner" : "Show planner"}
       >
-        <span className="mb-1.5 h-1 w-10 rounded-full bg-white/20 sm:mb-2 sm:h-1.5 sm:w-12" />
+        {isOpen && <span className="mb-1.5 h-1 w-10 rounded-full bg-white/20 sm:mb-2 sm:h-1.5 sm:w-12" />}
         <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/30 bg-blue-600 px-3 py-1 text-xs font-semibold shadow-lg shadow-blue-950/35 sm:gap-2 sm:px-3.5 sm:py-1.5 sm:text-sm">
           <ChevronUp className={`h-3.5 w-3.5 transition-transform sm:h-4 sm:w-4 ${isOpen ? "rotate-180" : ""}`} />
-          {isOpen ? "Hide Planner" : "Show Planner"}
+          {isOpen ? "Hide Journey" : "Journey"}
         </span>
       </button>
 
-      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[64vh] overflow-y-auto px-4 pb-4 max-[430px]:max-h-[56vh] max-[430px]:px-3 sm:px-5 sm:pb-4.5`}>
+      <div className={`${isOpen ? "pointer-events-auto" : "pointer-events-none"} max-h-[72vh] overflow-y-auto px-4 pb-4 max-[430px]:max-h-[66vh] max-[430px]:px-3 sm:px-5 sm:pb-4.5`}>
         {children}
       </div>
     </div>
@@ -1048,7 +1088,7 @@ function VersionModal({ isOpen, onClose, showWelcome }: VersionModalProps) {
 
   return (
     <div className="absolute inset-0 z-[120] flex items-center justify-center bg-black/55 px-4 py-6 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/96 shadow-2xl">
+      <div className="flex max-h-[82vh] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/96 shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4 sm:px-6">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-300/80">TransitAlert Melbourne</p>
@@ -1134,7 +1174,21 @@ function VersionModal({ isOpen, onClose, showWelcome }: VersionModalProps) {
   );
 }
 
-function DockedPanelSheet({ isOpen, onToggle, eyebrow, title, summary, children }: DockedPanelSheetProps) {
+function DockedPanelSheet({ isOpen, onToggle, eyebrow, title, summary, fullPage = false, children }: DockedPanelSheetProps) {
+  if (fullPage) {
+    return (
+      <section className="pointer-events-auto h-full min-h-0 overflow-x-hidden overflow-y-auto bg-slate-950 text-white">
+        <header className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/95 pb-4 pl-20 pr-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-xl sm:px-7 sm:py-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-300/85">{eyebrow}</p>
+          <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
+            <p className="max-w-2xl text-sm text-white/55">{summary}</p>
+          </div>
+        </header>
+        <div className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-6 sm:py-6">{children}</div>
+      </section>
+    );
+  }
   return (
     <div
       className={`pointer-events-none overflow-hidden rounded-t-[2rem] border border-white/10 bg-slate-950/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 sm:rounded-[2rem] ${
@@ -1176,7 +1230,7 @@ export default function Home() {
   });
   const { data: liveFleetVehicles = [], isFetching: isFleetRefreshing } = useQuery({
     queryKey: ["live-fleet-board"],
-    queryFn: fetchLiveTrains,
+    queryFn: () => fetchLiveTrains(),
     enabled: Boolean(authSession?.authenticated),
     retry: false,
     refetchInterval: isMobile ? 30_000 : 15_000,
@@ -1193,12 +1247,14 @@ export default function Home() {
     const [activeTab, setActiveTab] = useState<HomeTabKey>("map");
     const [isAddDrawerOpen, setIsAddDrawerOpen] = useState(false);
     const [isPlannerOpen, setIsPlannerOpen] = useState(false);
-  const [isUtilityPanelOpen, setIsUtilityPanelOpen] = useState(true);
+  const [isUtilityPanelOpen, setIsUtilityPanelOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isVersionOpen, setIsVersionOpen] = useState(false);
   const [isVersionFirstOpen, setIsVersionFirstOpen] = useState(false);
   const [userMenuMessage, setUserMenuMessage] = useState("");
   const [selectedFleetType, setSelectedFleetType] = useState<FleetFilterKey>("all");
+  const [fleetSearchQuery, setFleetSearchQuery] = useState("");
   const [pidStation, setPidStation] = useState<string>("Flinders Street");
   const [pidPlatform, setPidPlatform] = useState<string>("1");
   const [pidStyle, setPidStyle] = useState<PidStyleKey>("transitalert");
@@ -1220,6 +1276,16 @@ export default function Home() {
   const [currentLocationOrigin, setCurrentLocationOrigin] = useState<string | null>(null);
   const [currentLocationCoords, setCurrentLocationCoords] = useState<[number, number] | null>(null);
   const [journeyStartedAt, setJourneyStartedAt] = useState<string | null>(null);
+  const activeJourneyBusRoutes = useMemo(() => {
+    if (!journeyStartedAt || !journeyDisplay) return [];
+    return Array.from(new Set(
+      journeyDisplay.legs
+        .filter((leg) => leg.mode === "bus")
+        .flatMap((leg) => (`${leg.title} ${leg.badge}`.match(/(?:route\s*)?([A-Z]?\d{1,4}[A-Z]?)/gi) ?? [])
+          .map((match) => match.replace(/^route\s*/i, "").toUpperCase())
+          .filter(Boolean)),
+    ));
+  }, [journeyDisplay, journeyStartedAt]);
   const [attachedJourneyServiceKey, setAttachedJourneyServiceKey] = useState<string | null>(null);
   const [attachedJourneyServiceLabel, setAttachedJourneyServiceLabel] = useState<string | null>(null);
   const [hasHydratedJourney, setHasHydratedJourney] = useState(false);
@@ -1374,8 +1440,42 @@ export default function Home() {
       }
     }
 
+    // Passenger walking transfer between the Route 703 street stop and the
+    // Clayton railway platforms. Keep this explicit so the itinerary uses the
+    // stop names people see on signs and in Google/PTV directions.
+    addConnection("Clayton Station/Carinish Rd", "Clayton", "Walk to Clayton railway platforms", "walk");
+    addConnection("Clayton", "Clayton Station/Carinish Rd", "Walk to Route 703 stop", "walk");
+    addConnection("Huntingdale Station/Haughton Rd", "Huntingdale", "Walk to Huntingdale railway platforms", "walk");
+    addConnection("Huntingdale", "Huntingdale Station/Haughton Rd", "Walk to Route 630 stop", "walk");
+
     return graph;
   }, [preferences.transportModes]);
+  const journeyTrainLeg = journeyDisplay?.legs.find((leg) => leg.mode === "train") ?? null;
+  const { data: journeyTrainDepartures } = useQuery({
+    queryKey: ["journey-train-departures", journeyTrainLeg?.from],
+    queryFn: () => fetchStationDepartures(journeyTrainLeg!.from),
+    enabled: Boolean(journeyTrainLeg?.from),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
+    retry: 3,
+  });
+  const journeyMatchingTrainDepartures = useMemo(() => {
+    if (!journeyTrainLeg || !journeyTrainDepartures?.departures) return [];
+    const routeText = journeyTrainLeg.title.toLowerCase();
+    const now = Date.now() - 60_000;
+    return journeyTrainDepartures.departures
+      .filter((departure) => {
+        const serviceText = `${departure.route} ${departure.destination}`.toLowerCase();
+        const routeMatches = /pakenham/.test(routeText)
+          ? /pakenham/.test(serviceText)
+          : routeText.split(" ").some((part) => part.length > 4 && serviceText.includes(part));
+        return routeMatches && new Date(departure.expectedAt || departure.scheduledAt).getTime() >= now;
+      })
+      .sort((left, right) => new Date(left.expectedAt || left.scheduledAt).getTime() - new Date(right.expectedAt || right.scheduledAt).getTime())
+      .slice(0, 2);
+  }, [journeyTrainDepartures, journeyTrainLeg]);
   const lineKeys = useMemo(() => Object.keys(LINES), []);
 
   const selectedFleetFilterLabel = useMemo(
@@ -1421,10 +1521,18 @@ export default function Home() {
   );
   const fleetTripsForSelection = useMemo(
     () => {
-      if (selectedFleetType === "all") return liveFleetTrips;
-      return liveFleetTrips.filter((trip) => trip.fleet === selectedFleetType);
+      const byType = selectedFleetType === "all"
+        ? liveFleetTrips
+        : liveFleetTrips.filter((trip) => trip.fleet === selectedFleetType);
+      const query = fleetSearchQuery.trim().toLowerCase();
+      if (!query) return byType;
+      return byType.filter((trip) =>
+        `${trip.tdn} ${trip.tripNumber} ${trip.setNumber} ${trip.route} ${trip.line} ${trip.fleet}`
+          .toLowerCase()
+          .includes(query),
+      );
     },
-    [liveFleetTrips, selectedFleetType],
+    [fleetSearchQuery, liveFleetTrips, selectedFleetType],
   );
   const fleetTripsToDisplay = useMemo(
     () => sortFleetTripsForOperationsBoard(fleetTripsForSelection),
@@ -1519,14 +1627,15 @@ export default function Home() {
   const openLiveTrainOnMap = useCallback((trip: FleetTrip) => {
     setFocusedVehicleKey(trip.focusKey);
     setActiveTab("map");
-    setIsPlannerOpen(true);
+    setIsPlannerOpen(false);
+    setIsSidebarOpen(false);
   }, []);
 
   const attachJourneyToService = useCallback((trip: FleetTrip) => {
     setAttachedJourneyServiceKey(trip.focusKey);
     setAttachedJourneyServiceLabel(
       hasPremiumAccess(accountPreferences)
-        ? `${trip.line} Â· TDN ${trip.tripNumber} Â· ${trip.route}`
+        ? `${trip.line} · TDN ${trip.tripNumber} · ${trip.route}`
         : getPublicFleetServiceLabel(trip),
     );
     setJourneyStartedAt((current) => current ?? new Date().toISOString());
@@ -1563,8 +1672,8 @@ export default function Home() {
           }))
           .sort((left, right) => left.distance - right.distance)[0]?.station;
         const label = nearestStation
-          ? `${CURRENT_LOCATION_LABEL} Â· Near ${nearestStation.name}`
-          : `${CURRENT_LOCATION_LABEL} Â· ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`;
+          ? `${CURRENT_LOCATION_LABEL} · Near ${nearestStation.name}`
+          : `${CURRENT_LOCATION_LABEL} · ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`;
         setCurrentLocationOrigin(label);
         setCurrentLocationCoords([position.coords.latitude, position.coords.longitude]);
         setJourneyOrigin(label);
@@ -1706,19 +1815,6 @@ export default function Home() {
       setIsUserMenuOpen(false);
     }
   }, [authSession?.user]);
-
-  useEffect(() => {
-    if (isGuest && activeTab !== "map" && activeTab !== "fleets") {
-      setActiveTab("map");
-    }
-  }, [activeTab, isGuest]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !isGuest) return;
-    if (hasGuestIntent()) return;
-    clearGuestIntent();
-    setLocation("/login");
-  }, [isAuthenticated, isGuest, setLocation]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1875,7 +1971,11 @@ export default function Home() {
       let accessLeg: JourneyLeg | null = null;
 
     if (isHomeOrigin) {
-      const nearestHomeStation = findNearestStation(HOME_ORIGIN_COORDS);
+      const shouldUseRoute630Access =
+        /clayton|westall|springvale|sandown park|noble park|yarraman|dandenong|hallam|narre warren|berwick|beaconsfield|officer|cardinia road|pakenham/i.test(destination?.name ?? "");
+      const nearestHomeStation = shouldUseRoute630Access
+        ? stationByName.get("Hawthorn Rd/North Rd") ?? findNearestStation(HOME_ORIGIN_COORDS)
+        : findNearestStation(HOME_ORIGIN_COORDS);
       if (nearestHomeStation) {
         resolvedOrigin = nearestHomeStation;
         accessLeg = {
@@ -1888,7 +1988,14 @@ export default function Home() {
         };
       }
     } else if (isCurrentLocationOrigin && currentLocationCoords) {
-      const nearestGpsStation = findNearestStation(currentLocationCoords);
+      const [currentLat, currentLng] = currentLocationCoords;
+      const shouldUseRoute703Access =
+        currentLat >= -37.95 && currentLat <= -37.88 &&
+        currentLng >= 144.98 && currentLng <= 145.05 &&
+        /clayton|westall|springvale|sandown park|noble park|yarraman|dandenong|hallam|narre warren|berwick|beaconsfield|officer|cardinia road|pakenham/i.test(destination?.name ?? "");
+      const nearestGpsStation = shouldUseRoute703Access
+        ? stationByName.get("Lilac Cres/Centre Rd") ?? findNearestStation(currentLocationCoords)
+        : findNearestStation(currentLocationCoords);
       if (nearestGpsStation) {
         resolvedOrigin = nearestGpsStation;
         accessLeg = {
@@ -1973,10 +2080,26 @@ export default function Home() {
           const mode = activeEdge?.mode ?? "train";
           transitLegs.push({
             mode,
-            title: mode === "train" ? `${activeEdge?.line ?? "Rail"} line` : activeEdge?.line ?? mode,
+            title:
+              /Route 703/i.test(activeEdge?.line ?? "")
+                ? "Route 703 toward Blackburn"
+                : /Route 630/i.test(activeEdge?.line ?? "")
+                  ? "Route 630 toward Huntingdale Station"
+                  : mode === "train"
+                    ? `${activeEdge?.line ?? "Rail"} line`
+                    : activeEdge?.line ?? mode,
             from,
             to,
-            detail: `${stopCount} stop${stopCount === 1 ? "" : "s"}${index < path.stationNames.length - 1 ? " before changing" : ""}`,
+            detail:
+              mode === "walk"
+                ? /Huntingdale/i.test(activeEdge?.line ?? "")
+                  ? "Walk about 140 m to the Huntingdale railway platforms"
+                  : "Walk about 250 m to the Clayton railway platforms"
+                : /Route 703/i.test(activeEdge?.line ?? "")
+                  ? "Ride approximately 35 stops to Clayton Station/Carinish Rd"
+                  : /Route 630/i.test(activeEdge?.line ?? "")
+                    ? "Ride approximately 30 stops to Huntingdale Station/Haughton Rd"
+                  : `${stopCount} stop${stopCount === 1 ? "" : "s"}${index < path.stationNames.length - 1 ? " before changing" : ""}`,
             badge: mode === "tram" ? "Tram" : mode === "bus" ? "Bus" : "Train",
           });
 
@@ -1988,7 +2111,12 @@ export default function Home() {
 
       const journeyLegs = [...(accessLeg ? [accessLeg] : []), ...transitLegs];
       if (accessLeg && transitLegs[0]) {
-        accessLeg.detail = `Go to ${resolvedOrigin.name} first. Then take the ${transitLegs[0].title} from ${transitLegs[0].from} toward ${transitLegs[0].to}.`;
+        const boardingDirection = /Route 703/i.test(transitLegs[0].title)
+          ? "Use the stop for Route 703 buses toward Blackburn, on the Clayton Station side."
+          : /Route 630/i.test(transitLegs[0].title)
+            ? "Use the stop for Route 630 buses on the Huntingdale Station side."
+            : `Board the ${transitLegs[0].title} toward ${transitLegs[0].to}.`;
+        accessLeg.detail = `Walk from your current location to ${resolvedOrigin.name}. ${boardingDirection}`;
       }
       const changeStations = transitLegs
         .slice(0, -1)
@@ -2338,6 +2466,13 @@ export default function Home() {
   );
 
   const utilitySheetCopy = useMemo(() => {
+    if (activeTab === "journey") {
+      return {
+        eyebrow: "Journey Planner",
+        title: "Plan across Victoria",
+        summary: "TransitAlert schedule routing with Google Maps and official Victorian journey-planner cross-checks.",
+      };
+    }
     if (activeTab === "fleets") {
       return {
         eyebrow: "Fleets",
@@ -2347,9 +2482,9 @@ export default function Home() {
     }
     if (activeTab === "pid") {
       return {
-        eyebrow: "Station PID",
-        title: "Independent PID mockup",
-        summary: "A TransitAlert-style platform display concept for testing station screen layouts.",
+        eyebrow: "Station tracker",
+        title: "Station information display",
+        summary: "A full-screen TransitAlert-style platform display for testing station screen layouts.",
       };
     }
 
@@ -2363,13 +2498,14 @@ export default function Home() {
   }, [activeTab, isAdmin, selectedFleetFilterLabel]);
 
   const handleTabChange = (value: string) => {
-    if (isGuest && value !== "map" && value !== "fleets") {
-      setUserMenuMessage("Guest access includes the live map and fleet board in version 0.92. Register to unlock account tools, station PID, and admin controls.");
+    if (value === "fleets" && !isPremium) {
+      setUserMenuMessage(`Fleet Tracker is a TransitAlert Premium feature in version ${TRANSITALERT_WEB_VERSION}.`);
       setIsUserMenuOpen(true);
       return;
     }
     setActiveTab(value as HomeTabKey);
-    setIsUtilityPanelOpen(value === "map" ? isUtilityPanelOpen : true);
+    setIsUtilityPanelOpen(false);
+    setIsSidebarOpen(false);
   };
 
   if (!authSession) {
@@ -2430,27 +2566,89 @@ export default function Home() {
 
   return (
     <main className="relative h-[100dvh] w-full overflow-hidden bg-background">
-        <TopBar
-          onOpenVersion={() => {
-            setIsVersionFirstOpen(false);
-            setIsVersionOpen(true);
-          }}
-          onOpenAlerts={() => setLocation("/alerts/today")}
-          onOpenUserMenu={() => {
-            setUserMenuMessage("");
-            setIsUserMenuOpen((value) => !value);
-          }}
-        user={authSession?.user ?? null}
-      />
-
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-      <div className="pointer-events-none absolute inset-x-0 top-[4.85rem] z-[55] flex justify-center px-2.5 sm:top-5 sm:px-6">
-        <TabsList className="pointer-events-auto flex w-full max-w-[calc(100%-0.75rem)] justify-start gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-card/80 p-1 shadow-xl backdrop-blur-xl sm:w-auto sm:max-w-xl sm:justify-center">
-            <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="map">Journey Planner</TabsTrigger>
-            <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="fleets">Fleets</TabsTrigger>
-            {isAdmin && <TabsTrigger className="shrink-0 px-2.5 py-1 text-xs sm:px-3 sm:text-sm" value="admin">Admin</TabsTrigger>}
-        </TabsList>
-      </div>
+      <button
+        type="button"
+        aria-label="Open navigation"
+        onClick={() => setIsSidebarOpen(true)}
+        className="absolute left-3 top-3 z-[72] grid h-11 w-11 place-items-center rounded-2xl border border-white/15 bg-slate-950/90 text-white shadow-2xl backdrop-blur-xl md:hidden"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
+      {isSidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setIsSidebarOpen(false)}
+          className="absolute inset-0 z-[68] bg-slate-950/55 backdrop-blur-sm md:hidden"
+        />
+      )}
+
+      <aside
+        className={`absolute inset-y-0 left-0 z-[70] flex w-[min(84vw,19rem)] flex-col border-r border-white/10 bg-slate-950/94 p-3 text-white shadow-2xl backdrop-blur-2xl transition-transform duration-200 md:w-60 md:translate-x-0 ${
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex items-center justify-between rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-300/75">Melbourne</p>
+            <p className="mt-0.5 text-lg font-bold tracking-tight">TransitAlert</p>
+            <p className="text-[10px] text-white/40">v{TRANSITALERT_WEB_VERSION}</p>
+          </div>
+          <button type="button" aria-label="Close navigation" onClick={() => setIsSidebarOpen(false)} className="grid h-9 w-9 place-items-center rounded-xl text-white/65 hover:bg-white/10 hover:text-white md:hidden">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <nav className="mt-4 space-y-1.5" aria-label="Main navigation">
+          {[{ key: "map", label: "Live map", icon: MapIcon }].map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => handleTabChange(key)}
+              className={`flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-left text-sm font-semibold transition ${
+                activeTab === key ? "bg-blue-600 text-white shadow-lg shadow-blue-950/30" : "text-white/70 hover:bg-white/8 hover:text-white"
+              }`}
+            >
+              <Icon className="h-[18px] w-[18px]" />
+              {label}
+            </button>
+          ))}
+          <button type="button" onClick={() => handleTabChange("journey")} className={`flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-left text-sm font-semibold transition ${activeTab === "journey" ? "bg-blue-600 text-white shadow-lg shadow-blue-950/30" : "text-white/70 hover:bg-white/8 hover:text-white"}`}>
+            <MapPin className="h-[18px] w-[18px]" />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2">Journey {journeyStartedAt && <span className="h-2 w-2 rounded-full bg-emerald-400" />}</span>
+              {journeyStartedAt && journeyRoute.length > 1 && <span className="mt-0.5 block text-[10px] font-medium text-emerald-200/75">{journeyRoute.length - 1} stops remaining · ACTIVE</span>}
+            </span>
+          </button>
+          <button type="button" onClick={() => setLocation("/alerts/today")} className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-left text-sm font-semibold text-white/70 transition hover:bg-white/8 hover:text-white">
+            <Bell className="h-[18px] w-[18px]" /> Service alerts
+          </button>
+          {[
+            { key: "fleets", label: "Fleet tracker", icon: Search },
+            { key: "pid", label: "Station tracker", icon: Info },
+            ...(isAdmin ? [{ key: "admin", label: "Admin", icon: Shield }] : []),
+          ].map(({ key, label, icon: Icon }) => (
+            <button key={key} type="button" onClick={() => handleTabChange(key)} className={`flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-left text-sm font-semibold transition ${activeTab === key ? "bg-blue-600 text-white shadow-lg shadow-blue-950/30" : "text-white/70 hover:bg-white/8 hover:text-white"}`}>
+              <Icon className="h-[18px] w-[18px]" />
+              <span className="min-w-0 flex-1">{label}</span>
+              {key === "fleets" && <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[8px] uppercase tracking-wider text-amber-200">Premium</span>}
+            </button>
+          ))}
+        </nav>
+
+        <div className="mt-auto space-y-1.5 border-t border-white/10 pt-3">
+          <button type="button" onClick={() => { setIsVersionFirstOpen(false); setIsVersionOpen(true); setIsSidebarOpen(false); }} className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-2.5 text-left text-sm text-white/65 hover:bg-white/8 hover:text-white">
+            <Info className="h-[18px] w-[18px]" /> Version &amp; changes
+          </button>
+          <button type="button" onClick={() => setLocation("/settings")} className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-2.5 text-left text-sm text-white/65 hover:bg-white/8 hover:text-white"><Settings className="h-[18px] w-[18px]" /> Settings</button>
+          <button type="button" onClick={() => { setUserMenuMessage(""); setIsUserMenuOpen(true); setIsSidebarOpen(false); }} className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3.5 py-3 text-left hover:bg-white/10">
+            <CircleUserRound className="h-5 w-5 text-blue-300" />
+            <span className="min-w-0"><span className="block truncate text-sm font-semibold">{authSession?.user?.username ?? "Account"}</span><span className="block text-[10px] uppercase tracking-[0.15em] text-white/40">{authSession?.user?.role ?? "Session"}</span></span>
+          </button>
+        </div>
+      </aside>
 
       {isUserMenuOpen && (
         <>
@@ -2460,7 +2658,7 @@ export default function Home() {
             onClick={() => setIsUserMenuOpen(false)}
             className="absolute inset-0 z-[58] bg-transparent"
           />
-          <div className="absolute left-3 right-3 top-[6.2rem] z-[59] w-auto max-w-[19rem] rounded-[1.6rem] border border-white/10 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-2xl sm:left-6 sm:right-auto sm:top-24 sm:w-[280px] sm:max-w-none">
+          <div className="absolute left-3 right-3 top-16 z-[73] w-auto max-w-[19rem] rounded-[1.6rem] border border-white/10 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-2xl md:left-[15.75rem] md:right-auto md:top-4 md:w-[280px] md:max-w-none">
             <div className="rounded-[1.25rem] border border-white/10 bg-white/5 p-3">
               <p className="text-sm font-semibold text-white">{authSession?.user?.username ?? "Account"}</p>
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">{authSession?.user?.role ?? "Session"}</p>
@@ -2580,7 +2778,7 @@ export default function Home() {
                     <div className="flex items-center gap-3">
                       <MapPin className="h-5 w-5 text-blue-300" />
                       <div>
-                        <p className="text-base font-semibold text-white">Home Â· 15 Louise St, Brighton East</p>
+                        <p className="text-base font-semibold text-white">Home · 15 Louise St, Brighton East</p>
                         <p className="text-xs text-white/55">Saved Tyler origin</p>
                       </div>
                     </div>
@@ -2691,13 +2889,14 @@ export default function Home() {
         </>
       )}
 
-      <TransitMap
+      {!(["journey", "fleets", "pid", "admin"] as HomeTabKey[]).includes(activeTab) && <TransitMap
         journeyRoute={journeyRoute}
+        journeyBusRoutes={activeJourneyBusRoutes}
         splitCrossCityGroup={splitCrossCityGroup}
         transportModes={preferences.transportModes as Array<"train" | "tram" | "bus" | "vline">}
         onTransportModesChange={(transportModes) => updatePreferences({ transportModes })}
         persistedLayerState={preferences.selectedMapFilters}
-        onLayerStateChange={(selectedMapFilters) => updatePreferences({ selectedMapFilters: selectedMapFilters as Record<string, boolean> })}
+        onLayerStateChange={(selectedMapFilters) => updatePreferences({ selectedMapFilters: selectedMapFilters as unknown as Record<string, boolean> })}
         isAdmin={isAdmin}
         isGuest={isGuest}
         isPremium={isPremium}
@@ -2709,25 +2908,32 @@ export default function Home() {
         focusedVehicleKey={focusedVehicleKey}
         onFocusedVehicleHandled={() => setFocusedVehicleKey(null)}
         debugLineKey={adminDebugLineKey}
-      />
+      />}
+
+      {activeTab === "map" && journeyStartedAt && journeyRoute.length > 0 && (
+        <button
+          type="button"
+          onClick={finishJourney}
+          className="absolute bottom-28 left-1/2 z-[1200] -translate-x-1/2 rounded-full border border-red-300/35 bg-red-600 px-5 py-3 text-sm font-bold text-white shadow-2xl shadow-black/50 transition hover:bg-red-500 active:scale-95 md:bottom-8 md:left-auto md:right-6 md:translate-x-0"
+          aria-label="End active journey"
+        >
+          End journey
+        </button>
+      )}
 
       {activeTab === "map" && !isMobile && <RiskyRoutes />}
 
-      {activeTab === "map" && (
+      {false && activeTab === "map" && (
         <div className="absolute inset-x-0 bottom-0 z-40 pointer-events-none">
-          <div className="mx-auto w-full max-w-3xl px-3 pb-3 pointer-events-none sm:px-4 sm:pb-4">
+          <div className="w-full px-0 pb-0 pointer-events-none sm:px-0 sm:pb-0">
             <PlannerSheet isOpen={isPlannerOpen} onToggle={() => setIsPlannerOpen((value) => !value)}>
-              <div className="space-y-3.5">
-                <div className="px-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/80">Journey Planner</p>
-                  <h2 className="mt-1.5 text-lg font-semibold text-white sm:text-[1.6rem]">
-                    Route across the network without losing the map.
-                  </h2>
-                  <p className="mt-1 text-sm text-white/60">
-                    Built like a mobile transit app, but still polished on desktop.
-                  </p>
-                </div>
-
+              <form
+                className="space-y-3.5"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  computeJourneyRoute();
+                }}
+              >
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="block">
                     <span className="mb-1 block text-xs font-medium text-white/60">From your location or chosen station</span>
@@ -2746,12 +2952,6 @@ export default function Home() {
                     <input
                       value={journeyDestination}
                       onChange={(event) => setJourneyDestination(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          computeJourneyRoute();
-                        }
-                      }}
                       list="station-options"
                       placeholder="Where to?"
                       className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-base text-white outline-none transition focus:border-primary"
@@ -2759,83 +2959,20 @@ export default function Home() {
                   </label>
                 </div>
 
-                <div className="rounded-[1.7rem] border border-white/10 bg-[#0f1730]/92 p-3.5 shadow-2xl">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">Service filters</p>
-
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {visiblePlannerFilters
-                      .filter((filter) => isPlannerFilterActive(filter.key))
-                      .map((filter) => (
-                        <span
-                          key={`active-chip-${filter.key}`}
-                          className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${filter.tone}`}
-                        >
-                          {filter.label}
-                        </span>
-                      ))}
-                  </div>
-
-                  <div className="mt-3.5 flex flex-wrap gap-2.5">
-                    {([
-                      { key: "train", icon: "Train", activeClass: "border-blue-400/40 bg-blue-500 text-white shadow-lg shadow-blue-950/40" },
-                      { key: "tram", icon: tramButtonIcon, activeClass: "border-[#78BE20]/50 bg-[#78BE20] text-white shadow-lg shadow-[#78BE20]/25", isImage: true },
-                      { key: "vline", icon: "V/Line", activeClass: "border-purple-400/40 bg-purple-500 text-white shadow-lg shadow-purple-950/40" },
-                      { key: "bus", icon: busButtonIcon, activeClass: "border-[#FF8200]/55 bg-[#FF8200] text-white shadow-lg shadow-[#FF8200]/25", isImage: true },
-                    ] as Array<{ key: TransportMode; icon: string; activeClass: string; isImage?: boolean }>).map((mode) => {
-                      const active = (preferences.transportModes as TransportMode[]).includes(mode.key);
-                      return (
-                        <button
-                          key={mode.key}
-                          type="button"
-                          onClick={() => togglePlannerTransportMode(mode.key)}
-                          className={`flex h-12 w-12 items-center justify-center rounded-full border text-[10px] font-bold transition sm:h-[3.25rem] sm:w-[3.25rem] ${
-                            active
-                              ? mode.activeClass
-                              : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
-                          }`}
-                          aria-label={mode.key}
-                        >
-                          {mode.isImage ? (
-                            <img
-                              src={mode.icon}
-                              alt=""
-                              className={`h-8 w-8 rounded-full object-contain transition sm:h-9 sm:w-9 ${
-                                active ? "" : "grayscale brightness-75 opacity-60"
-                              }`}
-                            />
-                          ) : (
-                            mode.icon
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {isAdmin && (
-                    <div className="mt-4 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("admin")}
-                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-white/70 transition hover:bg-white/10"
-                      >
-                        Admin tools
-                      </button>
-                    </div>
-                  )}
-                </div>
-
                 {journeyPlannerMessage && (
-                  <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                  <div role="status" aria-live="polite" className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                     {journeyPlannerMessage}
                   </div>
                 )}
 
-                <button
-                  onClick={computeJourneyRoute}
-                  className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-base font-semibold text-white transition hover:bg-blue-500"
-                >
-                  Plan route
-                </button>
+                <div className="sticky bottom-0 z-10 -mx-1 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent px-1 pb-1 pt-3">
+                  <button
+                    type="submit"
+                    className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-base font-semibold text-white shadow-xl shadow-blue-950/40 transition hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-300"
+                  >
+                    Plan route
+                  </button>
+                </div>
 
                 <datalist id="station-options">
                   {stationOptions.map((name) => (
@@ -2843,7 +2980,7 @@ export default function Home() {
                   ))}
                 </datalist>
 
-                <div className="rounded-[1.75rem] border border-white/10 bg-slate-900/85 p-4 text-sm text-white/75">
+                {(journeyRoute.length > 0 || journeyPlannerMessage) && <div className="rounded-[1.75rem] border border-white/10 bg-slate-900 p-4 text-sm text-white/75">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-white">
@@ -2986,7 +3123,7 @@ export default function Home() {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-current/70">
-                                  Leg {index + 1} Â· {leg.badge}
+                                  Leg {index + 1} · {leg.badge}
                                 </p>
                                 <p className="mt-2 text-lg font-semibold text-white">{leg.title}</p>
                                 <p className="mt-1 text-sm text-current/90">
@@ -3015,9 +3152,9 @@ export default function Home() {
                       </button>
                     </div>
                   )}
-                </div>
+                </div>}
 
-              </div>
+              </form>
             </PlannerSheet>
           </div>
         </div>
@@ -3026,16 +3163,59 @@ export default function Home() {
       <VersionModal isOpen={isVersionOpen} onClose={handleCloseVersionModal} showWelcome={isVersionFirstOpen} />
 
       {activeTab !== "map" && (
-        <div className="absolute inset-x-0 bottom-0 z-40 pointer-events-none">
-          <div className="mx-auto w-full max-w-6xl px-3 pb-3 pointer-events-none sm:px-4 sm:pb-4">
+        <div className={activeTab === "journey" || activeTab === "fleets" || activeTab === "pid" || activeTab === "admin" ? "absolute inset-0 z-40 pointer-events-none md:pl-60" : "absolute inset-x-0 bottom-0 z-40 pointer-events-none"}>
+          <div className={activeTab === "journey" || activeTab === "fleets" || activeTab === "pid" || activeTab === "admin" ? "h-full w-full pointer-events-none" : "mx-auto w-full max-w-6xl px-3 pb-3 pointer-events-none sm:px-4 sm:pb-4"}>
             <DockedPanelSheet
-              isOpen={isUtilityPanelOpen}
+              isOpen={activeTab === "journey" || activeTab === "fleets" || activeTab === "pid" || activeTab === "admin" ? true : isUtilityPanelOpen}
               onToggle={() => setIsUtilityPanelOpen((value) => !value)}
               eyebrow={utilitySheetCopy.eyebrow}
               title={utilitySheetCopy.title}
               summary={utilitySheetCopy.summary}
+              fullPage={activeTab === "journey" || activeTab === "fleets" || activeTab === "pid" || activeTab === "admin"}
             >
-              <div className="rounded-[2rem] border border-white/10 bg-card/55 p-5 text-white shadow-2xl sm:p-6">
+              <div className={activeTab === "journey" || activeTab === "fleets" || activeTab === "pid" || activeTab === "admin" ? "min-h-full text-white" : "rounded-[2rem] border border-white/10 bg-card/55 p-5 text-white shadow-2xl sm:p-6"}>
+            {activeTab === "journey" && (
+              <div className="mx-auto grid max-w-5xl gap-5">
+                <form onSubmit={(event) => { event.preventDefault(); computeJourneyRoute(); }} className="rounded-[2rem] border border-blue-300/15 bg-slate-900 p-4 shadow-2xl sm:p-6">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="grid gap-2 text-sm text-white/65">
+                      From
+                      <button type="button" onClick={() => setIsOriginPickerOpen(true)} className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-left text-base text-white">
+                        <span>{journeyOrigin}</span><ChevronDown className="h-4 w-4" />
+                      </button>
+                    </label>
+                    <label className="grid gap-2 text-sm text-white/65">
+                      To
+                      <input value={journeyDestination} onChange={(event) => setJourneyDestination(event.target.value)} list="station-options" className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-base text-white outline-none focus:border-blue-400" />
+                    </label>
+                  </div>
+                  <button type="submit" className="mt-4 w-full rounded-2xl bg-blue-600 px-4 py-3.5 font-semibold text-white hover:bg-blue-500">Plan with TransitAlert schedule</button>
+                  <datalist id="station-options">{stationOptions.map((name) => <option key={name} value={name} />)}</datalist>
+                </form>
+
+                <div className="min-w-0 overflow-hidden rounded-[2rem] border border-white/10 bg-slate-900 p-4 sm:p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-300/80">TransitAlert result</p>
+                    {journeyStartedAt && journeyRoute.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={finishJourney}
+                        className="rounded-full border border-red-300/30 bg-red-500/15 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-red-100 transition hover:bg-red-500/25"
+                      >
+                        End journey
+                      </button>
+                    )}
+                  </div>
+                  <h2 className="mt-2 text-xl font-semibold text-white">{journeySummary}</h2>
+                  {journeyDisplay && <div className="mt-4 grid min-w-0 gap-3">{journeyDisplay.legs.map((leg, index) => <div key={`${leg.from}-${leg.to}-${index}`} className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs font-semibold uppercase tracking-wider text-blue-200">Leg {index + 1} · {leg.mode}</p><p className="mt-2 break-words font-semibold text-white">{leg.from} → {leg.to}</p><p className="mt-1 break-words text-sm text-white/55">{leg.title} · {leg.detail}</p>{leg.mode === "train" && leg.from === journeyTrainLeg?.from && <div className="mt-3 grid gap-2">{journeyMatchingTrainDepartures.length > 0 ? journeyMatchingTrainDepartures.map((departure, departureIndex) => <div key={departure.tripId} className="rounded-xl border border-blue-300/15 bg-blue-500/10 px-3 py-2.5"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-200/75">{departureIndex === 0 ? "Take this service" : "If you miss it · next service"}</p><div className="mt-1 flex flex-wrap items-center justify-between gap-2"><p className="font-semibold text-white">{new Date(departure.expectedAt || departure.scheduledAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} to {departure.destination}</p><p className="text-sm font-semibold text-blue-100">Platform {departure.platform || "check screens"}</p></div><p className="mt-1 text-xs text-white/50">{departure.route} · {departure.status === "cancelled" ? "Cancelled" : departure.delaySeconds && departure.delaySeconds > 60 ? `${Math.round(departure.delaySeconds / 60)} min late` : "On time"}</p></div>) : <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/55">Checking live departure time and platform…</p>}</div>}</div>)}</div>}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <a href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(journeyOrigin)}&destination=${encodeURIComponent(journeyDestination)}&travelmode=transit`} target="_blank" rel="noreferrer" className="rounded-2xl border border-blue-300/20 bg-blue-500/10 p-4 text-center font-semibold text-blue-100 hover:bg-blue-500/15">Cross-check in Google Maps</a>
+                  <a href="https://www.ptv.vic.gov.au/journey/" target="_blank" rel="noreferrer" className="rounded-2xl border border-violet-300/20 bg-violet-500/10 p-4 text-center font-semibold text-violet-100 hover:bg-violet-500/15">Open official PTV planner</a>
+                </div>
+              </div>
+            )}
             {activeTab === "fleets" && (
               <div className="rounded-[2rem] border border-cyan-400/15 bg-[linear-gradient(135deg,_rgba(2,6,23,0.98),_rgba(15,23,42,0.96)_45%,_rgba(8,13,24,1))] p-4 shadow-2xl sm:p-5">
                 <div className="flex flex-col gap-5">
@@ -3061,6 +3241,16 @@ export default function Home() {
                   </div>
 
                   <div className="h-px bg-cyan-300/10" />
+
+                  <label className="relative block">
+                    <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-200/45" />
+                    <input
+                      value={fleetSearchQuery}
+                      onChange={(event) => setFleetSearchQuery(event.target.value)}
+                      placeholder="Search live TDN, car, set, route, or line"
+                      className="w-full rounded-[1.1rem] border border-cyan-300/15 bg-black/25 py-3 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-white/35 focus:border-cyan-300/45"
+                    />
+                  </label>
 
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     {[
@@ -3534,7 +3724,7 @@ export default function Home() {
                             <p className="text-xs uppercase tracking-[0.18em] text-white/45">Sign-up gate</p>
                             <p className="mt-2 text-white">
                               Registration is currently limited to approved debug testers from the server allowlist <span className="font-semibold text-blue-200">APPROVED_DEBUG_TESTERS</span>.
-                              Version 0.92 is the current guest release, and version 1.0 is where normal public traveller sign-up is meant to open.
+                              Version {TRANSITALERT_WEB_VERSION} is the current guest-accessible release, and version 1.0 is where normal public traveller sign-up is meant to open.
                             </p>
                           </div>
                           <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
@@ -3764,7 +3954,7 @@ export default function Home() {
       )}
       </Tabs>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center px-4 max-[430px]:bottom-4 sm:bottom-8">
+      <div className="pointer-events-none absolute inset-x-0 bottom-5 z-[5] flex justify-center px-4 max-[430px]:bottom-4 sm:bottom-8">
         <button
           onClick={() => {
             if (isGuest) {

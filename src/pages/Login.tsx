@@ -8,12 +8,11 @@ import {
   continueAsGuest,
   fetchAuthSession,
   fetchRoles,
-  hasGuestIntent,
   loginWithPassword,
   markGuestIntent,
   registerAccount,
-  logoutSession,
 } from "@/lib/auth";
+import { TRANSITALERT_WEB_VERSION } from "@/lib/version";
 
 type AuthMode = "sign-in" | "register" | "change-password";
 
@@ -63,15 +62,6 @@ export default function Login() {
   const roles = rolesPayload?.roles ?? [];
   const databaseConfigured = session?.databaseConfigured ?? rolesPayload?.databaseConfigured ?? false;
 
-  const clearGuestSessionMutation = useMutation({
-    mutationFn: logoutSession,
-    onSettled: async () => {
-      clearGuestIntent();
-      queryClient.setQueryData(["auth-session"], { authenticated: false, user: null });
-      await queryClient.invalidateQueries({ queryKey: ["auth-session"] });
-    },
-  });
-
   useEffect(() => {
     if (session?.authenticated) {
       if (session.user?.mustChangePassword) {
@@ -79,18 +69,12 @@ export default function Login() {
         return;
       }
       if (session.user?.role === "Guest") {
-        if (hasGuestIntent()) {
-          setLocation("/app");
-          return;
-        }
-        if (clearGuestSessionMutation.isIdle) {
-          clearGuestSessionMutation.mutate();
-        }
+        setLocation("/app");
         return;
       }
       setLocation("/app");
     }
-  }, [clearGuestSessionMutation, session, setLocation]);
+  }, [session, setLocation]);
 
   useEffect(() => {
     if (roles.length > 0 && !roles.includes(registerRole)) {
@@ -422,7 +406,7 @@ export default function Login() {
                 </p>
                 <h2 className="mt-3 text-2xl font-semibold text-white">Welcome back</h2>
                 <p className="mt-2 text-sm text-white/60">
-                  Sign in to open the live map, planner, and saved account tools, or use guest mode for the public 0.92 browse experience.
+                  Sign in for saved account tools, or continue as a guest to browse TransitAlert {TRANSITALERT_WEB_VERSION}.
                 </p>
 
                 <form

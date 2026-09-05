@@ -823,9 +823,9 @@ export default function TodaysAlerts() {
                   <button
                     type="button"
                     onClick={handleToggleBrowserNotifications}
-                    disabled={!browserNotificationsSupported || browserNotificationPermission === "denied"}
+                    disabled={!browserNotificationsSupported}
                     className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                      browserNotificationPermission === "denied" || !browserNotificationsSupported
+                      !browserNotificationsSupported
                         ? "cursor-not-allowed border-white/10 bg-white/5 text-white/35"
                         : browserNotificationsEnabled
                           ? "border-emerald-400/25 bg-emerald-500/15 text-emerald-100"
@@ -837,7 +837,7 @@ export default function TodaysAlerts() {
                 </div>
                 <p className="mt-1 text-xs text-white/55">
                   {browserNotificationPermission === "denied"
-                    ? "Browser notifications are blocked for this site. Re-enable them in site settings."
+                    ? "Blocked by device settings. On iPhone open Settings → Apps → TransitAlert → Notifications → Allow Notifications, then return here."
                     : browserNotificationsSupported
                       ? "One tap enables browser alerts for new Metro notifications while the app is open."
                       : "This browser does not support web notifications here."}

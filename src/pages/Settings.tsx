@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, Crown, ExternalLink, LogOut, Save, Shield, SlidersHorizontal, User2 } from "lucide-react";
+import { Activity, ArrowLeft, Crown, ExternalLink, LogOut, Save, Shield, SlidersHorizontal, User2 } from "lucide-react";
 import { fetchAuthSession, logoutSession } from "@/lib/auth";
 import { fetchAdminConfig, saveAdminConfig, type AdminRuntimeConfig } from "@/lib/admin-config";
 import { TRANSITALERT_WEB_VERSION } from "@/lib/version";
@@ -170,6 +170,21 @@ export default function Settings() {
     enabled: isAdmin,
     retry: false,
     staleTime: 60_000,
+  });
+
+  const { data: feedStatus } = useQuery({
+    queryKey: ["feed-status", "settings"],
+    queryFn: async () => {
+      const response = await fetch("/api/feed-status", { credentials: "include" });
+      if (!response.ok) throw new Error("Data status unavailable");
+      return response.json() as Promise<{
+        gtfsSchedule?: { installed?: boolean; updatedAt?: string };
+        gtfsRealtime?: { configured?: boolean };
+        liveTrains?: { configured?: boolean };
+      }>;
+    },
+    refetchInterval: 60_000,
+    retry: false,
   });
 
   useEffect(() => {
@@ -387,6 +402,28 @@ export default function Settings() {
                 </div>
               )}
             </div>
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-white/10 bg-card/80 p-6 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-center gap-3">
+            <Activity className="h-5 w-5 text-blue-300" />
+            <div>
+              <h2 className="text-lg font-semibold">Data Status</h2>
+              <p className="text-sm text-white/60">Version, timetable installation and live feed health.</p>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            {[
+              { label: "App version", value: TRANSITALERT_WEB_VERSION, healthy: true },
+              { label: "GTFS timetable", value: feedStatus?.gtfsSchedule?.installed ? "Installed" : "Unavailable", healthy: Boolean(feedStatus?.gtfsSchedule?.installed) },
+              { label: "Realtime feeds", value: feedStatus?.gtfsRealtime?.configured ? "Configured" : "Unavailable", healthy: Boolean(feedStatus?.gtfsRealtime?.configured) },
+            ].map((item) => (
+              <div key={item.label} className={`rounded-2xl border p-4 ${item.healthy ? "border-emerald-400/20 bg-emerald-500/10" : "border-red-400/20 bg-red-500/10"}`}>
+                <p className="text-xs uppercase tracking-[0.18em] text-white/45">{item.label}</p>
+                <p className={`mt-2 text-lg font-semibold ${item.healthy ? "text-emerald-100" : "text-red-100"}`}>{item.value}</p>
+              </div>
+            ))}
           </div>
         </section>
 
