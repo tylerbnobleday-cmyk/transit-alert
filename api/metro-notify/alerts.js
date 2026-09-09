@@ -1,5 +1,12 @@
+import { findMetroTrainBlockId, findMetroTrainTrip, getVerifiedTrainMarkerDestination } from "../_lib/ptv-timetable.js";
+import { fetchNonMetroTrainDisruptions } from "../_lib/ptv-disruptions.js";
+
 const METRO_ALERTS_URL = "https://www.metrotrains.com.au/api?op=get_healthboard_alerts";
-const METRO_SERVICE_URL = "https://www.metrotrains.com.au/service/";
+// metrotrains.com.au/service/ renders a blank "Service Updates" page with no
+// content (dead on Metro's own site) — send users to Transport Victoria's
+// real, live disruptions page instead so "Details here" actually goes
+// somewhere.
+const METRO_SERVICE_URL = "https://transport.vic.gov.au/disruptions/disruptions-information";
 
 const ALERT_TYPE_LABELS = {
   service: "Service Change",
@@ -190,9 +197,14 @@ function normaliseLiveAlert(lineId, lineName, rawAlert) {
   const type = String(rawAlert?.alert_type ?? "").trim().toLowerCase();
   const cause = sentenceCase(rawAlert?.disruption_due_to ?? "");
   const typeLabel = ALERT_TYPE_LABELS[type] ?? "Service Alert";
+  // Split on real sentence-ending punctuation only — a plain /[.!?]/ split
+  // also breaks on the decimal point in a time like "8.30pm", truncating the
+  // title mid-sentence ("...from 8") well before the sentence actually
+  // ends. A period with a digit on either side is a time/decimal, not a
+  // sentence break.
   const title =
     type === "works"
-      ? summary.split(/[.!?]/)[0]?.trim() || typeLabel
+      ? summary.split(/(?<!\d)[.!?](?!\d)/)[0]?.trim() || typeLabel
       : typeLabel;
 
   return {
@@ -301,24 +313,151 @@ function createAlertsFromHealthboard(payload) {
   });
 }
 
+// Matches Metro's standard cancellation wording: "The 7:30am Anzac to Sunbury
+// service has been cancelled." Cancellations don't come with any TDN/consist
+// field from Metro's own feed, so linking two of them to "the same train"
+// requires cross-checking the real GTFS schedule (see findMetroTrainBlockId).
+const CANCELLATION_PATTERN = /^the\s+(\d{1,2}:\d{2}\s*[ap]m)\s+(.+?)\s+to\s+(.+?)\s+service has been cancelled\.?$/i;
+
+function clockMinutes(clockText) {
+  const match = clockText.trim().match(/^(\d{1,2}):(\d{2})\s*([ap]m)?$/i);
+  if (!match) return Number.POSITIVE_INFINITY;
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const meridiem = match[3]?.toLowerCase();
+  if (meridiem === "pm" && hours < 12) hours += 12;
+  if (meridiem === "am" && hours === 12) hours = 0;
+  return hours * 60 + minutes;
+}
+
+// Metro's own alert text names the origin of the specific scheduled trip
+// being cancelled, which is sometimes a mid-journey relabelling point (e.g.
+// Metro Tunnel services renumbered at Arden) rather than where the physical
+// train actually started. Cross-check the real GTFS block_id chain and swap
+// in the true starting station when the schedule shows this trip continues
+// on from an earlier one — never invent a station the schedule doesn't back.
+async function correctCancellationOrigins(alerts) {
+  return Promise.all(alerts.map(async (alert) => {
+    const match = alert.summary.trim().match(CANCELLATION_PATTERN);
+    if (!match) return alert;
+    const [, time, origin, destination] = match;
+
+    try {
+      const tripId = await findMetroTrainTrip(origin, time);
+      if (!tripId) return alert;
+
+      const tdn = tripId.match(/-([A-Z]?\d+)$/i)?.[1];
+      const resolved = await getVerifiedTrainMarkerDestination(tripId);
+      const trueOrigin = resolved?.origin?.trim();
+
+      if (!trueOrigin || trueOrigin.toLowerCase() === origin.trim().toLowerCase()) {
+        return tdn ? { ...alert, tdn } : alert;
+      }
+
+      return {
+        ...alert,
+        tdn,
+        summary: `The ${time} ${trueOrigin} to ${destination} service has been cancelled.`,
+      };
+    } catch {
+      // Never let a schedule lookup failure block showing the raw alert.
+      return alert;
+    }
+  }));
+}
+
+// Merge cancellation notices only when the real static schedule confirms two
+// legs share one physical train's block_id — never on time/route proximity
+// alone. Ambiguous or unresolved lookups are left as separate cards.
+async function mergeLinkedCancellations(alerts) {
+  const candidates = alerts
+    .map((alert) => ({ alert, match: alert.summary.trim().match(CANCELLATION_PATTERN) }))
+    .filter(({ match }) => Boolean(match));
+  if (candidates.length < 2) return alerts;
+
+  const resolved = await Promise.all(candidates.map(async ({ alert, match }) => {
+    const [, time, origin, destination] = match;
+    let blockId;
+    try {
+      blockId = await findMetroTrainBlockId(origin, time);
+    } catch {
+      blockId = undefined;
+    }
+    return blockId ? { alert, time, origin, destination, blockId } : null;
+  }));
+
+  const byBlock = new Map();
+  for (const entry of resolved) {
+    if (!entry) continue;
+    if (!byBlock.has(entry.blockId)) byBlock.set(entry.blockId, []);
+    byBlock.get(entry.blockId).push(entry);
+  }
+
+  const consumedIds = new Set();
+  const merged = [];
+  for (const group of byBlock.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => clockMinutes(a.time) - clockMinutes(b.time));
+    const first = group[0];
+    const last = group[group.length - 1];
+    merged.push({
+      id: `metro-live-merged-${group.map((entry) => entry.alert.id).join("-")}`,
+      title: "Cancellation",
+      summary: `The ${first.time} ${first.origin} to ${last.destination} service has been cancelled.`,
+      lines: [...new Set(group.flatMap((entry) => entry.alert.lines))],
+      status: "cancellation",
+      updatedAt: group.map((entry) => entry.alert.updatedAt).filter(Boolean).sort().at(-1),
+      url: first.alert.url,
+      tdn: [...new Set(group.map((entry) => entry.alert.tdn).filter(Boolean))].join(" / ") || undefined,
+    });
+    group.forEach((entry) => consumedIds.add(entry.alert.id));
+  }
+
+  if (merged.length === 0) return alerts;
+  return [...alerts.filter((alert) => !consumedIds.has(alert.id)), ...merged];
+}
+
+export async function fetchMergedMetroAlerts() {
+  const response = await fetch(METRO_ALERTS_URL, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "TransitAlert Melbourne",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Metro alerts request failed (${response.status})`);
+  }
+
+  const payload = await response.json();
+  const rawAlerts = createAlertsFromHealthboard(payload);
+  let alerts = rawAlerts;
+  try {
+    alerts = await correctCancellationOrigins(rawAlerts);
+  } catch {
+    // Best-effort enhancement — never let it block returning the raw alerts.
+  }
+  try {
+    alerts = await mergeLinkedCancellations(alerts);
+  } catch {
+    // The static schedule lookup is a best-effort enhancement — never let
+    // it block returning the (unmerged) live alerts.
+  }
+
+  try {
+    const otherModeAlerts = await fetchNonMetroTrainDisruptions();
+    alerts = [...alerts, ...otherModeAlerts];
+  } catch {
+    // V/Line/tram/bus/ferry coverage is additive — never let it block the
+    // Metro train alerts this endpoint already reliably returns.
+  }
+
+  return alerts;
+}
+
 export default async function handler(_req, res) {
   try {
-    const response = await fetch(METRO_ALERTS_URL, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "TransitAlert Melbourne",
-      },
-    });
-
-    if (!response.ok) {
-      res.status(response.status).json({
-        error: `Metro alerts request failed (${response.status})`,
-      });
-      return;
-    }
-
-    const payload = await response.json();
-    const alerts = createAlertsFromHealthboard(payload);
+    const alerts = await fetchMergedMetroAlerts();
     res.status(200).json({ alerts });
   } catch (error) {
     res.status(500).json({

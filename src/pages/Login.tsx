@@ -69,7 +69,6 @@ export default function Login() {
         return;
       }
       if (session.user?.role === "Guest") {
-        setLocation("/app");
         return;
       }
       setLocation("/app");

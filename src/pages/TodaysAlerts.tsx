@@ -14,6 +14,8 @@ type FeaturedAlert =
 type AlertFilterId =
   | "all"
   | "trespasser"
+  | "police-request"
+  | "cancellation"
   | "faulty-train"
   | "track-fault"
   | "bus-replacement"
@@ -31,6 +33,13 @@ type AlertGroupId =
   | "northern"
   | "frankston"
   | "sandringham"
+  | "buses"
+  | "trams"
+  | "vline-ballarat"
+  | "vline-bendigo"
+  | "vline-geelong"
+  | "vline-gippsland"
+  | "vline-seymour"
   | "other";
 
 type AlertFilter = {
@@ -59,10 +68,12 @@ type AlertBundle = {
 
 const ALERT_FILTERS: AlertFilter[] = [
   { id: "all", label: "All alerts" },
-  { id: "trespasser", label: "Trespassers", keywords: ["trespasser", "trespass", "police request", "person near the tracks", "person on the tracks"] },
+  { id: "trespasser", label: "Trespassers", keywords: ["trespasser", "trespass", "person near the tracks", "person on the tracks"] },
+  { id: "police-request", label: "Police request", keywords: ["police request", "police operation", "police presence", "police investigation", "police incident"] },
+  { id: "cancellation", label: "Cancellations", keywords: ["has been cancelled", "have been cancelled", "service has been cancelled", "cancellation", "run cancelled"] },
   { id: "faulty-train", label: "Faulty train", keywords: ["faulty train", "disabled train", "train fault", "mechanical fault", "mechanical issue", "equipment fault", "broken down train"] },
   { id: "track-fault", label: "Track fault", keywords: ["track fault", "signalling", "signal fault", "points fault", "overhead fault", "power fault", "infrastructure fault"] },
-  { id: "bus-replacement", label: "Bus replacement", keywords: ["bus replacement", "replacement bus", "coach replacement", "coach service"] },
+  { id: "bus-replacement", label: "Bus replacement", keywords: ["bus replacement", "replacement bus", "buses replace trains", "replacement buses", "buses will replace trains", "coach replacement", "coach service"] },
   { id: "works-upgrade", label: "Works / upgrades", keywords: ["planned work", "works", "maintenance", "upgrade", "big build", "occupation", "level crossing removal"] },
   { id: "station-access", label: "Station / access", keywords: ["station detour", "access", "exit", "lift outage", "escalator", "entrance closed", "platform closure"] },
   { id: "delay", label: "Delays", keywords: ["delay", "major delays", "delayed", "service change", "service disruption"] },
@@ -70,6 +81,7 @@ const ALERT_FILTERS: AlertFilter[] = [
 ];
 
 import { ALERT_NOTIFICATIONS_KEY, setNotificationsEnabled, showAppNotification } from "@/lib/pwa";
+import { subscribeToPush, unsubscribeFromPush } from "@/lib/push";
 
 const ALERT_GROUPS: AlertGroup[] = [
   { id: "all", label: "All groups", activeClassName: "border-white/25 bg-white/12 text-white", inactiveBadgeClassName: "border-white/10 bg-white/5 text-white/70", activeBadgeClassName: "border-white/25 bg-white/12 text-white" },
@@ -80,6 +92,13 @@ const ALERT_GROUPS: AlertGroup[] = [
   { id: "northern", label: "Upfield and Craigieburn", aliases: ["upfield line", "craigieburn line", "north melbourne", "kensington", "newmarket", "ascot vale", "moonee ponds", "essendon", "glenbervie", "strathmore", "pascoe vale", "oak park", "glenroy", "jacana", "broadmeadows", "coolaroo", "roxburgh park", "craigieburn", "macaulay", "flemington bridge", "royal park", "jewell", "brunswick", "anstey", "moreland", "coburg", "batman", "merlynston", "fawkner", "gowrie", "upfield"], activeClassName: "border-amber-400/35 bg-amber-500/15 text-amber-100", inactiveBadgeClassName: "border-amber-400/15 bg-amber-500/10 text-amber-100/85", activeBadgeClassName: "border-amber-400/35 bg-amber-500/15 text-amber-100" },
   { id: "frankston", label: "Frankston", aliases: ["frankston line", "stony point line", "glen huntly", "ormond", "mckinnon", "bentleigh", "patterson", "moorabbin", "highett", "southland", "cheltenham", "mentone", "parkdale", "mordialloc", "aspendale", "edithvale", "chelsea", "bonbeach", "carrum", "seaford", "kananook", "frankston", "leeton", "tyabb", "hastings", "bittern", "morradoo", "crib point", "stony point"], activeClassName: "border-emerald-400/35 bg-emerald-500/15 text-emerald-100", inactiveBadgeClassName: "border-emerald-400/15 bg-emerald-500/10 text-emerald-100/85", activeBadgeClassName: "border-emerald-400/35 bg-emerald-500/15 text-emerald-100" },
   { id: "sandringham", label: "Sandringham", aliases: ["sandringham line", "prahran", "windsor", "balaclava", "ripponlea", "elsternwick", "gardenvale", "north brighton", "middle brighton", "brighton beach", "hampton", "sandringham"], activeClassName: "border-[#F178AF]/45 bg-[#F178AF]/18 text-[#FFD8EA]", inactiveBadgeClassName: "border-[#F178AF]/25 bg-[#F178AF]/12 text-[#FFD8EA]", activeBadgeClassName: "border-[#F178AF]/45 bg-[#F178AF]/18 text-[#FFD8EA]" },
+  { id: "vline-ballarat", label: "Ballarat", activeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]", inactiveBadgeClassName: "border-[#B48CE8]/25 bg-[#B48CE8]/12 text-[#EBE0FB]", activeBadgeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]" },
+  { id: "vline-bendigo", label: "Bendigo", activeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]", inactiveBadgeClassName: "border-[#B48CE8]/25 bg-[#B48CE8]/12 text-[#EBE0FB]", activeBadgeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]" },
+  { id: "vline-geelong", label: "Geelong", activeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]", inactiveBadgeClassName: "border-[#B48CE8]/25 bg-[#B48CE8]/12 text-[#EBE0FB]", activeBadgeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]" },
+  { id: "vline-gippsland", label: "Gippsland", activeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]", inactiveBadgeClassName: "border-[#B48CE8]/25 bg-[#B48CE8]/12 text-[#EBE0FB]", activeBadgeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]" },
+  { id: "vline-seymour", label: "Seymour", activeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]", inactiveBadgeClassName: "border-[#B48CE8]/25 bg-[#B48CE8]/12 text-[#EBE0FB]", activeBadgeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]" },
+  { id: "buses", label: "Buses", activeClassName: "border-[#FF8200]/45 bg-[#FF8200]/18 text-[#FFE1BF]", inactiveBadgeClassName: "border-[#FF8200]/25 bg-[#FF8200]/12 text-[#FFE1BF]", activeBadgeClassName: "border-[#FF8200]/45 bg-[#FF8200]/18 text-[#FFE1BF]" },
+  { id: "trams", label: "Trams", activeClassName: "border-lime-400/35 bg-lime-500/15 text-lime-100", inactiveBadgeClassName: "border-lime-400/15 bg-lime-500/10 text-lime-100/85", activeBadgeClassName: "border-lime-400/35 bg-lime-500/15 text-lime-100" },
   { id: "other", label: "Other", activeClassName: "border-slate-300/35 bg-slate-400/15 text-slate-100", inactiveBadgeClassName: "border-slate-300/15 bg-slate-400/10 text-slate-100/85", activeBadgeClassName: "border-slate-300/35 bg-slate-400/15 text-slate-100" },
 ];
 
@@ -119,6 +138,16 @@ function getAlertGroupStripTone(group: AlertGroup) {
       return "bg-emerald-400";
     case "sandringham":
       return "bg-[#F178AF]";
+    case "vline-ballarat":
+    case "vline-bendigo":
+    case "vline-geelong":
+    case "vline-gippsland":
+    case "vline-seymour":
+      return "bg-[#B48CE8]";
+    case "buses":
+      return "bg-[#FF8200]";
+    case "trams":
+      return "bg-lime-400";
     default:
       return "bg-slate-400";
   }
@@ -143,6 +172,12 @@ function getAlertCategory(alert: MetroNotifyAlert) {
   }
   if (filter.id === "trespasser") {
     return "Trespasser";
+  }
+  if (filter.id === "police-request") {
+    return "Police Request";
+  }
+  if (filter.id === "cancellation") {
+    return "Cancellation";
   }
   if (filter.id === "faulty-train") {
     return "Faulty Train";
@@ -183,6 +218,30 @@ function getAlertFilter(alert: MetroNotifyAlert): AlertFilter {
 }
 
 function getAlertGroup(alert: MetroNotifyAlert): AlertGroup {
+  // Standalone PTV bus/tram disruptions carry a real `mode` from the source
+  // feed. Route descriptions often name a station or suburb that collides
+  // with a train line's grouping keywords below (e.g. "Epping Station"), so
+  // these are routed to their own group before any of that text matching
+  // runs — never Metro's own "buses replace trains" notices, which have no
+  // `mode` and should keep grouping with the train line they're replacing.
+  if (alert.mode === "bus") {
+    return ALERT_GROUPS.find((group) => group.id === "buses")!;
+  }
+  if (alert.mode === "tram") {
+    return ALERT_GROUPS.find((group) => group.id === "trams")!;
+  }
+  // V/Line disruptions carry a `corridors` list resolved server-side from
+  // structured GTFS route data first, affected stations second, and text
+  // matching only as a last resort — never re-run the Metro train-line
+  // alias matching below, which is unrelated and could misfile a V/Line
+  // alert (e.g. "Pakenham" appears on both a Metro line and a V/Line
+  // corridor). A `mode` of "vline" with no resolved corridor genuinely
+  // couldn't be identified, so it belongs in "Other" rather than a guess.
+  if (alert.mode === "vline") {
+    const corridorId = alert.corridors?.[0];
+    return ALERT_GROUPS.find((group) => group.id === `vline-${corridorId}`) ?? ALERT_GROUPS.find((group) => group.id === "other")!;
+  }
+
   const titleText = cleanAlertCopy(alert.title).toLowerCase();
   const summaryText = cleanAlertCopy(alert.summary).toLowerCase();
   const searchable = `${titleText} ${summaryText}`;
@@ -227,6 +286,16 @@ function getAlertGroups(alert: MetroNotifyAlert) {
   const groups = new Map<AlertGroupId, AlertGroup>();
   groups.set(primaryGroup.id, primaryGroup);
 
+  // A single V/Line disruption can span more than one corridor (e.g. "extra
+  // services" across the Geelong, Ballarat and Bendigo lines) — show it
+  // under every corridor it's actually tagged against, not just the first.
+  if (alert.mode === "vline" && (alert.corridors?.length ?? 0) > 1) {
+    for (const corridorId of alert.corridors!) {
+      const group = ALERT_GROUPS.find((entry) => entry.id === `vline-${corridorId}`);
+      if (group) groups.set(group.id, group);
+    }
+  }
+
   if (searchable.includes("southern cross") && /platforms?\s*9\s*[–-]\s*14|platforms?\s*11\s*(?:and|&)\s*12|escalator/i.test(searchable)) {
     [
       "burnley",
@@ -253,7 +322,7 @@ function isFreshAlert(updatedAt?: string) {
 
 function shouldHideExpiredAlert(alert: MetroNotifyAlert) {
   const filter = getAlertFilter(alert);
-  if (filter.id !== "trespasser") {
+  if (filter.id !== "trespasser" && filter.id !== "police-request") {
     return false;
   }
 
@@ -304,11 +373,18 @@ function getShortAlertSentence(value: string) {
   return candidate.length > 220 ? `${candidate.slice(0, 217).trimEnd()}...` : candidate;
 }
 
+// These come straight from ALERT_TYPE_LABELS: a generic status word, not a
+// description of what actually happened. When that's all we have as the
+// "title", the real information (which service, which stations) lives only
+// in the summary — show that instead of the bare status word.
+const GENERIC_ALERT_STATUS_TITLE = /^(service change|minor delay|major delay|suspended|works alert|travel alert|cancellation|good service|service alert)$/i;
+
 function getAlertFeedHeadline(alert: MetroNotifyAlert) {
   const leadLine = alert.lines.find((line) => line.trim().length > 0)?.trim();
   const title = cleanAlertCopy(alert.title);
   const summary = cleanAlertCopy(alert.summary);
-  const primaryText = title || summary || "Service alert in progress.";
+  const descriptiveTitle = title && !GENERIC_ALERT_STATUS_TITLE.test(title) ? title : "";
+  const primaryText = descriptiveTitle || getShortAlertSentence(summary) || summary || title || "Service alert in progress.";
   const matchedGroup = getAlertGroup(alert);
   const leadLineMatchesGroup = leadLine
     ? matchedGroup.aliases?.some((alias) => alias.toLowerCase() === leadLine.toLowerCase()) ?? false
@@ -737,6 +813,11 @@ export default function TodaysAlerts() {
       const nextValue = !browserNotificationsEnabled;
       setBrowserNotificationsEnabled(nextValue);
       setNotificationsEnabled(nextValue);
+      if (nextValue) {
+        void subscribeToPush();
+      } else {
+        void unsubscribeFromPush();
+      }
       return;
     }
 
@@ -749,6 +830,9 @@ export default function TodaysAlerts() {
     const enabled = permission === "granted";
     setBrowserNotificationsEnabled(enabled);
     setNotificationsEnabled(enabled);
+    if (enabled) {
+      void subscribeToPush();
+    }
   };
 
   return (
@@ -839,7 +923,7 @@ export default function TodaysAlerts() {
                   {browserNotificationPermission === "denied"
                     ? "Blocked by device settings. On iPhone open Settings → Apps → TransitAlert → Notifications → Allow Notifications, then return here."
                     : browserNotificationsSupported
-                      ? "One tap enables browser alerts for new Metro notifications while the app is open."
+                      ? "One tap enables push alerts for new Metro disruptions, even when TransitAlert is closed."
                       : "This browser does not support web notifications here."}
                 </p>
               </div>
@@ -996,7 +1080,7 @@ export default function TodaysAlerts() {
                       </h3>
                       <p className="mt-2 text-sm text-white/60">{getAlertFeedDetail(alert)}</p>
 
-                      {(displayLines.length > 0 || routeLabel) && (
+                      {(displayLines.length > 0 || routeLabel || alert.tdn) && (
                         <div className="mt-3 flex flex-wrap gap-2">
                           {displayLines.map((line) => (
                             <span
@@ -1009,6 +1093,11 @@ export default function TodaysAlerts() {
                           {routeLabel ? (
                             <span className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
                               {routeLabel}
+                            </span>
+                          ) : null}
+                          {alert.tdn ? (
+                            <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200">
+                              TDN {alert.tdn}
                             </span>
                           ) : null}
                         </div>
@@ -1258,7 +1347,7 @@ export default function TodaysAlerts() {
                       </p>
                     </div>
 
-                    {(displayLines.length > 0 || bundle.routeLabels.length > 0) && (
+                    {(displayLines.length > 0 || bundle.routeLabels.length > 0 || alert.tdn) && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {displayLines.map((line) => (
                           <span key={`${bundle.id}-expanded-${line}`} className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
@@ -1270,6 +1359,11 @@ export default function TodaysAlerts() {
                             {routeLabel}
                           </span>
                         ))}
+                        {alert.tdn ? (
+                          <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200">
+                            TDN {alert.tdn}
+                          </span>
+                        ) : null}
                       </div>
                     )}
 

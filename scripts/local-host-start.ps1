@@ -39,17 +39,28 @@ if (!(Test-Path $configPath)) {
     "https://tylerbnobleday-cmyk.github.io/transit-alert/"
   )
   DatabaseUrl = ""
+  RegistrationPhase = "public"
   ApprovedDebugTesters = "Jack Miller,jackmiller"
   PtvSubscriptionKey = ""
   PtvDeveloperId = ""
   PtvApiKey = ""
   NswTransportApiKey = ""
+  VapidPublicKey = ""
+  VapidPrivateKey = ""
+  VapidSubject = "mailto:admin@transit-alert.com"
 }
 "@
   Set-Content -Path $configPath -Value $config -Encoding UTF8
 }
 
 . $configPath
+
+# Older configs (created before RegistrationPhase existed) won't define it —
+# default to public rather than silently falling back to the app's own
+# debug-testers-only default, which would undo an explicit prior choice.
+if (-not $HostConfig.ContainsKey("RegistrationPhase") -or [string]::IsNullOrWhiteSpace([string]$HostConfig.RegistrationPhase)) {
+  $HostConfig.RegistrationPhase = "public"
+}
 
 $allowedOrigins = $HostConfig.AllowedOrigins -join ","
 $launcher = @"
@@ -61,11 +72,15 @@ set ADMIN_PASSWORD=$($HostConfig.AdminPassword)
 set AUTH_SESSION_SECRET=$($HostConfig.AuthSessionSecret)
 set ALLOWED_ORIGINS=$allowedOrigins
 set DATABASE_URL=$($HostConfig.DatabaseUrl)
+set REGISTRATION_PHASE=$($HostConfig.RegistrationPhase)
 set APPROVED_DEBUG_TESTERS=$($HostConfig.ApprovedDebugTesters)
 set PTV_SUBSCRIPTION_KEY=$($HostConfig.PtvSubscriptionKey)
 set PTV_DEVELOPER_ID=$($HostConfig.PtvDeveloperId)
 set PTV_TIMETABLE_API_KEY=$($HostConfig.PtvApiKey)
 set NSW_TRANSPORT_API_KEY=$($HostConfig.NswTransportApiKey)
+set VAPID_PUBLIC_KEY=$($HostConfig.VapidPublicKey)
+set VAPID_PRIVATE_KEY=$($HostConfig.VapidPrivateKey)
+set VAPID_SUBJECT=$($HostConfig.VapidSubject)
 "$bundledNodePath" .\server\render-server.js 1>> ".\.local-host\server.out.log" 2>> ".\.local-host\server.err.log"
 "@
 Set-Content -Path $launcherPath -Value $launcher -Encoding ASCII
@@ -92,11 +107,15 @@ $env:ADMIN_PASSWORD = [string]$HostConfig.AdminPassword
 $env:AUTH_SESSION_SECRET = [string]$HostConfig.AuthSessionSecret
 $env:ALLOWED_ORIGINS = $allowedOrigins
 $env:DATABASE_URL = [string]$HostConfig.DatabaseUrl
+$env:REGISTRATION_PHASE = [string]$HostConfig.RegistrationPhase
 $env:APPROVED_DEBUG_TESTERS = [string]$HostConfig.ApprovedDebugTesters
 $env:PTV_SUBSCRIPTION_KEY = [string]$HostConfig.PtvSubscriptionKey
 $env:PTV_DEVELOPER_ID = [string]$HostConfig.PtvDeveloperId
 $env:PTV_TIMETABLE_API_KEY = [string]$HostConfig.PtvApiKey
 $env:NSW_TRANSPORT_API_KEY = [string]$HostConfig.NswTransportApiKey
+$env:VAPID_PUBLIC_KEY = [string]$HostConfig.VapidPublicKey
+$env:VAPID_PRIVATE_KEY = [string]$HostConfig.VapidPrivateKey
+$env:VAPID_SUBJECT = [string]$HostConfig.VapidSubject
 
 $process = Start-Process `
   -FilePath $bundledNodePath `

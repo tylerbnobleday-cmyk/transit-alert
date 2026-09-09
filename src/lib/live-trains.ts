@@ -4,6 +4,11 @@ import { fetchConsistSnapshot } from "@/lib/transportvic-bot";
 import { getApiUrl } from "@/lib/api-config";
 
 export type LiveTrain = {
+  leadingSet?: { setId: string; source: string; sourceUrl: string; observedAt: string } | null;
+  serviceDate?: string;
+  vehicleId?: string;
+  allocation?: { tripId: string; serviceDate: string; stockType: "VLocity";
+    setIds: string[]; carCount: number; source: string; observedAt: string; validUntil: string } | null;
   tdn: string;
   tripId?: string;
   lat: number;
@@ -188,6 +193,10 @@ function normaliseLiveTrain(raw: Partial<LiveTrain> & Record<string, unknown>, i
     heading: typeof raw.heading === "number" ? raw.heading : undefined,
     trainType: typeof raw.trainType === "string" && raw.trainType.trim() ? raw.trainType : "Metro Train",
     consist: normaliseConsistLabel(raw.consist),
+    serviceDate: raw.serviceDate,
+    vehicleId: raw.vehicleId,
+    allocation: raw.allocation ?? null,
+    leadingSet: raw.leadingSet ?? null,
     serviceDescription,
   };
 }
@@ -259,6 +268,17 @@ function inferLineFromText(...values: Array<string | null | undefined>) {
 export function isVlineLiveTrain(train: Pick<LiveTrain, "line" | "destination" | "serviceDescription" | "trainType">) {
   const joined = `${train.line} ${train.destination} ${train.serviceDescription ?? ""} ${train.trainType}`.toLowerCase();
   return train.line.trim().toLowerCase() === "v/line" || VLINE_KEYWORDS.some((keyword) => joined.includes(keyword));
+}
+
+// NSW TrainLink is a distinct interstate operator that shares the same
+// "regional" bucket as V/Line in isVlineLiveTrain (both need the same city-vs-
+// regional map/UI treatment), but it is NOT V/Line — display code that
+// branches only on isVlineLiveTrain and assumes the non-metro case must be
+// V/Line (operator label, origin fallback, etc.) needs this narrower check
+// first to avoid mislabelling a real NSW TrainLink XPT as a V/Line service.
+export function isNswTrainLinkLiveTrain(train: Pick<LiveTrain, "line" | "destination" | "serviceDescription" | "trainType">) {
+  const joined = `${train.line} ${train.destination} ${train.serviceDescription ?? ""} ${train.trainType}`.toLowerCase();
+  return /(nsw trainlink|trainlink|\bxpt\b|xplorer)/.test(joined);
 }
 
 function calculateBearing(from: [number, number], to: [number, number]) {

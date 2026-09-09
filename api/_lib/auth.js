@@ -673,8 +673,15 @@ export async function registerUser(input) {
     })
     .returning();
 
+  // Role and admin access always start plain (Traveller, non-admin) — an
+  // approved debug tester only ever gets premium features unlocked
+  // automatically, never elevated role or admin access. Anything beyond
+  // premium is still a manual admin-panel grant.
   await db.insert(userPreferencesTable).values({
     userId: user.id,
+    ...(input.grantPremium
+      ? { appPreferences: { ...defaultPreferences.appPreferences, premiumAccess: true } }
+      : {}),
   });
 
   return sanitizeUser(user);

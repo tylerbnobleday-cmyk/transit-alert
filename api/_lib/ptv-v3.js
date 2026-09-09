@@ -26,10 +26,10 @@ export function signedPtvV3Url(pathname, parameters = {}) {
   return url;
 }
 
-export async function ptvV3Fetch(pathname, parameters = {}) {
+export async function ptvV3Fetch(pathname, parameters = {}, timeoutMs = 20_000) {
   const response = await fetch(signedPtvV3Url(pathname, parameters), {
     headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.message || data?.error || `PTV Timetable v3 failed (${response.status}).`);

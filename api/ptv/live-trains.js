@@ -17,7 +17,7 @@ const PTV_FEEDS = [
   },
 ];
 
-const NSW_TRAINS_VEHICLE_POSITIONS_URL = "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/nswtrains";
+const NSW_TRAINS_VEHICLE_POSITIONS_URL = "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/nswtrains";
 let ptvV3Cache = { loadedAt: 0, trains: [] };
 // Realtime feeds update in short bursts. Keep this cache just long enough to
 // coalesce simultaneous clients, not long enough to make moving trains stale.
@@ -189,6 +189,25 @@ function inferNswTrainLinkServiceLabel(...values) {
   return "NSW TrainLink XPT";
 }
 
+// The NSW feed's own vehicle label is the only field that reliably carries a
+// real place name for services outside our small destinationMap keyword list
+// below (e.g. "05:50pm (135)  Broadmeadow - Taree Manning Mall", "05:59pm
+// Newcastle Interchange - Scone") — an optional departure time and trip
+// number prefix the actual "Origin - Destination" pair. Parsing this directly
+// avoids falling back to the generic "NSW TrainLink XPT" placeholder (which
+// then makes the map/detail-panel code treat the vehicle as having no real
+// destination at all, and guess a Melbourne-only fallback like "Flinders
+// Street" that is nonsensical for an interstate NSW service).
+function parseNswTrainLinkRouteFromLabel(vehicleLabel) {
+  if (typeof vehicleLabel !== "string") return null;
+  const match = vehicleLabel.match(/^\s*\d{1,2}:\d{2}\s*(?:am|pm)?\s*(?:\(\S+\)\s*)?(.+?)\s+-\s+(.+?)\s*$/i);
+  if (!match) return null;
+  const origin = match[1]?.trim();
+  const destination = match[2]?.trim();
+  if (!origin || !destination) return null;
+  return { origin, destination };
+}
+
 function inferNswTrainLinkDestination(...values) {
   const joined = values
     .filter((value) => typeof value === "string" && value.trim())
@@ -238,7 +257,9 @@ function buildNswLiveTrains(feed) {
       const vehicleId = vehicle.vehicle?.id;
       const entityId = entity.id;
       const serviceLabel = inferNswTrainLinkServiceLabel(routeId, tripId, vehicleLabel, vehicleId, entityId);
-      const destination = inferNswTrainLinkDestination(routeId, tripId, vehicleLabel, vehicleId, entityId);
+      const labelRoute = parseNswTrainLinkRouteFromLabel(vehicleLabel);
+      const destination = labelRoute?.destination ?? inferNswTrainLinkDestination(routeId, tripId, vehicleLabel, vehicleId, entityId);
+      const origin = labelRoute?.origin;
       const timestamp = toNumber(vehicle.timestamp);
       const directionId = toNumber(vehicle.trip?.directionId);
       const tdn = getFirstMeaningfulText(vehicleLabel, tripId, vehicleId, entityId, routeId, "XPT");
@@ -262,6 +283,7 @@ function buildNswLiveTrains(feed) {
         lat: latitude,
         lng: longitude,
         line: serviceLabel,
+        origin,
         destination,
         status: "on_time",
         timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
@@ -269,7 +291,13 @@ function buildNswLiveTrains(feed) {
         heading: typeof position.bearing === "number" ? position.bearing : undefined,
         trainType: serviceLabel.includes("Xplorer") ? "NSW TrainLink Xplorer" : "NSW TrainLink XPT",
         consist,
-        serviceDescription: [serviceLabel, destination, tripStartDate].filter(Boolean).join(" · "),
+        // Frontend summary parsing (getVehicleOriginFallback/getVehicleStoppingPattern
+        // in Map.tsx) splits on the literal word " to " to recover origin/destination
+        // from this string, matching the format used for every other line — so this
+        // needs the same separator, not an arrow, for that fallback to actually apply.
+        serviceDescription: origin
+          ? `${origin} to ${destination}`
+          : [serviceLabel, destination, tripStartDate].filter(Boolean).join(" · "),
       };
     })
     .filter(Boolean);
@@ -302,6 +330,10 @@ function buildPtvLiveTrains(feed, source) {
       return {
         tdn: publishedTdn || label,
         tripId,
+        serviceDate: vehicle.trip?.startDate || new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Australia/Melbourne", year: "numeric", month: "2-digit", day: "2-digit",
+        }).format(new Date()).replace(/-/g, ""),
+        vehicleId: vehicle.vehicle?.id || undefined,
         lat: latitude,
         lng: longitude,
         line: resolvedLine,
@@ -444,7 +476,12 @@ async function refreshLiveTrains({ ptvSubscriptionKey, ptvV3Configured, nswTrans
   const rawTrains = responses
     .filter((result) => result.status === "fulfilled")
     .flatMap((result) => result.value);
+  const allocations = await loadVlineAllocations();
   const trains = await Promise.all(rawTrains.map(async (train) => {
+    if (train.tripId?.startsWith("01-")) {
+      train.allocation = resolveVlineAllocation(train, allocations);
+      train.leadingSet = (await reportedVlineLeadingSets(train.serviceDate)).get(train.tdn) || null;
+    }
     const verifiedJourney = await getVerifiedTrainMarkerDestination(train.tripId);
     return verifiedJourney
       ? {
@@ -547,3 +584,5 @@ export default async function handler(req, res) {
     });
   }
 }
+import { loadVlineAllocations, resolveVlineAllocation } from "../_lib/vline-allocations.js";
+import { reportedVlineLeadingSets } from "../_lib/vline-public-data.js";

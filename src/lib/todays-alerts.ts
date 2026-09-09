@@ -10,6 +10,9 @@ export type MetroNotifyAlert = {
   updatedAt?: string;
   url?: string;
   addToCalendarUrl?: string;
+  tdn?: string;
+  mode?: "bus" | "tram" | "vline";
+  corridors?: string[];
   source: "metro";
 };
 
@@ -128,6 +131,11 @@ function normaliseMetroAlert(raw: Partial<MetroNotifyAlert> & Record<string, unk
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : undefined,
     url: typeof raw.url === "string" ? raw.url : undefined,
     addToCalendarUrl: typeof raw.addToCalendarUrl === "string" ? raw.addToCalendarUrl : undefined,
+    tdn: typeof raw.tdn === "string" && raw.tdn.trim() ? raw.tdn.trim() : undefined,
+    mode: raw.mode === "bus" || raw.mode === "tram" || raw.mode === "vline" ? raw.mode : undefined,
+    corridors: Array.isArray(raw.corridors)
+      ? raw.corridors.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+      : undefined,
     source: "metro",
   };
 }
@@ -239,16 +247,24 @@ function isGenericPlannedWorksAlert(alert: MetroNotifyAlert) {
   return /planned works?$/i.test(cleanAlertText(alert.title));
 }
 
+// "the City" and "City" are the same place — PTV's own feeds are
+// inconsistent about the leading article between otherwise-identical
+// station/place names, so leaving it in makes the same real disruption
+// produce two different signatures and defeats duplicate detection.
+function normaliseRoutePlaceName(value: string) {
+  return value.trim().replace(/^the\s+/i, "");
+}
+
 function extractRouteSignature(value: string) {
   const cleaned = getNormalisedAlertText(value);
   const betweenMatch = cleaned.match(/\bbetween\s+(.+?)\s+and\s+(.+?)(?:\s+from|\s+while|\s+during|\s+until|$)/i);
   if (betweenMatch) {
-    return `${betweenMatch[1].trim()}|${betweenMatch[2].trim()}`;
+    return `${normaliseRoutePlaceName(betweenMatch[1])}|${normaliseRoutePlaceName(betweenMatch[2])}`;
   }
 
   const fromMatch = cleaned.match(/\bfrom\s+(.+?)\s+to\s+(.+?)(?:\s+from|\s+while|\s+during|\s+until|$)/i);
   if (fromMatch) {
-    return `${fromMatch[1].trim()}|${fromMatch[2].trim()}`;
+    return `${normaliseRoutePlaceName(fromMatch[1])}|${normaliseRoutePlaceName(fromMatch[2])}`;
   }
 
   return null;
@@ -384,6 +400,54 @@ function dedupeMetroAlerts(alerts: MetroNotifyAlert[]) {
   return mergeRelatedWorksAlerts(collapseSupersededRouteAlerts(collapseGenericPlannedWorksWrappers(deduped)));
 }
 
+const MONTH_NAME_INDEX: Record<string, number> = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+};
+const ALERT_DATE_PATTERN = new RegExp(`\\b(\\d{1,2})\\s+(${Object.keys(MONTH_NAME_INDEX).join("|")})\\b`, "gi");
+
+// Multi-night works notices ("buses replace trains ... Sunday 6 September to
+// Wednesday 9 September") are typically published once and never touched
+// again in the feed, so their updatedAt timestamp goes "stale" by the usual
+// freshness check well before the closure itself is over — a closure
+// announced 4 days ago that runs for a week is still happening tonight.
+// Pull the real start/end dates out of the alert text and use them as an
+// ADDITIONAL, purely widening signal: this only ever makes an alert MORE
+// likely to still count as current, never less, so it can't hide something
+// the existing updatedAt-based check would already show.
+function parseAlertActiveWindow(text: string): { start: number; end: number } | null {
+  const matches = [...text.matchAll(ALERT_DATE_PATTERN)];
+  if (matches.length < 2) return null;
+
+  const toTimestamp = (day: string, monthName: string, year: number) => {
+    const month = MONTH_NAME_INDEX[monthName.toLowerCase()];
+    if (month === undefined) return Number.NaN;
+    return new Date(year, month, Number(day), 23, 59, 59).getTime();
+  };
+
+  const first = matches[0];
+  const last = matches[matches.length - 1];
+  const year = new Date().getFullYear();
+  const start = toTimestamp(first[1], first[2], year);
+  let end = toTimestamp(last[1], last[2], year);
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+
+  // A range that reads as ending before it starts within the same calendar
+  // year almost always means it crosses into next year (e.g. published in
+  // December for early-January works) rather than being malformed.
+  if (end < start) {
+    end = toTimestamp(last[1], last[2], year + 1);
+  }
+  return { start, end };
+}
+
+function isWithinParsedAlertWindow(alert: MetroNotifyAlert, graceMs = 1000 * 60 * 60 * 24) {
+  const window = parseAlertActiveWindow(`${alert.title} ${alert.summary}`);
+  if (!window) return false;
+  const now = Date.now();
+  return now >= window.start - graceMs && now <= window.end + graceMs;
+}
+
 export function isAlertCurrent(alert: MetroNotifyAlert) {
   if (!alert.updatedAt) {
     return true;
@@ -423,7 +487,7 @@ export function isProminentAlert(alert: MetroNotifyAlert) {
   }
 
   if (/buses replace trains|replacement buses|bus replacement|station closed|night works|weekend works|suspended/.test(searchable)) {
-    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 24 * 5;
+    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 24 * 5 || isWithinParsedAlertWindow(alert);
   }
 
   if (/car space|car park|parkiteer|escalator|lift outage|pedestrian access|underpass|commuter car park/.test(searchable)) {
@@ -447,8 +511,12 @@ export function isHeadlineAlert(alert: MetroNotifyAlert) {
     return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 12;
   }
 
+  if (/has been cancelled|have been cancelled|service cancelled|run cancelled|cancellation/.test(searchable)) {
+    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 12;
+  }
+
   if (/buses replace trains|replacement buses|bus replacement|station closed|suspended/.test(searchable)) {
-    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 24 * 3;
+    return !hasValidUpdatedAt || ageMs <= 1000 * 60 * 60 * 24 * 3 || isWithinParsedAlertWindow(alert);
   }
 
   if (/night works|planned works|maintenance|station access|access notice|car space|car park|parkiteer|escalator|lift outage|pedestrian access|underpass|commuter car park/.test(searchable)) {

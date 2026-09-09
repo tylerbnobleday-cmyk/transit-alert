@@ -217,6 +217,16 @@ export function TopBar({ onOpenAlerts, onOpenUserMenu, onOpenVersion, user }: To
   const iosNeedsInstall = isIosDevice() && !isStandaloneApp();
 
   useEffect(() => {
+    // Checked fresh here rather than via notificationActive state, so this
+    // only fires once against the real value at launch and never re-opens
+    // the guide mid-session just because that state happens to change (e.g.
+    // the user turning notifications off again later).
+    if (notificationsEnabled()) return;
+    const timer = window.setTimeout(() => setIsNotificationGuideOpen(true), 900);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     const refreshPermission = () => {
       if ("Notification" in window) setNotificationPermission(Notification.permission);
     };
