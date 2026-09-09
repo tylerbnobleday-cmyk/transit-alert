@@ -29,6 +29,7 @@ const realtimeCache = new Map();
 let timetablePromise;
 let busStopIndex;
 let trainMarkerDestinationsPromise;
+let tripStartIndexPromise;
 
 export function readIndexedBusStopTimes(tripId) {
   if (!fs.existsSync(BUS_STOP_TIMES_PATH) || !fs.existsSync(BUS_STOP_INDEX_PATH)) return [];
@@ -448,6 +449,14 @@ export async function getVerifiedStationDepartures(stationName) {
         );
         const realtimeSeconds = toNumber(realtimeStop?.departure?.time || realtimeStop?.arrival?.time);
         const expectedDate = realtimeSeconds ? new Date(realtimeSeconds * 1000) : scheduledDate;
+        // The live feed's trip_id carries no date, so a trip whose calendar is
+        // active on both scanned service dates (the common case for any daily
+        // service) can get its live position matched while scanning the WRONG
+        // day — pairing a correct live time with a scheduledDate exactly one
+        // calendar day off. That showed up as a bogus "1440 min late". Skip
+        // (without marking seenTrips) so the correctly-dated pass can still
+        // claim this trip instead of being locked out by the mismatched one.
+        if (realtimeSeconds && Math.abs(expectedDate.getTime() - scheduledDate.getTime()) > 3 * 60 * 60 * 1000) continue;
         if (expectedDate.getTime() < now - 60_000 || expectedDate.getTime() > windowEnd) continue;
         seenTrips.add(trip.id);
         const route = trainMode.routes.get(trip.routeId);
@@ -522,7 +531,31 @@ export async function getVerifiedTrainTrip(tripId) {
   const serviceDate = realtimeTrip?.trip?.startDate || getServiceDate();
   tripId = resolveScheduledTripId(trainMode, requestedTripId, serviceDate) || requestedTripId;
   const trip = trainMode.trips.get(tripId);
-  const route = trip ? trainMode.routes.get(trip.routeId) : undefined;
+  // This endpoint only ever knows Victoria's own schedule (Metro + V/Line).
+  // A tripId from another state's feed (Sydney Trains, NSW TrainLink) is
+  // never in trainMode.trips, but every call site below builds its segment
+  // from whatever it's given regardless of whether the trip was actually
+  // found — so an unmatched tripId used to fabricate a placeholder segment
+  // (blank origin/destination "Unknown origin → Unknown destination", "Time
+  // TBC", the raw tripId re-shown as if it were a real TDN) instead of
+  // reporting plainly that this trip isn't in this schedule at all.
+  if (!trip) {
+    return {
+      tripId: requestedTripId,
+      scheduledTripId: undefined,
+      nextServices: [],
+      route: undefined,
+      destination: undefined,
+      segmentTripIds: [],
+      segments: [],
+      formationSegments: [],
+      stops: [],
+      previousFormationStatus: "unknown",
+      nextFormationStatus: "unknown",
+      source: null,
+    };
+  }
+  const route = trainMode.routes.get(trip.routeId);
   const now = Date.now();
 
   const realtimeTrips = realtimeFeed ? buildRealtimeTripMap(realtimeFeed) : new Map();
@@ -733,11 +766,23 @@ export async function getVerifiedTrainTrip(tripId) {
   const nextFormationStatus = nextFormationTripId
     ? "linked"
     : trip?.blockId && !anyLaterBlockCandidate ? "stabled" : "unknown";
+  // A City Loop out-and-back (e.g. Frankston -> Flinders Street -> Frankston
+  // on a different TDN) links up here the same way a genuine same-direction
+  // through-run does (both share a real block_id), but flattening it into one
+  // timeline would show the train travelling to Flinders Street then
+  // immediately continuing back out to where it just came from — a confusing
+  // "through-ran" pattern, not a real single trip's stopping pattern. Detect
+  // that reversal (formation's first origin === its last destination) and
+  // fall back to just this trip's own immediate segments in that case.
+  const formationIsSameTerminusRoundTrip =
+    Boolean(formationSegments[0]?.origin) &&
+    normaliseStationName(formationSegments[0]?.origin ?? "") === normaliseStationName(formationSegments.at(-1)?.destination ?? "");
+  const stopsSourceSegments = formationIsSameTerminusRoundTrip ? segments : formationSegments;
   // The public TDN may change while the physical train continues. Build the
   // visible timeline from the full linked formation so "show prior stops"
   // includes stations served before that TDN boundary. Deduplicate any shared
   // handover station generically (Town Hall, Flinders Street, or elsewhere).
-  const stops = formationSegments.flatMap((segment, segmentIndex, allSegments) => {
+  const stops = stopsSourceSegments.flatMap((segment, segmentIndex, allSegments) => {
     const segmentStops = segment.stops;
     if (segmentIndex === 0 || segmentStops.length === 0) return segmentStops;
     const previousLastStop = allSegments[segmentIndex - 1]?.stops.at(-1)?.name;
@@ -784,85 +829,162 @@ export async function getVerifiedTrainTrip(tripId) {
   };
 }
 
+// Populates `destinations` for one GTFS mode (Metro or V/Line — they're
+// separate static schedules with their own trips/stops/blocks, so each is
+// processed independently rather than mixed together). This used to run for
+// Metro only; V/Line trip_ids never resolved here at all, so every V/Line
+// vehicle relied solely on the live feed's own direction_id, which has been
+// observed to disagree with the static schedule for the very same trip_id.
+// Running this for V/Line too gives it the same reliable, static-schedule-
+// verified destination Metro already had.
+function collectTrainMarkerDestinations(mode, destinations) {
+  const groups = new Map();
+  const seconds = (value) => {
+    const [hours, minutes, secs] = String(value || "").split(":").map(Number);
+    return Number.isFinite(hours) && Number.isFinite(minutes) && Number.isFinite(secs)
+      ? hours * 3600 + minutes * 60 + secs
+      : Number.NaN;
+  };
+  const tripRows = (id) => [...(mode.stopTimesByTrip.get(id) || [])]
+    .sort((left, right) => left.stopSequence - right.stopSequence);
+
+  for (const [id, trip] of mode.trips) {
+    const rows = tripRows(id);
+    if (!rows.length) continue;
+    const first = rows[0];
+    const last = rows.at(-1);
+    const originStop = mode.stops.get(first.stopId)?.name;
+    const finalStop = mode.stops.get(last.stopId)?.name;
+    destinations.set(id, {
+      origin: (originStop || "").replace(/\s+Station$/i, ""),
+      destination: (trip.destination || finalStop || "").replace(/\s+Station$/i, ""),
+    });
+    if (!trip.blockId) continue;
+    const key = trip.blockId;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ id, trip, rows, first, last });
+  }
+
+  for (const group of groups.values()) {
+    group.sort((left, right) => seconds(left.first.departureTime || left.first.arrivalTime) - seconds(right.first.departureTime || right.first.arrivalTime));
+    for (const current of group) {
+      const currentStart = seconds(current.first.departureTime || current.first.arrivalTime);
+      const previous = group.find((candidate) => {
+        if (candidate.id === current.id || candidate.last.stopId !== current.first.stopId) return false;
+        const gap = currentStart - seconds(candidate.last.arrivalTime || candidate.last.departureTime);
+        return gap >= 0 && gap <= 3600;
+      });
+      if (previous) {
+        const previousOrigin = mode.stops.get(previous.first.stopId)?.name;
+        const currentJourney = destinations.get(current.id);
+        if (previousOrigin && currentJourney) {
+          destinations.set(current.id, {
+            ...currentJourney,
+            origin: previousOrigin.replace(/\s+Station$/i, ""),
+          });
+        }
+      }
+      const currentEnd = seconds(current.last.arrivalTime || current.last.departureTime);
+      const next = group.find((candidate) => {
+        if (candidate.id === current.id || candidate.first.stopId !== current.last.stopId) return false;
+        const gap = seconds(candidate.first.departureTime || candidate.first.arrivalTime) - currentEnd;
+        return gap >= 0 && gap <= 3600;
+      });
+      if (!next) continue;
+      const finalStop = mode.stops.get(next.last.stopId)?.name;
+      const finalDestination = (next.trip.destination || finalStop || "")
+        .replace(/\s+Station$/i, "")
+        .replace(/\s+via\s+.+$/i, "");
+      const interchange = (mode.stops.get(current.last.stopId)?.name || "").replace(/\s+Station$/i, "");
+      const usesCityLoop = current.rows.some((row) => /^(parliament|melbourne central|flagstaff)$/i.test(
+        (mode.stops.get(row.stopId)?.name || "").replace(/\s+Station$/i, ""),
+      ));
+      const currentOrigin = (mode.stops.get(current.first.stopId)?.name || "").replace(/\s+Station$/i, "");
+      const currentDestination = `${interchange}${usesCityLoop ? " via City Loop" : ""}`;
+      // A same-terminus round trip (e.g. Frankston -> City -> back to
+      // Frankston later the same day) would otherwise chain this leg's
+      // real, immediate direction-aware destination onto the day's
+      // eventual return stop, collapsing down to a nonsensical
+      // "Frankston via City Loop" label on the unselected marker even
+      // while the train is genuinely city-bound right now. Keep this
+      // leg's own destination instead of chaining when that happens.
+      const isSameTerminusRoundTrip = finalDestination
+        && normaliseStationName(finalDestination) === normaliseStationName(currentOrigin);
+      if (finalDestination && !isSameTerminusRoundTrip) {
+        destinations.set(current.id, {
+          origin: currentOrigin,
+          destination: `${currentDestination} → ${finalDestination}`,
+        });
+      } else if (isSameTerminusRoundTrip) {
+        destinations.set(current.id, {
+          origin: currentOrigin,
+          destination: currentDestination,
+        });
+      }
+    }
+  }
+  return destinations;
+}
+
 export async function getVerifiedTrainMarkerDestination(tripId) {
   if (!tripId) return undefined;
   if (!trainMarkerDestinationsPromise) {
     trainMarkerDestinationsPromise = loadTimetable().then((timetable) => {
       const destinations = new Map();
-      const groups = new Map();
-      const seconds = (value) => {
-        const [hours, minutes, secs] = String(value || "").split(":").map(Number);
-        return Number.isFinite(hours) && Number.isFinite(minutes) && Number.isFinite(secs)
-          ? hours * 3600 + minutes * 60 + secs
-          : Number.NaN;
-      };
-      const tripRows = (id) => [...(timetable.train.stopTimesByTrip.get(id) || [])]
-        .sort((left, right) => left.stopSequence - right.stopSequence);
-
-      for (const [id, trip] of timetable.train.trips) {
-        const rows = tripRows(id);
-        if (!rows.length) continue;
-        const first = rows[0];
-        const last = rows.at(-1);
-        const originStop = timetable.train.stops.get(first.stopId)?.name;
-        const finalStop = timetable.train.stops.get(last.stopId)?.name;
-        destinations.set(id, {
-          origin: (originStop || "").replace(/\s+Station$/i, ""),
-          destination: (trip.destination || finalStop || "").replace(/\s+Station$/i, ""),
-        });
-        if (!trip.blockId) continue;
-        const key = trip.blockId;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push({ id, trip, rows, first, last });
-      }
-
-      for (const group of groups.values()) {
-        group.sort((left, right) => seconds(left.first.departureTime || left.first.arrivalTime) - seconds(right.first.departureTime || right.first.arrivalTime));
-        for (const current of group) {
-          const currentStart = seconds(current.first.departureTime || current.first.arrivalTime);
-          const previous = group.find((candidate) => {
-            if (candidate.id === current.id || candidate.last.stopId !== current.first.stopId) return false;
-            const gap = currentStart - seconds(candidate.last.arrivalTime || candidate.last.departureTime);
-            return gap >= 0 && gap <= 3600;
-          });
-          if (previous) {
-            const previousOrigin = timetable.train.stops.get(previous.first.stopId)?.name;
-            const currentJourney = destinations.get(current.id);
-            if (previousOrigin && currentJourney) {
-              destinations.set(current.id, {
-                ...currentJourney,
-                origin: previousOrigin.replace(/\s+Station$/i, ""),
-              });
-            }
-          }
-          const currentEnd = seconds(current.last.arrivalTime || current.last.departureTime);
-          const next = group.find((candidate) => {
-            if (candidate.id === current.id || candidate.first.stopId !== current.last.stopId) return false;
-            const gap = seconds(candidate.first.departureTime || candidate.first.arrivalTime) - currentEnd;
-            return gap >= 0 && gap <= 3600;
-          });
-          if (!next) continue;
-          const finalStop = timetable.train.stops.get(next.last.stopId)?.name;
-          const finalDestination = (next.trip.destination || finalStop || "")
-            .replace(/\s+Station$/i, "")
-            .replace(/\s+via\s+.+$/i, "");
-          const interchange = (timetable.train.stops.get(current.last.stopId)?.name || "").replace(/\s+Station$/i, "");
-          const usesCityLoop = current.rows.some((row) => /^(parliament|melbourne central|flagstaff)$/i.test(
-            (timetable.train.stops.get(row.stopId)?.name || "").replace(/\s+Station$/i, ""),
-          ));
-          if (finalDestination) {
-            const currentDestination = `${interchange}${usesCityLoop ? " via City Loop" : ""}`;
-            destinations.set(current.id, {
-              origin: (timetable.train.stops.get(current.first.stopId)?.name || "").replace(/\s+Station$/i, ""),
-              destination: `${currentDestination} → ${finalDestination}`,
-            });
-          }
-        }
-      }
+      collectTrainMarkerDestinations(timetable.train, destinations);
+      collectTrainMarkerDestinations(timetable.regionalTrain, destinations);
       return destinations;
     });
   }
   return (await trainMarkerDestinationsPromise).get(tripId);
+}
+
+// Some real Metro vehicles report a trip_id in an entirely different, PTV-
+// generated namespace ("vic:02BEG:_:H:vpt._Belgrave_3449_20260909") that
+// never matches the static schedule's own trip_id format at all — a real gap
+// in the live feed itself, not a bug in our matching. But the same
+// TripDescriptor that carries that unmatched trip_id also carries real,
+// structured route_id/start_time fields (standard GTFS-RT), which the
+// standard GTFS-RT fallback technique uses to resolve the real scheduled
+// trip: a route only ever has one trip starting at a given stop at a given
+// time on a given service day, so route_id + start_time (matched against
+// each candidate trip's own first stop_time, filtered to services actually
+// running that day) identifies it unambiguously.
+async function getTripStartIndex() {
+  if (!tripStartIndexPromise) {
+    tripStartIndexPromise = loadTimetable().then((timetable) => {
+      const index = new Map();
+      const addMode = (mode) => {
+        for (const [id, trip] of mode.trips) {
+          const rows = mode.stopTimesByTrip.get(id);
+          if (!rows?.length) continue;
+          const first = [...rows].sort((left, right) => left.stopSequence - right.stopSequence)[0];
+          const startTime = first.departureTime || first.arrivalTime;
+          if (!startTime) continue;
+          const key = `${trip.routeId}|${startTime}`;
+          if (!index.has(key)) index.set(key, []);
+          index.get(key).push({ id, serviceId: trip.serviceId, mode });
+        }
+      };
+      addMode(timetable.train);
+      addMode(timetable.regionalTrain);
+      return index;
+    });
+  }
+  return tripStartIndexPromise;
+}
+
+export async function resolveStaticTripIdByRouteAndStartTime(routeId, startTime, serviceDate) {
+  if (!routeId || !startTime) return undefined;
+  const index = await getTripStartIndex();
+  const candidates = index.get(`${routeId}|${startTime}`);
+  if (!candidates?.length) return undefined;
+  const active = serviceDate
+    ? candidates.filter((candidate) => isServiceActive(candidate.mode, candidate.serviceId, serviceDate))
+    : candidates;
+  // Ambiguous (more than one real candidate) is treated the same as no
+  // match — guessing between two real trips is still a guess.
+  return active.length === 1 ? active[0].id : undefined;
 }
 
 function squaredDistance(left, right) {

@@ -1,5 +1,6 @@
 import {
   consumeAuthRateLimit,
+  createPasswordResetToken,
   getAccountStorageStatus,
   getRegistrationPhase,
   isDatabaseConfigured,
@@ -12,10 +13,16 @@ import {
   isApprovedDebugTester,
   readJsonBody,
   registerUser,
+  resetPasswordWithToken,
   sendJson,
   setSessionCookie,
   getSignedSessionToken,
 } from "../_lib/auth.js";
+import { sendPasswordResetEmail, sendWelcomeEmail } from "../_lib/mailer.js";
+
+function isStrongEnoughPassword(password) {
+  return password.length >= 10 && /[A-Za-z]/.test(password) && /\d/.test(password);
+}
 
 export default async function handler(req, res) {
   const action = Array.isArray(req.query?.action) ? req.query.action[0] : req.query?.action;
@@ -287,6 +294,75 @@ export default async function handler(req, res) {
       roles: ROLE_OPTIONS,
       sessionToken: getSignedSessionToken(user),
     });
+    // Fire-and-forget — a slow or failed welcome email must never hold up or
+    // fail account creation itself.
+    sendWelcomeEmail(user).catch(() => {});
+    return;
+  }
+
+  if (action === "request-password-reset") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    if (rejectIfRateLimited("request-password-reset", { limit: 6, windowMs: 15 * 60 * 1000 })) {
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const email = String(body.email || "").trim().toLowerCase();
+    // Always respond the same way whether or not the email is registered —
+    // confirming/denying an account's existence here is an email-enumeration
+    // leak, so the UI can only ever say "if that address has an account...".
+    const genericResponse = { message: "If that email address has a TransitAlert account, a reset link is on its way." };
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      sendJson(res, 200, genericResponse);
+      return;
+    }
+
+    const result = await createPasswordResetToken(email).catch(() => null);
+    if (result) {
+      const origin = req.headers?.origin || "https://tylerbnobleday-cmyk.github.io";
+      const resetUrl = `${origin}/reset-password?token=${result.token}`;
+      sendPasswordResetEmail(result.user, resetUrl).catch(() => {});
+    }
+    sendJson(res, 200, genericResponse);
+    return;
+  }
+
+  if (action === "reset-password") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    if (rejectIfRateLimited("reset-password", { limit: 10, windowMs: 15 * 60 * 1000 })) {
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const token = String(body.token || "").trim();
+    const newPassword = String(body.newPassword || "");
+    if (!token) {
+      sendJson(res, 400, { error: "Reset token is required." });
+      return;
+    }
+    if (!isStrongEnoughPassword(newPassword)) {
+      sendJson(res, 400, { error: "New password must be at least 10 characters and include a letter and a number." });
+      return;
+    }
+
+    try {
+      const user = await resetPasswordWithToken(token, newPassword);
+      setSessionCookie(res, user);
+      sendJson(res, 200, {
+        authenticated: true,
+        user,
+        roles: ROLE_OPTIONS,
+        sessionToken: getSignedSessionToken(user),
+      });
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : "Password reset failed." });
+    }
     return;
   }
 

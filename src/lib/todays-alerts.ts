@@ -8,6 +8,12 @@ export type MetroNotifyAlert = {
   lines: string[];
   status: string;
   updatedAt?: string;
+  // When we first detected and pushed a notification for this alert (real,
+  // from our own sent-notification record) — PTV's own updatedAt can be far
+  // older than a specific train's cancellation actually appearing under a
+  // longer-running disruption record, so this is the more accurate "how
+  // long ago" fact whenever we have it.
+  firstNotifiedAt?: string;
   url?: string;
   addToCalendarUrl?: string;
   tdn?: string;
@@ -446,6 +452,20 @@ function isWithinParsedAlertWindow(alert: MetroNotifyAlert, graceMs = 1000 * 60 
   if (!window) return false;
   const now = Date.now();
   return now >= window.start - graceMs && now <= window.end + graceMs;
+}
+
+// A multi-night works notice ("buses replace trains ... Monday 7 September
+// to Wednesday 9 September") is published once, days or weeks in advance,
+// and the feed never touches it again — so a plain "X days ago" reading of
+// updatedAt/firstNotifiedAt is honest about when it was PUBLISHED but
+// actively misleading about the thing riders actually care about: whether
+// it's affecting their trip right now. A closure announced 10 days ago that
+// runs tonight is not "10 days ago" news, it's active now.
+export function isAlertWindowActiveNow(alert: MetroNotifyAlert) {
+  const window = parseAlertActiveWindow(`${alert.title} ${alert.summary}`);
+  if (!window) return false;
+  const now = Date.now();
+  return now >= window.start && now <= window.end;
 }
 
 export function isAlertCurrent(alert: MetroNotifyAlert) {

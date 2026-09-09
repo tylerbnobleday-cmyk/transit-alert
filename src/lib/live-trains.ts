@@ -265,9 +265,20 @@ function inferLineFromText(...values: Array<string | null | undefined>) {
   return "Metro";
 }
 
-export function isVlineLiveTrain(train: Pick<LiveTrain, "line" | "destination" | "serviceDescription" | "trainType">) {
+// Stony Point's real route code is "STY" (confirmed in the static schedule:
+// trip_ids like "02-STY--1-T5-8518"), which survives in tripId untouched
+// regardless of what the live feed's own routeId happens to resolve to for
+// a given direction — the inbound (Stony Point -> Frankston) direction's
+// real trip_headsign is "Frankston", so a run whose live line/destination
+// both come back "Frankston" (no other text mentioning Stony Point at all)
+// was silently falling out of every V/Line-bucket check here and being
+// misclassified as ordinary Melbourne metro stock. tripId doesn't have that
+// direction-dependent gap.
+export function isVlineLiveTrain(train: Pick<LiveTrain, "line" | "destination" | "serviceDescription" | "trainType" | "tripId">) {
   const joined = `${train.line} ${train.destination} ${train.serviceDescription ?? ""} ${train.trainType}`.toLowerCase();
-  return train.line.trim().toLowerCase() === "v/line" || VLINE_KEYWORDS.some((keyword) => joined.includes(keyword));
+  return train.line.trim().toLowerCase() === "v/line"
+    || VLINE_KEYWORDS.some((keyword) => joined.includes(keyword))
+    || /-STY--/i.test(train.tripId ?? "");
 }
 
 // NSW TrainLink is a distinct interstate operator that shares the same
@@ -279,6 +290,27 @@ export function isVlineLiveTrain(train: Pick<LiveTrain, "line" | "destination" |
 export function isNswTrainLinkLiveTrain(train: Pick<LiveTrain, "line" | "destination" | "serviceDescription" | "trainType">) {
   const joined = `${train.line} ${train.destination} ${train.serviceDescription ?? ""} ${train.trainType}`.toLowerCase();
   return /(nsw trainlink|trainlink|\bxpt\b|xplorer)/.test(joined);
+}
+
+// The Sydney Trains suburban network (T1-T9) — a separate live feed from
+// both NSW TrainLink (regional/interstate) and Sydney Metro, added so it
+// stops silently falling through to the Melbourne classifier below and
+// getting labelled as X'Trapolis.
+export function isSydneyTrainsLiveTrain(train: Pick<LiveTrain, "line" | "destination" | "serviceDescription" | "trainType">) {
+  const joined = `${train.line} ${train.destination} ${train.serviceDescription ?? ""} ${train.trainType}`.toLowerCase();
+  return /sydney trains/.test(joined);
+}
+
+// The Werribee/Williamstown/Altona/Sandringham group runs real point-to-point
+// through services connecting two outer termini via Flinders Street (e.g. a
+// genuine Williamstown-to-Sandringham working), unlike a City Loop line where
+// both ends of the day's diagram are the same place. For these, "via
+// <origin>" is the real, useful fact (which of the two termini this service
+// actually came from) — showing "via Flinders Street" instead would just
+// restate the interchange every cross-city service already passes through.
+export function isCrossCityLiveTrain(train: Pick<LiveTrain, "line" | "destination" | "serviceDescription" | "trainType">) {
+  const joined = `${train.line} ${train.destination} ${train.serviceDescription ?? ""} ${train.trainType}`.toLowerCase();
+  return /\b(werribee|williamstown|altona|sandringham)\b/.test(joined);
 }
 
 function calculateBearing(from: [number, number], to: [number, number]) {

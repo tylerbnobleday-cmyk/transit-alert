@@ -16,7 +16,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -35,7 +36,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -54,7 +56,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -73,7 +76,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -92,7 +96,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -111,7 +116,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -130,7 +136,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -149,7 +156,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -168,7 +176,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -187,7 +196,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -206,7 +216,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -225,7 +236,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -244,7 +256,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -263,7 +276,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -282,7 +296,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -301,7 +316,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -320,7 +336,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -339,7 +356,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -358,7 +376,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -377,7 +396,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -396,7 +416,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -415,7 +436,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -434,7 +456,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -453,7 +476,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -472,7 +496,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -491,7 +516,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -510,7 +536,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -529,7 +556,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -548,7 +576,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -567,7 +596,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -586,7 +616,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -605,7 +636,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -624,7 +656,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -643,7 +676,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -662,7 +696,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -681,7 +716,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -700,7 +736,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -719,7 +756,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -738,7 +776,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -757,7 +796,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -776,7 +816,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -795,7 +836,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -814,7 +856,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -833,7 +876,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -852,7 +896,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -871,7 +916,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -890,7 +936,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -909,7 +956,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -928,7 +976,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -947,7 +996,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -966,7 +1016,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -985,7 +1036,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1004,7 +1056,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1023,7 +1076,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1042,7 +1096,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1061,7 +1116,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1080,7 +1136,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1099,7 +1156,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1118,7 +1176,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1137,7 +1196,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1156,7 +1216,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1175,7 +1236,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1194,7 +1256,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1213,7 +1276,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1232,7 +1296,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1251,7 +1316,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1270,7 +1336,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1289,7 +1356,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1308,7 +1376,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1327,7 +1396,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1346,7 +1416,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1365,7 +1436,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1384,7 +1456,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1403,7 +1476,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1422,7 +1496,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1441,7 +1516,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1460,7 +1536,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1479,7 +1556,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1498,7 +1576,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1517,7 +1596,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1536,7 +1616,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1555,7 +1636,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1574,7 +1656,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1591,7 +1674,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "mini_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1608,7 +1692,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "mini_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1625,7 +1710,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "mini_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1642,7 +1728,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "mini_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1659,7 +1746,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "mini_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1678,7 +1766,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1697,7 +1786,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1716,7 +1806,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1735,7 +1826,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1754,7 +1846,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1773,7 +1866,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1792,7 +1886,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1811,7 +1906,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1830,7 +1926,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1847,7 +1944,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1864,7 +1962,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1883,7 +1982,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1902,7 +2002,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1921,7 +2022,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1940,7 +2042,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1959,7 +2062,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1978,7 +2082,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -1997,7 +2102,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2016,7 +2122,8 @@
     "livery": "PTV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2033,7 +2140,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2051,7 +2159,8 @@
     "seating": "B42DW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2069,7 +2178,8 @@
     "seating": "B41DW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2087,7 +2197,8 @@
     "seating": "B43DW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "standard_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2106,7 +2217,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "coach"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2125,7 +2237,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "coach"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2144,7 +2257,8 @@
     "livery": "TV",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "coach"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2161,7 +2275,8 @@
     "seating": "B35FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2178,7 +2293,8 @@
     "seating": "B35FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2195,7 +2311,8 @@
     "seating": "B35FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2212,7 +2329,8 @@
     "seating": "B35FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2229,7 +2347,8 @@
     "seating": "B35FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2246,7 +2365,8 @@
     "seating": "B35FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2263,7 +2383,8 @@
     "seating": "B35FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2280,7 +2401,8 @@
     "seating": "B35FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2297,7 +2419,8 @@
     "seating": "B35FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2314,7 +2437,8 @@
     "seating": "B35FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2330,7 +2454,8 @@
     "seating": "B??FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2346,7 +2471,8 @@
     "seating": "B??FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2362,7 +2488,8 @@
     "seating": "B??FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   },
   {
     "operator": "Transit Systems Victoria",
@@ -2378,6 +2505,7 @@
     "seating": "B3?FW",
     "active": true,
     "source": "Australian Bus Fleet Lists",
-    "sourceUpdated": "2026-09"
+    "sourceUpdated": "2026-09",
+    "sizeCategory": "midi_bus"
   }
 ]

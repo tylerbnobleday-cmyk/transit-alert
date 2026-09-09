@@ -1768,6 +1768,9 @@ export default defineConfig(async ({ mode }) => {
           // of one ~2.5MB blocking bundle.
           manualChunks: (id) => {
             if (id.includes("/data/bus-fleet/")) return "bus-fleet-data";
+            if (id.includes("/generated-vline-gtfs") || id.includes("/generated-nsw-trainlink-gtfs")) {
+              return "generated-gtfs-data";
+            }
             // A single vendor bucket avoids circular chunk references between
             // finer-grained groups (react-dom/leaflet/etc. cross-import each
             // other internally), while still separating all of node_modules

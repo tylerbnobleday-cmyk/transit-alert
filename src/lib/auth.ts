@@ -123,6 +123,39 @@ export async function registerAccount(
   return payload;
 }
 
+export async function requestPasswordReset(email: string): Promise<{ message: string }> {
+  const response = await fetch(getApiUrl("/api/auth/request-password-reset"), {
+    method: "POST",
+    headers: buildSessionHeaders({ "Content-Type": "application/json" }),
+    credentials: "include",
+    body: JSON.stringify({ email }),
+  });
+
+  const payload = await readAuthPayload(response) as { message?: string; error?: string };
+  if (!response.ok) {
+    throw new Error(payload.error || "Couldn't send the reset email");
+  }
+  return { message: payload.message || "If that email address has a TransitAlert account, a reset link is on its way." };
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<AuthSession> {
+  const response = await fetch(getApiUrl("/api/auth/reset-password"), {
+    method: "POST",
+    headers: buildSessionHeaders({ "Content-Type": "application/json" }),
+    credentials: "include",
+    body: JSON.stringify({ token, newPassword }),
+  });
+
+  const payload = await readAuthPayload(response);
+  if (!response.ok) {
+    throw new Error(payload.error || "Password reset failed");
+  }
+  if (payload.sessionToken) {
+    writeSessionToken(payload.sessionToken);
+  }
+  return payload;
+}
+
 export async function continueAsGuest(): Promise<AuthSession> {
   const response = await fetch(getApiUrl("/api/auth/guest"), {
     method: "POST",

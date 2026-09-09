@@ -38,6 +38,118 @@ const CHASSIS_POWERTRAIN = [
   { match: /^ARCC Viking Hydrogen$/i, powertrain: "hydrogen_fuel_cell", fuelType: "hydrogen" },
 ];
 
+// Physical bus body/size category — deliberately separate from `powertrain`
+// above, since the two are unrelated real-world facts (a BYD D9RA is a
+// battery-electric *standard* bus, not its own size class). Classified in
+// order of confidence:
+//  1. The source's own per-vehicle seating-configuration code, which
+//     already encodes articulation directly — "AB.." means Articulated Bus
+//     in every list this project imports. This is the single most direct
+//     signal available and overrides everything else.
+//  2. A short list of genuine coach chassis/body combinations (Irizar and
+//     Coach Design bodies, Scania's interurban-spec "IB"/"CB" chassis
+//     codes, Volvo's coach-only B13R, a Volvo B7R with a Volgren "Endura"
+//     coach body) — the real touring-coach-spec vehicles that legitimately
+//     run PTV/V-Line contracted services.
+//  3. A per-(manufacturer, model) lookup built from each real chassis's
+//     documented length/capacity class — never guessed from the
+//     manufacturer name alone (e.g. Volvo appears in three different size
+//     categories here depending on the exact model).
+// Anything not covered returns "unknown" rather than a guess — e.g. "King
+// Long" with no model number recorded by the source.
+function normaliseBusModelKey(manufacturer, model) {
+  return `${manufacturer}|${model}`.toLowerCase().replace(/["“”'\s]/g, "");
+}
+
+const MINI_BUS_MODELS = new Set([
+  "hino|poncho",
+]);
+
+const MIDI_BUS_MODELS = new Set([
+  "optare|solo",
+  "optare|solom995sr",
+  "iveco|metro",
+  "iveco|metroc260",
+  "iveco|metro17.215",
+  "irisbus|metro",
+  "man|15.220",
+  "bci|proma33",
+  "bci|promalowfloor",
+  "bci|citirider",
+]);
+
+const STANDARD_BUS_MODELS = new Set([
+  "volvo|b7rle",
+  "volvo|b8rle",
+  "volvo|b12ble",
+  "volvo|b10ble",
+  "volvo|b10l",
+  "volvo|b5lh",
+  "volvo|b5rhle",
+  "volvo|bzl",
+  "scania|k230ub",
+  "scania|k280ub",
+  "scania|k310ub",
+  "scania|k320ub",
+  "scania|k320ubhybrid",
+  "scania|k320hb",
+  "scania|k320cb",
+  "scania|l94ub",
+  "mercedes|benzo500le",
+  "mercedes|benzo405nh",
+  "mercedes|benzoh1830le",
+  "man|16.240",
+  "man|18.310",
+  "man|18.320",
+  "man|19.320",
+  "byd|d9ra",
+  "byd|bc12b1",
+  "arcc|vikinghydrogen",
+  "denning|phoenixlowfloor",
+  "denning|phoenixlowfloor-cat",
+  "adl|enviro200",
+  "bci|fbc6120brz3",
+  "optare|tempo",
+]);
+
+const ARTICULATED_BUS_MODELS = new Set([
+  "scania|k360ua",
+  "scania|k360ca",
+  "scania|l94ua",
+  "scania|n310ua",
+  "scania|k310ua",
+  "volvo|b8rlea",
+]);
+
+// Real coach chassis/body signals, not inferred from the operator or the
+// wider fleet — see the CHASSIS_POWERTRAIN-style comment above.
+function isCoachBodyOrChassis(chassisManufacturer, chassisModel, bodyManufacturer, bodyModel) {
+  const body = `${bodyManufacturer ?? ""} ${bodyModel ?? ""}`.toLowerCase();
+  const manufacturer = (chassisManufacturer ?? "").toLowerCase();
+  const modelKey = normaliseBusModelKey(chassisManufacturer ?? "", chassisModel ?? "");
+  if (/irizar|coach design/.test(body)) return true;
+  if (manufacturer === "volvo" && modelKey === "volvo|b7r" && /endura/.test(body)) return true;
+  if (manufacturer === "volvo" && modelKey === "volvo|b13r") return true;
+  if (manufacturer === "scania" && (modelKey === "scania|k310ib" || modelKey === "scania|k410cb")) return true;
+  return false;
+}
+
+function classifyBusCategory(vehicle) {
+  const seating = (vehicle.seating ?? "").toUpperCase();
+  if (/^AB/.test(seating)) return "articulated_bus";
+
+  if (isCoachBodyOrChassis(vehicle.chassisManufacturer, vehicle.chassisModel, vehicle.bodyManufacturer, vehicle.bodyModel)) {
+    return "coach";
+  }
+
+  const modelKey = normaliseBusModelKey(vehicle.chassisManufacturer ?? "", vehicle.chassisModel ?? "");
+  if (ARTICULATED_BUS_MODELS.has(modelKey)) return "articulated_bus";
+  if (MINI_BUS_MODELS.has(modelKey)) return "mini_bus";
+  if (MIDI_BUS_MODELS.has(modelKey)) return "midi_bus";
+  if (STANDARD_BUS_MODELS.has(modelKey)) return "standard_bus";
+  return "unknown";
+}
+
 function classifyChassis(chassisModel) {
   const found = CHASSIS_POWERTRAIN.find((entry) => entry.match.test(chassisModel.trim()));
   if (found) return { powertrain: found.powertrain, fuelType: found.fuelType };
@@ -236,17 +348,35 @@ buildOperator("Ventura Bus Lines", "ventura.json", () =>
   ]),
 );
 
-const powertrainBreakdown = (vehicles) => vehicles.reduce((acc, v) => { acc[v.powertrain] = (acc[v.powertrain] || 0) + 1; return acc; }, {});
-for (const [label, outFile] of [
+const OPERATOR_OUTPUT_FILES = [
   ["CDC Melbourne", "cdc-melbourne.json"],
   ["Kinetic Melbourne", "kinetic-melbourne.json"],
   ["Dysons", "dysons.json"],
   ["Transit Systems Victoria", "transit-systems-victoria.json"],
   ["Ventura Bus Lines", "ventura.json"],
-]) {
+];
+
+// Attach `sizeCategory` to every vehicle in every operator file that exists
+// on disk, including ones skipped above because their raw source is
+// missing (e.g. Kinetic) — classification only needs the chassis/body/
+// seating fields already stored in the existing output, not the raw
+// scrape, so this runs as a final pass over whatever's on disk rather than
+// being embedded in buildVehiclesFromRows/FromSummary above.
+for (const [, outFile] of OPERATOR_OUTPUT_FILES) {
+  const filePath = path.join(OUT_DIR, outFile);
+  if (!fs.existsSync(filePath)) continue;
+  const vehicles = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  const withCategory = vehicles.map((vehicle) => ({ ...vehicle, sizeCategory: classifyBusCategory(vehicle) }));
+  fs.writeFileSync(filePath, JSON.stringify(withCategory, null, 2));
+}
+
+const powertrainBreakdown = (vehicles) => vehicles.reduce((acc, v) => { acc[v.powertrain] = (acc[v.powertrain] || 0) + 1; return acc; }, {});
+const categoryBreakdown = (vehicles) => vehicles.reduce((acc, v) => { acc[v.sizeCategory] = (acc[v.sizeCategory] || 0) + 1; return acc; }, {});
+for (const [label, outFile] of OPERATOR_OUTPUT_FILES) {
   const filePath = path.join(OUT_DIR, outFile);
   if (!fs.existsSync(filePath)) continue;
   const vehicles = JSON.parse(fs.readFileSync(filePath, "utf8"));
   console.log(`${label}: ${vehicles.length} vehicles`);
   console.log(`Powertrain breakdown (${label}):`, powertrainBreakdown(vehicles));
+  console.log(`Size category breakdown (${label}):`, categoryBreakdown(vehicles));
 }

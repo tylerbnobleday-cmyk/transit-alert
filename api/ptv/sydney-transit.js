@@ -1,4 +1,5 @@
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
+import AdmZip from "adm-zip";
 
 // Opt-in Sydney layer (see LayerState.sydneyTransit in Map.tsx) — this is a
 // separate NSW Transport Open Data product from the "nswtrains" feed used for
@@ -17,6 +18,85 @@ const SYDNEY_METRO_URL = "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/me
 // real Sydney-network vehicle without also pulling in unrelated regional NSW
 // buses that might appear at the edges of the statewide "buses" feed.
 const SYDNEY_BOUNDS = { minLat: -34.6, maxLat: -32.6, minLng: 150.4, maxLng: 152.2 };
+
+// Real per-route operator names (Victoria's live bus feed also has this gap
+// — see BUS_ROUTE_OPERATORS in live-buses.js — but Sydney's own static GTFS
+// bus schedule already carries this directly, so no hand-maintained
+// directory is needed here). NSW bus route_ids are formatted
+// "<agency_id>_<route_short_name>" (confirmed live: e.g. "2508_100"), and
+// that agency_id is exactly agency.txt's own id (confirmed: "2508" ->
+// "Keolis Downer Northern Beaches") — the real contracted operator, not a
+// guess. Downloading the ~100MB static schedule just for its 3KB
+// agency.txt is wasteful per-request, so this is cached for a day; operator
+// contracts don't change often enough to need it fresher than that.
+const SYDNEY_BUS_SCHEDULE_URL = "https://api.transport.nsw.gov.au/v1/gtfs/schedule/buses";
+const SYDNEY_BUS_AGENCY_CACHE_MS = 24 * 60 * 60 * 1000;
+let sydneyBusAgencyCache = { loadedAt: 0, lookup: null };
+let sydneyBusAgencyPromise;
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      values.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  values.push(current);
+  return values;
+}
+
+async function loadSydneyBusAgencyLookup(apiKey) {
+  const now = Date.now();
+  if (sydneyBusAgencyCache.lookup && now - sydneyBusAgencyCache.loadedAt < SYDNEY_BUS_AGENCY_CACHE_MS) {
+    return sydneyBusAgencyCache.lookup;
+  }
+  if (!sydneyBusAgencyPromise) {
+    sydneyBusAgencyPromise = (async () => {
+      const response = await fetch(SYDNEY_BUS_SCHEDULE_URL, {
+        headers: { Authorization: `apikey ${apiKey}` },
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!response.ok) {
+        throw new Error(`Sydney bus schedule request failed (${response.status})`);
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const zip = new AdmZip(buffer);
+      const agencyText = zip.readAsText("agency.txt");
+      const lines = agencyText.split(/\r?\n/).filter((line) => line.trim());
+      const header = parseCsvLine(lines[0]).map((value) => value.replace(/^"|"$/g, ""));
+      const idIndex = header.indexOf("agency_id");
+      const nameIndex = header.indexOf("agency_name");
+      const lookup = new Map();
+      for (const line of lines.slice(1)) {
+        const columns = parseCsvLine(line).map((value) => value.replace(/^"|"$/g, ""));
+        const id = columns[idIndex]?.trim();
+        const name = columns[nameIndex]?.trim();
+        if (id && name) lookup.set(id, name);
+      }
+      return lookup;
+    })();
+  }
+  try {
+    const lookup = await sydneyBusAgencyPromise;
+    sydneyBusAgencyCache = { loadedAt: now, lookup };
+    return lookup;
+  } finally {
+    sydneyBusAgencyPromise = undefined;
+  }
+}
 
 function toNumber(value) {
   if (typeof value === "number") return value;
@@ -46,7 +126,7 @@ async function fetchGtfsFeed(url, apiKey) {
   return GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
 }
 
-function buildSydneyBuses(feed) {
+function buildSydneyBuses(feed, agencyLookup) {
   return (feed.entity ?? [])
     .map((entity) => {
       const vehicle = entity.vehicle;
@@ -60,6 +140,11 @@ function buildSydneyBuses(feed) {
       const route = typeof routeId === "string" && routeId.trim() ? routeId.trim() : "Bus";
       const timestamp = toNumber(vehicle.timestamp);
       const label = vehicle.vehicle?.label || vehicle.vehicle?.id || route;
+      // route_id is "<agency_id>_<route_short_name>" (e.g. "2508_100") — the
+      // agency_id prefix is the real contracted operator's id in the static
+      // schedule's own agency.txt.
+      const agencyId = route.split("_")[0];
+      const operator = agencyLookup?.get(agencyId) || "Sydney bus network";
 
       return {
         id: entity.id || vehicle.vehicle?.id || `${route}-${lat}-${lng}`,
@@ -73,7 +158,7 @@ function buildSydneyBuses(feed) {
         status: "live",
         timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
         heading: typeof position.bearing === "number" ? position.bearing : undefined,
-        operator: "Sydney bus network",
+        operator,
       };
     })
     .filter(Boolean);
@@ -166,13 +251,20 @@ export default async function handler(req, res) {
     return;
   }
 
-  const [busesResult, lightRailResults, metroResult] = await Promise.allSettled([
+  const [busesResult, lightRailResults, metroResult, agencyLookupResult] = await Promise.allSettled([
     fetchGtfsFeed(SYDNEY_BUSES_URL, apiKey),
     Promise.allSettled(SYDNEY_LIGHT_RAIL_FEEDS.map((feedSource) => fetchGtfsFeed(feedSource.url, apiKey))),
     fetchGtfsFeed(SYDNEY_METRO_URL, apiKey),
+    // The 24h cache means this almost never actually re-downloads the
+    // (large, ~100MB) static schedule on the request path.
+    loadSydneyBusAgencyLookup(apiKey),
   ]);
 
-  const buses = busesResult.status === "fulfilled" ? buildSydneyBuses(busesResult.value) : [];
+  const agencyLookup = agencyLookupResult.status === "fulfilled" ? agencyLookupResult.value : null;
+  if (agencyLookupResult.status === "rejected") {
+    console.warn("[sydney-transit] bus operator lookup unavailable:", agencyLookupResult.reason instanceof Error ? agencyLookupResult.reason.message : agencyLookupResult.reason);
+  }
+  const buses = busesResult.status === "fulfilled" ? buildSydneyBuses(busesResult.value, agencyLookup) : [];
 
   const trams =
     lightRailResults.status === "fulfilled"

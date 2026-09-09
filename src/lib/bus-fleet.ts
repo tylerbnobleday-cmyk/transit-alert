@@ -36,6 +36,40 @@ import type { LiveBus } from "@/lib/live-buses";
 
 export type BusPowertrain = "diesel" | "hybrid" | "battery_electric" | "hydrogen_fuel_cell" | "unknown";
 
+// Physical body/size category — deliberately independent of `powertrain`
+// (a BYD D9RA is a battery-electric *standard* bus, not its own size
+// class). Classified once at build time in scripts/build-bus-fleet-data.mjs
+// from real per-vehicle signals (seating-configuration code, then body/
+// chassis model) — see that script for the full reasoning per category.
+export type BusCategory =
+  | "mini_bus"
+  | "midi_bus"
+  | "standard_bus"
+  | "long_bus"
+  | "articulated_bus"
+  | "double_decker"
+  | "coach"
+  | "unknown";
+
+export const BUS_CATEGORY_LABELS: Record<BusCategory, string> = {
+  mini_bus: "Mini Bus",
+  midi_bus: "Midi Bus",
+  standard_bus: "Standard Bus",
+  long_bus: "Long Bus",
+  articulated_bus: "Articulated Bus",
+  double_decker: "Double Decker",
+  coach: "Coach",
+  unknown: "Unknown Bus Type",
+};
+
+export const BUS_POWER_LABELS: Record<BusPowertrain, string> = {
+  diesel: "Diesel",
+  hybrid: "Hybrid",
+  battery_electric: "Battery Electric",
+  hydrogen_fuel_cell: "Hydrogen",
+  unknown: "Unknown",
+};
+
 export type BusFleetRecord = {
   operator: string;
   fleetNumber: string;
@@ -46,6 +80,7 @@ export type BusFleetRecord = {
   bodyModel?: string;
   powertrain: BusPowertrain;
   fuelType: string;
+  sizeCategory: BusCategory;
   vin?: string;
   bodyNumber?: string;
   bodyDate?: string;
@@ -116,6 +151,14 @@ export function lookupBusFleetInfo(bus: Pick<LiveBus, "registration" | "operator
     if (byFleetNumber) return byFleetNumber;
   }
   return null;
+}
+
+export function getBusCategoryLabel(category: BusCategory | undefined): string {
+  return BUS_CATEGORY_LABELS[category ?? "unknown"];
+}
+
+export function getBusPowerLabel(powertrain: BusPowertrain | undefined): string {
+  return BUS_POWER_LABELS[powertrain ?? "unknown"];
 }
 
 export function getBusPowertrainBadge(powertrain: BusPowertrain): { emoji: string; label: string } | null {

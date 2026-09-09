@@ -20,6 +20,16 @@ export const appUsersTable = pgTable("app_users", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const passwordResetTokensTable = pgTable("password_reset_tokens", {
+  token: text("token").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => appUsersTable.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const userPreferencesTable = pgTable("user_preferences", {
   userId: text("user_id")
     .primaryKey()

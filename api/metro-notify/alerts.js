@@ -7,6 +7,18 @@ const METRO_ALERTS_URL = "https://www.metrotrains.com.au/api?op=get_healthboard_
 // real, live disruptions page instead so "Details here" actually goes
 // somewhere.
 const METRO_SERVICE_URL = "https://transport.vic.gov.au/disruptions/disruptions-information";
+// The public metrotrains.com.au/planned-works/ calendar (a FullCalendar
+// widget) is powered by this same-origin JSON index — every notice they've
+// ever published as a PDF, named with a real, parseable
+// "<Line>-Line-<Description>-<start:YYYY-MM-DD>-<end:YYYY-MM-DD>.pdf"
+// pattern (confirmed against ~210 real real entries: single line prefix per
+// PDF, no exceptions found). The healthboard alerts feed above only ever
+// carries a handful of these — car-park closures, pedestrian access
+// changes, bike parking works, escalator/lift outages, and most night
+// works don't come through it at all, which is real, missing coverage this
+// fills in from Metro's own source rather than guessing at it.
+const PLANNED_WORKS_INDEX_URL = "https://www.metrotrains.com.au/api?op=get_pw_index";
+const PLANNED_WORKS_FILENAME_PATTERN = /^(.+?)-Line-(.+)-(\d{4}-\d{2}-\d{2})-(\d{4}-\d{2}-\d{2})\.pdf$/;
 
 const ALERT_TYPE_LABELS = {
   service: "Service Change",
@@ -417,6 +429,78 @@ async function mergeLinkedCancellations(alerts) {
   return [...alerts.filter((alert) => !consumedIds.has(alert.id)), ...merged];
 }
 
+function cleanForDedupe(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function parsePlannedWorksFilename(filename) {
+  const match = String(filename ?? "").match(PLANNED_WORKS_FILENAME_PATTERN);
+  if (!match) return null;
+  const [, linePrefix, rawDescription, startIso, endIso] = match;
+  return {
+    lineName: linePrefix.replace(/-/g, " ").trim(),
+    description: rawDescription.replace(/-/g, " ").trim(),
+    startIso,
+    endIso,
+  };
+}
+
+function isoDateToUtcMs(isoDate, endOfDay) {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  if (!year || !month || !day) return Number.NaN;
+  return endOfDay
+    ? Date.UTC(year, month - 1, day, 23, 59, 59)
+    : Date.UTC(year, month - 1, day, 0, 0, 0);
+}
+
+async function fetchPlannedWorksPdfAlerts() {
+  const response = await fetch(PLANNED_WORKS_INDEX_URL, {
+    headers: { Accept: "application/json", "User-Agent": "TransitAlert Melbourne" },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Planned works index request failed (${response.status})`);
+  }
+  const items = await response.json();
+  const now = Date.now();
+  // Still worth showing up to a day after it technically ends (a closure
+  // ending "today" is still relevant this morning), and up to a month
+  // before it starts — this index runs from many months in the past to
+  // many months in the future with no other ordering, so both ends need a
+  // real cutoff.
+  const graceMs = 1000 * 60 * 60 * 24;
+  const lookaheadMs = 1000 * 60 * 60 * 24 * 30;
+
+  const alerts = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const parsed = parsePlannedWorksFilename(item?.filename);
+    if (!parsed) continue;
+    const startMs = isoDateToUtcMs(parsed.startIso, false);
+    const endMs = isoDateToUtcMs(parsed.endIso, true);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) continue;
+    if (endMs < now - graceMs || startMs > now + lookaheadMs) continue;
+
+    const sameDay = parsed.startIso === parsed.endIso;
+    const dateText = sameDay
+      ? formatDate(new Date(startMs))
+      : `${formatDate(new Date(startMs))} to ${formatDate(new Date(endMs))}`;
+
+    alerts.push({
+      id: `metro-pw-pdf-${item.id}`,
+      title: parsed.description,
+      summary: `${dateText}.`,
+      lines: [formatLineName(parsed.lineName)],
+      status: "planned works",
+      updatedAt: undefined,
+      url: METRO_SERVICE_URL,
+    });
+  }
+  return alerts;
+}
+
 export async function fetchMergedMetroAlerts() {
   const response = await fetch(METRO_ALERTS_URL, {
     headers: {
@@ -452,13 +536,75 @@ export async function fetchMergedMetroAlerts() {
     // Metro train alerts this endpoint already reliably returns.
   }
 
+  try {
+    const plannedWorksPdfAlerts = await fetchPlannedWorksPdfAlerts();
+    // The healthboard feed above already carries some of these same real
+    // notices under its own ids — skip a PDF-derived one only when an
+    // existing alert already says the same thing for the same line, rather
+    // than risk silently dropping real, distinct coverage.
+    const existingSignatures = new Set(
+      alerts.map((alert) => `${alert.lines.join("|").toLowerCase()}::${cleanForDedupe(alert.title)}`),
+    );
+    const additions = plannedWorksPdfAlerts.filter(
+      (alert) => !existingSignatures.has(`${alert.lines.join("|").toLowerCase()}::${cleanForDedupe(alert.title)}`),
+    );
+    alerts = [...alerts, ...additions];
+  } catch {
+    // Best-effort: the existing healthboard feed already returns reliably
+    // without this, so a failure here should never block it.
+  }
+
+  try {
+    const { checkTramFeedStatus } = await import("../ptv/live-trams.js");
+    const tramStatus = await checkTramFeedStatus();
+    // Real, currently-confirmed outage only (checkTramFeedStatus tries both
+    // the primary GTFS-RT feed and the v3 fallback before reporting down) —
+    // this was previously only visible as a quiet inline note on the Fleet
+    // Tracker screen, easy to miss and easy to mistake for the app itself
+    // being broken. Surfacing it through the same alert feed as a real
+    // disruption means it shows up in Today's Alerts and goes out as a push
+    // notification like any other service alert.
+    if (tramStatus.down) {
+      alerts = [
+        {
+          id: "transitalert-tram-feed-down",
+          title: "Tram Tracking Suspended",
+          summary: "Live tram tracking is suspended — PTV's own tram vehicle data feed is down. This is a PTV outage, not a TransitAlert fault; tram tracking will resume automatically once PTV's feed recovers.",
+          lines: ["Trams"],
+          status: "service alert",
+          updatedAt: new Date().toISOString(),
+          url: "https://www.ptv.vic.gov.au/",
+          // getAlertGroup (TodaysAlerts.tsx) routes the "Trams" group purely
+          // off this structured field, not the lines/text above — without it
+          // this fell into "Other" instead of the Trams group.
+          mode: "tram",
+        },
+        ...alerts,
+      ];
+    }
+  } catch {
+    // Best-effort — never let a status-check failure block the real alerts.
+  }
+
   return alerts;
 }
 
 export default async function handler(_req, res) {
   try {
     const alerts = await fetchMergedMetroAlerts();
-    res.status(200).json({ alerts });
+    let alertsWithNotifiedAt = alerts;
+    try {
+      const { getSentAlertTimestamps } = await import("../_lib/push.js");
+      const sentAtById = await getSentAlertTimestamps(alerts.map((alert) => alert.id));
+      alertsWithNotifiedAt = alerts.map((alert) => {
+        const sentAt = sentAtById.get(alert.id);
+        return sentAt ? { ...alert, firstNotifiedAt: sentAt.toISOString() } : alert;
+      });
+    } catch {
+      // The push-history lookup is a best-effort freshness enhancement —
+      // never let it block returning the alerts themselves.
+    }
+    res.status(200).json({ alerts: alertsWithNotifiedAt });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to load Metro alerts",

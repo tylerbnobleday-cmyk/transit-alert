@@ -23,7 +23,8 @@ import hcmtIcon from "@/assets/icons/hcmt.svg";
 import xtrapolisIcon from "@/assets/icons/xtrapolis.svg";
 import siemensIcon from "@/assets/icons/siemens.svg";
 import comengIcon from "@/assets/icons/ss-comeng.svg";
-import { fetchLiveTrains, isNswTrainLinkLiveTrain, isVlineLiveTrain, type LiveTrain } from "@/lib/live-trains";
+import { fetchLiveTrains, isCrossCityLiveTrain, isNswTrainLinkLiveTrain, isSydneyTrainsLiveTrain, isVlineLiveTrain, type LiveTrain } from "@/lib/live-trains";
+import { getVlineRouteMetaFromTripId } from "@/lib/regional-fallback";
 import { fetchSydneyTransit } from "@/lib/sydney-transit";
 import { getBusPowertrainBadge, lookupBusFleetInfo } from "@/lib/bus-fleet";
 import { getCurrentVlineAllocation } from "@/lib/vline-allocation";
@@ -32,6 +33,7 @@ import { fetchBusTrip, fetchStationDepartures, fetchTrainTrip, fetchTramTrip, fe
 import { fetchLiveTrams, type LiveTram } from "@/lib/live-trams";
 import { GENERATED_TRAM_ROUTE_BUNDLES } from "@/lib/generated-tram-routes";
 import { GENERATED_VLINE_GTFS } from "@/lib/generated-vline-gtfs";
+import { GENERATED_NSW_TRAINLINK_GTFS } from "@/lib/generated-nsw-trainlink-gtfs";
 import { findStationCoordinate } from "@/lib/station-coordinates";
 import { fetchConsistSnapshot, type ConsistSnapshot } from "@/lib/transportvic-bot";
 import { fetchMarkerOverrides, saveMarkerOverrides, type MarkerOverride } from "@/lib/marker-overrides";
@@ -594,6 +596,16 @@ export type Station = {
   vline?: boolean;
   metro?: boolean;
   zone?: string;
+  // Real published GTFS schedule for this stop (currently only populated for
+  // NSW TrainLink XPT — see getNswTrainLinkGtfsPatternStations — since that
+  // fleet has no live per-stop match to fall back on otherwise: fetchTrainTrip
+  // only queries PTV's Victorian timetable API, which has never heard of a
+  // NSW trip ID).
+  scheduledArrival?: string | null;
+  scheduledDeparture?: string | null;
+  platform?: string | null;
+  pickupType?: string;
+  dropOffType?: string;
 };
 
 type BoardingZoneKey = "front" | "middle" | "rear";
@@ -748,11 +760,25 @@ export interface LayerState {
   metroTunnel: boolean;
   werribeeLine: boolean;
   sandringhamLine: boolean;
-  geelongRegional: boolean;
-  ballaratRegional: boolean;
-  bendigoRegional: boolean;
-  seymourRegional: boolean;
-  traralgonRegional: boolean;
+  // Split from one flag per corridor into one per real named V/Line
+  // destination — each is independently toggleable in the Map Layers panel,
+  // but the older "*Regional" grouping (geelongRegionalGroup etc., used by
+  // the separate quick-filter chips elsewhere) still exists and now toggles
+  // the union of the lines that made up that corridor, so that UI's
+  // behaviour is unchanged.
+  geelongLine: boolean;
+  warrnamboolLine: boolean;
+  ballaratLine: boolean;
+  araratLine: boolean;
+  maryboroughLine: boolean;
+  bendigoLine: boolean;
+  echucaLine: boolean;
+  swanHillLine: boolean;
+  seymourLine: boolean;
+  sheppartonLine: boolean;
+  alburyLine: boolean;
+  traralgonLine: boolean;
+  bairnsdaleLine: boolean;
   inspectors: boolean;
   delays: boolean;
   incidents: boolean;
@@ -825,7 +851,7 @@ function areLayerStatesEqual(
 export function getLiveLineColor(line: string): string {
   const colorMap: Record<string, string> = {
     frankston: "#22c55e",
-    "stony point": "#78716c",
+    "stony point": "#028430",
     mernda: "#BE1014",
     hurstbridge: "#BE1014",
     craigieburn: "#FFD200",
@@ -1034,31 +1060,64 @@ function createLiveTrainIcon(
     .replace(/\bStation\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
+  // Kept full ("Flinders Street", not "Flinders St") — used only in "via"
+  // text, which should always spell the real station name out in full.
+  const originLabelFull = (vehicle.origin ?? "")
+    .replace(/\bStation\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const destinationLabelFull = vehicle.destination
+    .replace(/\bStation\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
   const throughDestinationLabel = destinationLabel.split("→")[0]?.trim() || "";
+  const throughDestinationLabelFull = destinationLabelFull.split("→")[0]?.trim() || "";
   const finalDestinationLabel = destinationLabel.split("→").at(-1)?.trim() || destinationLabel;
   const markerViaLabel = /HCMT/i.test(getVehicleDisplayType(vehicle))
     ? "Metro Tunnel"
     : /City Loop/i.test(destinationLabel)
       ? "City Loop"
       : destinationLabel.includes("→")
-        ? throughDestinationLabel.replace(/\s+via\s+.+$/i, "").trim()
+        // Kept full ("Flinders Street") — see originLabelFull above.
+        ? throughDestinationLabelFull.replace(/\s+via\s+.+$/i, "").trim()
         : "";
+  // The "via" clause must describe the real route taken (City Loop, Metro
+  // Tunnel) — never the trip's origin station, which isn't something the
+  // train is travelling "via" and reads as wrong (e.g. "Flinders St via
+  // Frankston" for a train that started at Frankston and is now city-bound).
+  // The one real exception is the Werribee/Williamstown/Altona/Sandringham
+  // group: those genuinely run point-to-point between two outer termini via
+  // Flinders Street, so which terminus this service actually came from is
+  // the real, useful fact — "via Flinders Street" would just restate the
+  // interchange every cross-city service already passes through.
+  const finalDestinationAlreadyHasVia = /\bvia\b/i.test(finalDestinationLabel);
+  const isCrossCity = isCrossCityLiveTrain(vehicle);
   const journeyLabel = originLabel && finalDestinationLabel
-    ? originLabel.toLowerCase() === finalDestinationLabel.toLowerCase()
-      ? markerViaLabel && markerViaLabel.toLowerCase() !== finalDestinationLabel.toLowerCase()
-        ? `${finalDestinationLabel} via ${markerViaLabel}`
-        : finalDestinationLabel
-      : markerViaLabel && originLabel.toLowerCase() !== markerViaLabel.toLowerCase()
-        ? `${finalDestinationLabel} via ${originLabel} ${markerViaLabel}`
-        : `${finalDestinationLabel} via ${originLabel}`
+    ? finalDestinationAlreadyHasVia
+      ? finalDestinationLabel
+      : isCrossCity && originLabelFull && originLabelFull.toLowerCase() !== finalDestinationLabel.toLowerCase()
+        ? `${finalDestinationLabel} via ${originLabelFull}`
+        : markerViaLabel && markerViaLabel.toLowerCase() !== finalDestinationLabel.toLowerCase()
+          ? `${finalDestinationLabel} via ${markerViaLabel}`
+          : finalDestinationLabel
     : destinationLabel;
   const formation = getVehicleFormation(vehicle);
   const regionalCarLabel = isVlineLiveTrain(vehicle) ? getRegionalCarLengthLabel(vehicle) : "";
+  // Sydney Trains' real fleet class name from the schedule lookup already
+  // leads with its own car count ("8 car Tangara"), and its live feed has no
+  // Melbourne-style motor-car numbering to parse a leading-car figure or
+  // "M cars" from — showing both produced "CAR COUNT TBC · 8 CAR TANGARA ·
+  // M CARS TBC", stacking two placeholders around the one real fact. Skip
+  // the redundant car-count segment and use the real, shortened trip number
+  // (e.g. "615L") as the identifying segment instead of "M cars".
+  const isSydneyTrains = isSydneyTrainsLiveTrain(vehicle);
   const carLabel = isVlineLiveTrain(vehicle)
     ? regionalCarLabel.replace(/-/g, " ").toUpperCase()
-    : formation.cars > 0
-      ? `${formation.cars} CAR`
-      : "CAR COUNT TBC";
+    : isSydneyTrains
+      ? ""
+      : formation.cars > 0
+        ? `${formation.cars} CAR`
+        : "CAR COUNT TBC";
   const typeLabel = (isVlineLiveTrain(vehicle)
     ? getRegionalTrainFamilyLabel(vehicle)
     : formation.family ?? getVehicleDisplayType(vehicle).replace(/\s*\(\d+-car\)\s*$/i, "")
@@ -1067,7 +1126,9 @@ function createLiveTrainIcon(
     ? getHcmtSetLabel(vehicle.consist) ?? "SET TBC"
     : isVlineLiveTrain(vehicle)
       ? getRegionalAllocatedSetLabel(vehicle)
-      : getLeadingMotorCarriages(vehicle.consist) ?? "M CARS TBC";
+      : isSydneyTrains
+        ? vehicle.tdn || "SET TBC"
+        : getLeadingMotorCarriages(vehicle.consist) ?? "M CARS TBC";
   const vehicleSummaryLabel = escapeInlineMarkerHtml(
     [carLabel, typeLabel.toUpperCase(), consistLabel.toUpperCase()].filter(Boolean).join(" · "),
   );
@@ -1079,8 +1140,13 @@ function createLiveTrainIcon(
     : isExpanded
       ? `${getMarkerServiceTime(vehicle.timestamp)} ${(journeyLabel || getMarkerServiceCode(markerLine)).toUpperCase()}`
       : `${getMarkerServiceTime(vehicle.timestamp)} ${(journeyLabel || getMarkerServiceCode(markerLine)).toUpperCase()}`;
+  // The trailing element used to repeat the generic "V/Line" line name (or,
+  // once the real destination resolved, the destination a second time —
+  // already shown in badgePrimaryLabel above). The real train type (Sprinter,
+  // VLocity, N Class) isn't shown anywhere else on this second line, so it's
+  // the more useful fact to close with here.
   const badgeSecondaryLabel = isVlineLiveTrain(vehicle)
-    ? [regionalSpecialLabel || "V/Line live", destinationLabel].filter(Boolean).join(" · ")
+    ? [regionalSpecialLabel || "V/Line live", typeLabel].filter(Boolean).join(" · ")
     : `TDN ${vehicle.tdn}`;
 
   return L.divIcon({
@@ -6901,14 +6967,167 @@ const CRANBOURNE_LINE: [number, number][] = [
   [-38.099794, 145.280720],
 ];
 const PAKENHAM_LINE = PAKENHAM_STATIONS.map((station) => station.position);
-const PAKENHAM_PRE_HAWKSBURN_LINE = PAKENHAM_STATIONS.slice(
-  0,
-  PAKENHAM_STATIONS.findIndex((station) => station.name === "Hawksburn") + 1,
-).map((station) => station.position);
-const PAKENHAM_HAWKSBURN_TO_CARNEGIE_LINE = PAKENHAM_STATIONS.slice(
-  PAKENHAM_STATIONS.findIndex((station) => station.name === "Hawksburn"),
-  PAKENHAM_STATIONS.findIndex((station) => station.name === "Carnegie") + 1,
-).map((station) => station.position);
+// Real GTFS shape points (route "Pakenham", shape 2-PKM-vpt-1.1.H) from the
+// Anzac curve through to Hawksburn — same straight-station-chord kink as the
+// Hawksburn-to-Carnegie section above, fixed the same way.
+const PAKENHAM_PRE_HAWKSBURN_LINE: [number, number][] = [
+  [-37.833041, 144.972857],
+  [-37.834038, 144.973904],
+  [-37.834458, 144.974331],
+  [-37.835372, 144.975232],
+  [-37.835979, 144.975593],
+  [-37.836294, 144.975926],
+  [-37.836616, 144.976356],
+  [-37.837074, 144.977105],
+  [-37.837224, 144.977438],
+  [-37.837337, 144.977755],
+  [-37.837432, 144.978075],
+  [-37.837502, 144.9784],
+  [-37.837578, 144.978792],
+  [-37.837667, 144.979331],
+  [-37.837739, 144.979807],
+  [-37.837837, 144.980643],
+  [-37.838065, 144.982505],
+  [-37.838109, 144.982912],
+  [-37.838133, 144.983208],
+  [-37.838154, 144.983553],
+  [-37.83819, 144.984317],
+  [-37.838219, 144.985059],
+  [-37.838252, 144.986256],
+  [-37.838267, 144.986473],
+  [-37.838292, 144.986713],
+  [-37.838396, 144.987323],
+  [-37.83845, 144.987611],
+  [-37.838713, 144.988747],
+  [-37.839031, 144.989752],
+  [-37.839447, 144.990821],
+  [-37.839669, 144.991406],
+  [-37.839976, 144.992081],
+  [-37.840092, 144.992261],
+  [-37.840401, 144.992602],
+  [-37.840709, 144.992892],
+  [-37.840806, 144.993013],
+  [-37.840957, 144.993226],
+  [-37.841007, 144.993307],
+  [-37.841125, 144.993516],
+  [-37.841266, 144.99382],
+  [-37.841361, 144.994057],
+  [-37.841456, 144.994321],
+  [-37.84162, 144.994802],
+  [-37.842053, 144.99604],
+  [-37.842279, 144.996642],
+  [-37.842434, 144.997005],
+  [-37.843261, 144.998853],
+];
+// Real GTFS shape points (route "Pakenham", shape 2-PKM-vpt-1.1.H) for the
+// Hawksburn-to-Carnegie section — the straight station-to-station chords this
+// replaced cut a visibly kinked diagonal through the Toorak/Orrong Road
+// blocks instead of following the real curving rail corridor.
+const PAKENHAM_HAWKSBURN_TO_CARNEGIE_LINE: [number, number][] = [
+  [-37.843261, 144.998853],
+  [-37.843793, 145.000027],
+  [-37.84389, 145.000259],
+  [-37.843998, 145.000518],
+  [-37.844094, 145.000771],
+  [-37.8442, 145.001087],
+  [-37.84428, 145.001349],
+  [-37.844371, 145.00162],
+  [-37.844469, 145.001889],
+  [-37.844533, 145.002052],
+  [-37.844617, 145.00225],
+  [-37.844707, 145.002446],
+  [-37.844845, 145.002726],
+  [-37.845061, 145.003148],
+  [-37.845139, 145.003317],
+  [-37.845263, 145.003631],
+  [-37.845936, 145.005517],
+  [-37.846498, 145.007083],
+  [-37.846574, 145.007301],
+  [-37.847278, 145.009173],
+  [-37.847386, 145.009453],
+  [-37.847473, 145.009665],
+  [-37.847627, 145.01001],
+  [-37.847708, 145.010179],
+  [-37.847793, 145.010346],
+  [-37.847969, 145.010673],
+  [-37.848061, 145.010835],
+  [-37.848157, 145.010992],
+  [-37.848448, 145.011439],
+  [-37.848592, 145.011636],
+  [-37.848738, 145.01183],
+  [-37.848893, 145.012019],
+  [-37.849052, 145.012206],
+  [-37.849446, 145.012626],
+  [-37.84954, 145.012724],
+  [-37.850684, 145.013867],
+  [-37.851236, 145.014421],
+  [-37.851855, 145.015035],
+  [-37.854281, 145.01739],
+  [-37.855298, 145.018368],
+  [-37.855418, 145.018493],
+  [-37.855548, 145.018637],
+  [-37.855896, 145.019048],
+  [-37.855981, 145.019141],
+  [-37.856156, 145.019325],
+  [-37.856353, 145.019512],
+  [-37.856534, 145.01967],
+  [-37.856863, 145.01993],
+  [-37.857034, 145.02007],
+  [-37.857147, 145.020166],
+  [-37.857497, 145.02049],
+  [-37.861427, 145.024255],
+  [-37.861781, 145.024603],
+  [-37.862024, 145.024847],
+  [-37.862267, 145.025108],
+  [-37.862892, 145.025791],
+  [-37.86474, 145.027818],
+  [-37.865335, 145.028462],
+  [-37.86565, 145.02881],
+  [-37.866104, 145.029306],
+  [-37.866264, 145.029491],
+  [-37.866828, 145.030138],
+  [-37.867362, 145.030755],
+  [-37.8678, 145.031254],
+  [-37.871425, 145.035294],
+  [-37.871507, 145.035382],
+  [-37.874732, 145.038971],
+  [-37.875217, 145.03952],
+  [-37.87536, 145.039686],
+  [-37.875604, 145.039975],
+  [-37.875908, 145.040344],
+  [-37.876026, 145.040489],
+  [-37.876184, 145.040703],
+  [-37.876341, 145.040931],
+  [-37.876528, 145.041229],
+  [-37.876609, 145.041374],
+  [-37.876759, 145.041667],
+  [-37.876946, 145.042022],
+  [-37.877143, 145.042352],
+  [-37.877195, 145.042435],
+  [-37.877614, 145.043073],
+  [-37.877894, 145.043491],
+  [-37.878022, 145.043662],
+  [-37.878877, 145.044688],
+  [-37.87896, 145.044805],
+  [-37.879798, 145.046062],
+  [-37.880083, 145.046464],
+  [-37.880632, 145.047203],
+  [-37.880874, 145.047554],
+  [-37.881085, 145.047878],
+  [-37.881304, 145.048247],
+  [-37.881811, 145.049144],
+  [-37.882136, 145.049709],
+  [-37.882346, 145.050082],
+  [-37.882449, 145.050269],
+  [-37.882641, 145.050647],
+  [-37.882826, 145.051043],
+  [-37.882911, 145.051238],
+  [-37.88341, 145.052446],
+  [-37.883584, 145.052845],
+  [-37.885184, 145.056404],
+  [-37.88616, 145.058569],
+  [-37.886647, 145.059659],
+];
 const PAKENHAM_GTFS_OUTER_TRACK: [number, number][] = [
   [-37.98991938, 145.20988129],
   [-37.99366214, 145.2148343],
@@ -6938,11 +7157,159 @@ const PAKENHAM_GTFS_OUTER_TRACK: [number, number][] = [
   [-38.08252702, 145.49774578],
   [-38.08430672, 145.50663267], // East Pakenham
 ];
+// Real GTFS shape points (route "Pakenham", shape 2-PKM-vpt-1.1.H) for
+// Carnegie through to Dandenong — replaces the same straight-station-chord
+// kink pattern as the two segments above (Murrumbeena/Hughesdale/Oakleigh/
+// Huntingdale/Clayton/Westall/Springvale/Sandown Park/Noble Park/Yarraman
+// were previously just chorded dot-to-dot).
+const PAKENHAM_CARNEGIE_TO_DANDENONG_LINE: [number, number][] = [
+  [-37.886647, 145.059659],
+  [-37.888994, 145.064807],
+  [-37.889333, 145.065608],
+  [-37.890135, 145.067388],
+  [-37.890694, 145.068625],
+  [-37.890992, 145.069288],
+  [-37.891334, 145.070065],
+  [-37.892491, 145.072635],
+  [-37.893032, 145.073816],
+  [-37.893932, 145.075813],
+  [-37.894936, 145.078037],
+  [-37.895067, 145.078311],
+  [-37.895544, 145.079276],
+  [-37.895796, 145.079821],
+  [-37.897955, 145.084608],
+  [-37.898369, 145.085517],
+  [-37.89852, 145.085825],
+  [-37.898636, 145.086037],
+  [-37.898764, 145.08625],
+  [-37.898956, 145.08654],
+  [-37.899302, 145.087011],
+  [-37.8996, 145.087399],
+  [-37.900318, 145.088348],
+  [-37.900689, 145.088842],
+  [-37.901268, 145.089605],
+  [-37.901471, 145.089866],
+  [-37.902098, 145.090649],
+  [-37.902349, 145.090975],
+  [-37.904308, 145.093561],
+  [-37.904882, 145.094324],
+  [-37.905998, 145.095795],
+  [-37.909603, 145.10056],
+  [-37.909849, 145.100899],
+  [-37.910211, 145.101418],
+  [-37.91036, 145.101625],
+  [-37.911006, 145.102483],
+  [-37.911794, 145.103537],
+  [-37.912784, 145.104839],
+  [-37.914944, 145.107694],
+  [-37.916679, 145.109997],
+  [-37.917686, 145.111325],
+  [-37.919281, 145.113439],
+  [-37.920322, 145.114814],
+  [-37.920498, 145.115052],
+  [-37.920703, 145.115344],
+  [-37.920845, 145.115556],
+  [-37.921368, 145.116369],
+  [-37.921516, 145.116595],
+  [-37.921658, 145.116805],
+  [-37.921819, 145.117032],
+  [-37.921927, 145.11718],
+  [-37.922521, 145.117948],
+  [-37.922803, 145.118319],
+  [-37.923007, 145.118597],
+  [-37.923617, 145.119449],
+  [-37.923826, 145.119737],
+  [-37.924742, 145.120953],
+  [-37.926937, 145.123858],
+  [-37.927295, 145.124318],
+  [-37.927593, 145.124687],
+  [-37.929173, 145.126619],
+  [-37.929468, 145.126993],
+  [-37.929901, 145.127569],
+  [-37.930939, 145.128971],
+  [-37.931402, 145.129606],
+  [-37.931607, 145.129877],
+  [-37.931808, 145.130139],
+  [-37.933433, 145.132185],
+  [-37.933709, 145.132541],
+  [-37.936693, 145.136495],
+  [-37.937923, 145.138117],
+  [-37.938516, 145.138901],
+  [-37.938709, 145.139161],
+  [-37.941623, 145.143023],
+  [-37.943845, 145.145956],
+  [-37.944784, 145.147218],
+  [-37.946224, 145.149138],
+  [-37.947179, 145.150514],
+  [-37.947364, 145.150773],
+  [-37.947786, 145.15139],
+  [-37.948533, 145.152442],
+  [-37.948986, 145.15304],
+  [-37.949181, 145.153303],
+  [-37.949665, 145.153943],
+  [-37.95027, 145.15475],
+  [-37.950778, 145.155408],
+  [-37.950929, 145.155582],
+  [-37.951176, 145.155876],
+  [-37.951762, 145.156565],
+  [-37.952893, 145.157965],
+  [-37.953407, 145.158606],
+  [-37.95405, 145.159488],
+  [-37.954939, 145.160666],
+  [-37.955386, 145.161304],
+  [-37.955644, 145.161692],
+  [-37.955998, 145.162239],
+  [-37.956364, 145.162763],
+  [-37.956837, 145.163367],
+  [-37.957158, 145.163778],
+  [-37.958534, 145.165442],
+  [-37.958972, 145.166023],
+  [-37.95932, 145.166498],
+  [-37.959575, 145.166874],
+  [-37.959874, 145.167329],
+  [-37.960401, 145.168125],
+  [-37.960618, 145.168433],
+  [-37.960838, 145.168738],
+  [-37.962314, 145.170704],
+  [-37.963349, 145.172076],
+  [-37.963952, 145.17288],
+  [-37.964831, 145.174063],
+  [-37.965017, 145.174328],
+  [-37.965838, 145.175442],
+  [-37.966239, 145.175967],
+  [-37.966805, 145.176709],
+  [-37.96691, 145.176858],
+  [-37.967943, 145.178161],
+  [-37.969026, 145.179566],
+  [-37.9722, 145.183402],
+  [-37.972723, 145.184074],
+  [-37.973509, 145.185143],
+  [-37.974515, 145.186484],
+  [-37.975211, 145.187422],
+  [-37.975811, 145.188333],
+  [-37.976091, 145.188754],
+  [-37.976847, 145.189905],
+  [-37.977961, 145.191496],
+  [-37.979131, 145.193168],
+  [-37.982574, 145.198119],
+  [-37.983883, 145.200029],
+  [-37.984285, 145.200591],
+  [-37.984842, 145.201381],
+  [-37.986064, 145.203144],
+  [-37.986718, 145.204077],
+  [-37.986914, 145.204368],
+  [-37.987437, 145.205116],
+  [-37.988085, 145.206057],
+  [-37.988294, 145.206352],
+  [-37.9885, 145.206653],
+  [-37.988566, 145.206757],
+  [-37.988675, 145.206941],
+  [-37.988726, 145.207036],
+  [-37.988891, 145.207374],
+  [-37.990008, 145.209795],
+];
 const PAKENHAM_POST_CARNEGIE_LINE = [
-  ...PAKENHAM_STATIONS.slice(
-    PAKENHAM_STATIONS.findIndex((station) => station.name === "Carnegie"),
-    PAKENHAM_STATIONS.findIndex((station) => station.name === "Dandenong") + 1,
-  ).map((station) => station.position),
+  ...PAKENHAM_CARNEGIE_TO_DANDENONG_LINE,
   ...PAKENHAM_GTFS_OUTER_TRACK.slice(1),
 ];
 const PAKENHAM_POST_HAWKSBURN_LINE = PAKENHAM_STATIONS.slice(
@@ -11804,8 +12171,13 @@ function getRegionalTrainTypeLabel(vehicle: LiveTrain) {
 
   // Stony Point is the one non-electrified Metro branch — every service on it
   // runs as a Sprinter railcar, unconditionally, regardless of whether PTV's
-  // feed happens to mention the rolling stock by name.
-  if (/STONY POINT/.test(joined)) {
+  // feed happens to mention the rolling stock by name. The inbound (Stony
+  // Point -> Frankston) direction's real trip_headsign is "Frankston", so
+  // line/destination/serviceDescription can all come back with no text
+  // mentioning Stony Point at all for that direction — the real route code
+  // "STY" survives in tripId regardless (static schedule format
+  // "02-STY--1-T5-8518"), so check that too.
+  if (/STONY POINT/.test(joined) || /-STY--/i.test(vehicle.tripId ?? "")) {
     return "Sprinter";
   }
 
@@ -11851,7 +12223,7 @@ function getRegionalTrainFamilyLabel(vehicle: LiveTrain) {
   const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toUpperCase();
 
   if (/XPT|XPLORER/.test(joined)) return typeLabel;
-  if (/STONY POINT|SPRINTER/.test(joined)) return "Sprinter";
+  if (/STONY POINT|SPRINTER/.test(joined) || /-STY--/i.test(vehicle.tripId ?? "")) return "Sprinter";
   if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "N class";
   if (/VLOCITY|\bV\d{3,4}\b/.test(joined) || /VLOCITY/i.test(typeLabel)) return "VLocity";
   if (/LOCOMOTIVE|LOCO/i.test(typeLabel)) return typeLabel;
@@ -11874,9 +12246,18 @@ function getRegionalCarLengthLabel(vehicle: LiveTrain) {
 
 function getRegionalRouteDisplayLabel(vehicle: LiveTrain) {
   const fallbackMeta = getRegionalFallbackMeta(vehicle);
+  // fallbackMeta.destination is already the real, direction-aware station
+  // (e.g. "Southern Cross" for a city-bound Ballarat-line service, not
+  // "Ballarat" regardless of which way it's actually travelling) — this used
+  // to read fallbackMeta.serviceLabel instead, which is only ever the static
+  // corridor name and doesn't know which direction this specific vehicle is
+  // running, so every inbound V/Line service showed its outbound-terminus
+  // town as if it were still travelling away from Melbourne. Not a one-off:
+  // this feeds every unselected V/Line marker's tooltip, so the fix applies
+  // network-wide, not just to one train.
   const raw = !isGenericRegionalPlaceholder(vehicle.destination)
     ? vehicle.destination
-    : fallbackMeta?.serviceLabel ?? vehicle.line ?? "V/Line";
+    : fallbackMeta?.destination ?? fallbackMeta?.serviceLabel ?? vehicle.line ?? "V/Line";
   return raw
     .replace(/\s+line$/i, "")
     .replace(/^V\/Line$/i, "Regional")
@@ -11910,6 +12291,16 @@ function getRegionalRealtimeTripLabel(vehicle: LiveTrain) {
 }
 
 function getRegionalAllocatedSetLabel(vehicle: LiveTrain) {
+  // NSW TrainLink has no real consist/set number the way transportvic.me
+  // publishes for V/Line — falling through to the generic candidates below
+  // used to surface the raw service description text (e.g. "08:40am (224)
+  // Armidale - Sydney") in the Allocated Set field instead of a real
+  // identifier. getNswTrainLinkSetNumber's trip-number-derived code (e.g.
+  // "NP24") is the same real identifier already shown on the map marker's
+  // "XPT leading set NP24" label — use that here too instead.
+  if (isNswTrainLinkLiveTrain(vehicle)) {
+    return getNswTrainLinkSetNumber(vehicle);
+  }
   const allocation = getCurrentVlineAllocation(vehicle);
   if (allocation) return allocation.setIds.join(" + ");
   // leadingSet only ever gets populated for VLocity sets (that's all
@@ -11920,8 +12311,12 @@ function getRegionalAllocatedSetLabel(vehicle: LiveTrain) {
   if (vehicle.tripId?.startsWith("01-") && vehicle.leadingSet) {
     return `${vehicle.leadingSet.setId} (leading set)`;
   }
+  // Stony Point's own live feed has no real reporting mark at all — just
+  // the literal word "train" glued to its trip-derived number (e.g.
+  // "train68340") — so strip that prefix rather than display it as if
+  // "train" were part of the identifier.
   const candidates = [vehicle.consist, vehicle.tdn]
-    .map((value) => value.trim())
+    .map((value) => value.trim().replace(/^train(?=\d)/i, ""))
     .filter(Boolean);
   return candidates.find((value) => isRegionalSetIdentifier(value)) ?? candidates[0] ?? "";
 }
@@ -12701,6 +13096,17 @@ function formatRouteWindow(time?: string | null) {
   return time.slice(0, 5);
 }
 
+// GTFS static schedule times use "HH:MM:SS" and can run past "24:00:00" for
+// a trip that continues after midnight (real for the overnight XPT legs) —
+// wrap those back onto a real 24-hour clock rather than displaying "25:14".
+function formatGtfsScheduleTime(time?: string | null) {
+  if (!time) return null;
+  const match = time.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hour = Number(match[1]) % 24;
+  return `${String(hour).padStart(2, "0")}:${match[2]}`;
+}
+
 type RegionalServiceStop = {
   time: string;
   name: string;
@@ -12932,6 +13338,24 @@ function isValidLatLng(lat: unknown, lng: unknown): lat is number {
 // call site that flies to a live vehicle/bus/tram position needs this guard.
 function safeFlyTo(map: L.Map | null | undefined, lat: unknown, lng: unknown, zoom: number, options?: L.ZoomPanOptions) {
   if (!map || !isValidLatLng(lat, lng)) return false;
+  // The map container can still measure as 0x0 for a moment right after it's
+  // mounted or made visible again (e.g. switching from the Fleet Tracker tab
+  // straight to a "Track"ed vehicle on the map tab) — flyTo does its own
+  // pixel-space projection math to build the pan/zoom animation curve, and
+  // that math produces NaN internally when the container has no real size
+  // yet, throwing "Invalid LatLng object" past this function's own
+  // lat/lng check and crashing the whole app. Recalculate the real size
+  // first; if it's still not laid out, jump straight there without the
+  // animation curve instead of risking another flyTo on a 0-size container.
+  const size = map.getSize();
+  if (size.x === 0 || size.y === 0) {
+    map.invalidateSize();
+    const revalidatedSize = map.getSize();
+    if (revalidatedSize.x === 0 || revalidatedSize.y === 0) {
+      map.setView([lat, lng], zoom, { animate: false });
+      return true;
+    }
+  }
   map.flyTo([lat, lng], zoom, options);
   return true;
 }
@@ -12976,29 +13400,6 @@ function getPolylinePointDistanceMetres(position: [number, number], line: [numbe
   return closest;
 }
 
-// Real V/Line route_id -> real route_short_name (source: VIC GTFS regional
-// feed routes.txt). This is authoritative and unambiguous — unlike the live
-// feed's own line/destination/serviceDescription fields, which for several
-// real services (e.g. every Echuca and Shepparton run observed) are just the
-// generic literal "V/Line", giving the text-matching and geographic-nearest
-// fallbacks below nothing real to go on. The 3-letter code is always present
-// in tripId (e.g. "01-SNH--6-T0-8381"), so check it first.
-const VLINE_ROUTE_CODE_TO_LINE: Record<string, { outbound: string; inbound: string; serviceLabel: string }> = {
-  ABY: { outbound: "Seymour", inbound: "Southern Cross", serviceLabel: "Seymour line" },
-  ART: { outbound: "Ballarat", inbound: "Southern Cross", serviceLabel: "Ballarat line" },
-  BAT: { outbound: "Ballarat", inbound: "Southern Cross", serviceLabel: "Ballarat line" },
-  BDE: { outbound: "Bairnsdale", inbound: "Southern Cross", serviceLabel: "Gippsland line" },
-  BGO: { outbound: "Bendigo", inbound: "Southern Cross", serviceLabel: "Bendigo line" },
-  ECH: { outbound: "Bendigo", inbound: "Southern Cross", serviceLabel: "Bendigo line" },
-  GEL: { outbound: "Waurn Ponds", inbound: "Southern Cross", serviceLabel: "Geelong line" },
-  MBY: { outbound: "Ballarat", inbound: "Southern Cross", serviceLabel: "Ballarat line" },
-  SER: { outbound: "Seymour", inbound: "Southern Cross", serviceLabel: "Seymour line" },
-  SNH: { outbound: "Seymour", inbound: "Southern Cross", serviceLabel: "Seymour line" },
-  SWL: { outbound: "Bendigo", inbound: "Southern Cross", serviceLabel: "Bendigo line" },
-  TRN: { outbound: "Bairnsdale", inbound: "Southern Cross", serviceLabel: "Gippsland line" },
-  WBL: { outbound: "Waurn Ponds", inbound: "Southern Cross", serviceLabel: "Geelong line" },
-};
-
 function getRegionalFallbackMeta(
   vehicle: Pick<LiveTrain, "lat" | "lng" | "line" | "destination" | "serviceDescription" | "direction" | "tripId">,
 ) {
@@ -13011,14 +13412,9 @@ function getRegionalFallbackMeta(
     vehicle.direction === "up" ||
     /southern cross|flinders street|melbourne central|flagstaff|parliament|city/i.test(vehicle.destination);
 
-  const routeCode = vehicle.tripId?.match(/^0?1-([A-Za-z]+)--/)?.[1]?.toUpperCase();
-  const codeMeta = routeCode ? VLINE_ROUTE_CODE_TO_LINE[routeCode] : undefined;
+  const codeMeta = getVlineRouteMetaFromTripId(vehicle.tripId, cityBound);
   if (codeMeta) {
-    return {
-      ...codeMeta,
-      origin: cityBound ? codeMeta.outbound : codeMeta.inbound,
-      destination: cityBound ? codeMeta.inbound : codeMeta.outbound,
-    };
+    return codeMeta;
   }
 
   const joined = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
@@ -13250,11 +13646,22 @@ function getRegionalLayerVisibility(
 ) {
   const joined = normaliseVehicleLineText(vehicle);
 
-  if (/(waurn ponds|geelong|warrnambool)/i.test(joined)) return layers.geelongRegional;
-  if (/(ballarat|wendouree|ararat|maryborough)/i.test(joined)) return layers.ballaratRegional;
-  if (/(bendigo|castlemaine|echuca|swan hill)/i.test(joined)) return layers.bendigoRegional;
-  if (/(seymour|shepparton|albury|wallan|broadford|tallarook)/i.test(joined)) return layers.seymourRegional;
-  if (/(traralgon|traralgon|bairnsdale|sale|morwell|moe)/i.test(joined)) return layers.traralgonRegional;
+  // Checked in an order that puts the more specific real town name first so
+  // e.g. a real Warrnambool service (which also passes through Geelong-line
+  // track) is gated by its own toggle, not lumped under "Geelong".
+  if (/warrnambool/i.test(joined)) return layers.warrnamboolLine;
+  if (/(waurn ponds|geelong)/i.test(joined)) return layers.geelongLine;
+  if (/ararat/i.test(joined)) return layers.araratLine;
+  if (/maryborough/i.test(joined)) return layers.maryboroughLine;
+  if (/(ballarat|wendouree)/i.test(joined)) return layers.ballaratLine;
+  if (/echuca/i.test(joined)) return layers.echucaLine;
+  if (/swan hill/i.test(joined)) return layers.swanHillLine;
+  if (/(bendigo|castlemaine)/i.test(joined)) return layers.bendigoLine;
+  if (/shepparton/i.test(joined)) return layers.sheppartonLine;
+  if (/albury/i.test(joined)) return layers.alburyLine;
+  if (/(seymour|wallan|broadford|tallarook)/i.test(joined)) return layers.seymourLine;
+  if (/bairnsdale/i.test(joined)) return layers.bairnsdaleLine;
+  if (/(traralgon|sale|morwell|moe)/i.test(joined)) return layers.traralgonLine;
 
   return true;
 }
@@ -13361,15 +13768,88 @@ function getDisplayConsist(consist: string) {
   return formatDisplayedConsist(parts);
 }
 
+type GeneratedGtfsRoute = {
+  id: string;
+  shortName: string;
+  longName: string;
+  color: string;
+  shape: readonly (readonly [number, number])[];
+  stations: readonly {
+    name: string;
+    position: readonly [number, number];
+    scheduledArrival?: string | null;
+    scheduledDeparture?: string | null;
+    platform?: string | null;
+    pickupType?: string;
+    dropOffType?: string;
+  }[];
+};
+
+// Shared by both the V/Line and NSW TrainLink pattern lookups below: orders
+// a route's real GTFS stations along its real shape, dedupes adjacent
+// repeats, then flips the order if the vehicle's live destination clearly
+// matches the tail end rather than the head (GTFS shapes/stations aren't
+// always stored in the vehicle's current direction of travel).
+function orderGtfsStationsForVehicle(matchedRoute: GeneratedGtfsRoute, vehicle: LiveTrain): Station[] {
+  const ordered = [...matchedRoute.stations]
+    .map((station) => {
+      let shapeIndex = 0;
+      let nearest = Number.POSITIVE_INFINITY;
+      matchedRoute.shape.forEach((point, index) => {
+        const distance = (point[0] - station.position[0]) ** 2 + (point[1] - station.position[1]) ** 2;
+        if (distance < nearest) {
+          nearest = distance;
+          shapeIndex = index;
+        }
+      });
+      return { ...station, position: [station.position[0], station.position[1]] as [number, number], shapeIndex };
+    })
+    .sort((left, right) => left.shapeIndex - right.shapeIndex)
+    .filter((station, index, stations) => index === 0 || station.name !== stations[index - 1].name)
+    .map(({ name, position, scheduledArrival, scheduledDeparture, platform, pickupType, dropOffType }) => ({
+      name,
+      position,
+      scheduledArrival,
+      scheduledDeparture,
+      platform,
+      pickupType,
+      dropOffType,
+    }));
+
+  const destination = vehicle.destination.toLowerCase().replace(/\s+station\b/g, "");
+  const firstMatchesDestination = destination.includes(ordered[0]?.name.toLowerCase().replace(/\s+station\b/g, "") ?? "");
+  const lastMatchesDestination = destination.includes(ordered.at(-1)?.name.toLowerCase().replace(/\s+station\b/g, "") ?? "");
+  return firstMatchesDestination && !lastMatchesDestination ? ordered.reverse() : ordered;
+}
+
+// The Sydney-Melbourne XPT's real stopping pattern, from Transport for NSW's
+// own static GTFS schedule (see scripts/import-nsw-trainlink-gtfs.mjs) — the
+// same real-data-only approach as V/Line below, just sourced from NSW's
+// schedule instead of Victoria's since this service runs almost entirely
+// outside Victoria. The down (621/623, to Melbourne) and up (622/624, to
+// Sydney) routes share one physical corridor, so direction is picked from
+// the vehicle's real destination text, not nearest-shape-point distance
+// (which can't tell direction apart on a single shared track).
+function getNswTrainLinkGtfsPatternStations(vehicle: LiveTrain): Station[] {
+  const destination = vehicle.destination.toLowerCase();
+  const towardMelbourne = /melbourne|southern cross/.test(destination);
+  const towardSydney = /sydney|central/.test(destination);
+  const matchedRoute = GENERATED_NSW_TRAINLINK_GTFS.find((route) =>
+    towardMelbourne
+      ? /melbourne|southern cross/i.test(route.longName)
+      : towardSydney
+        ? /sydney|central/i.test(route.longName)
+        : false,
+  ) ?? GENERATED_NSW_TRAINLINK_GTFS[0];
+  if (!matchedRoute) return [];
+  return orderGtfsStationsForVehicle(matchedRoute, vehicle);
+}
+
 function getRegionalGtfsPatternStations(vehicle: LiveTrain): Station[] {
+  if (isNswTrainLinkLiveTrain(vehicle)) {
+    return getNswTrainLinkGtfsPatternStations(vehicle);
+  }
   if (!isVlineLiveTrain(vehicle)) return [];
-  // GENERATED_VLINE_GTFS only contains Victorian regional routes. Matching by
-  // nearest-shape-point means an NSW TrainLink service (anywhere in NSW) always
-  // resolves to whichever Victorian route happens to reach closest to the NSW
-  // border — the Albury line — producing a completely wrong stopping pattern
-  // (e.g. a Brisbane-Sydney XPT shown stopping at Albury/Wodonga/Chiltern).
-  // There is no real V/Line pattern for an interstate service, so return none.
-  if (isNswTrainLinkLiveTrain(vehicle)) return [];
   const searchable = `${vehicle.line} ${vehicle.origin ?? ""} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
   const candidates = GENERATED_VLINE_GTFS.map((route) => {
     const name = `${route.shortName} ${route.longName}`.toLowerCase();
@@ -13385,28 +13865,7 @@ function getRegionalGtfsPatternStations(vehicle: LiveTrain): Station[] {
   }).sort((left, right) => left.score - right.score);
   const matchedRoute = candidates[0]?.route;
   if (!matchedRoute) return [];
-
-  const ordered = [...matchedRoute.stations]
-    .map((station) => {
-      let shapeIndex = 0;
-      let nearest = Number.POSITIVE_INFINITY;
-      matchedRoute.shape.forEach((point, index) => {
-        const distance = (point[0] - station.position[0]) ** 2 + (point[1] - station.position[1]) ** 2;
-        if (distance < nearest) {
-          nearest = distance;
-          shapeIndex = index;
-        }
-      });
-      return { name: station.name, position: [station.position[0], station.position[1]] as [number, number], shapeIndex };
-    })
-    .sort((left, right) => left.shapeIndex - right.shapeIndex)
-    .filter((station, index, stations) => index === 0 || station.name !== stations[index - 1].name)
-    .map(({ name, position }) => ({ name, position }));
-
-  const destination = vehicle.destination.toLowerCase().replace(/\s+station\b/g, "");
-  const firstMatchesDestination = destination.includes(ordered[0]?.name.toLowerCase().replace(/\s+station\b/g, "") ?? "");
-  const lastMatchesDestination = destination.includes(ordered.at(-1)?.name.toLowerCase().replace(/\s+station\b/g, "") ?? "");
-  return firstMatchesDestination && !lastMatchesDestination ? ordered.reverse() : ordered;
+  return orderGtfsStationsForVehicle(matchedRoute, vehicle);
 }
 
 function getLivePositionOnStopTimeline(
@@ -13774,22 +14233,25 @@ function ViewportListener({
 function LayerControl({
   layers,
   onChange,
+  open,
+  onOpenChange,
 }: {
   layers: LayerState;
-  onChange: (key: keyof LayerState) => void;
+  onChange: (key: keyof LayerState | (keyof LayerState)[]) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
 
   const controls: {
-    key: keyof LayerState;
+    key: keyof LayerState | (keyof LayerState)[];
     label: string;
     icon: React.ReactNode;
     color: string;
   }[] = [
     
     {
-      key: "werribeeLine",
-label: "Werribee / Williamstown / Altona",
+      key: ["werribeeLine", "sandringhamLine"],
+      label: "Werribee / Williamstown / Altona / Sandringham",
       icon: <Train className="w-3.5 h-3.5" />,
       color: "#F178AF",
     },
@@ -13803,104 +14265,110 @@ label: "Werribee / Williamstown / Altona",
       key: "stonyPointLine",
       label: "Stony Point Line",
       icon: <Train className="w-3.5 h-3.5" />,
-      color: "#78716c",
+      color: "#028430",
     },
     {
-  key: "merndaLine",
-  label: "Mernda Line",
-  icon: <Train className="w-3.5 h-3.5" />,
-  color: "#BE1014",
-},
-{
-  key: "hurstbridgeLine",
-  label: "Hurstbridge Line",
-  icon: <Train className="w-3.5 h-3.5" />,
-  color: "#BE1014",
-},
-{
-  key: "cliftonHillLoop",
-  label: "Clifton Hill Loop",
-  icon: <Train className="w-3.5 h-3.5" />,
-  color: "#BE1014",
-},
+      key: ["merndaLine", "hurstbridgeLine", "cliftonHillLoop"],
+      label: "Mernda / Hurstbridge / Clifton Hill",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#BE1014",
+    },
     {
-      key: "cranbourneLine",
-      label: "Cranbourne Line",
+      key: ["cranbourneLine", "pakenhamLine", "sunburyLine"],
+      label: "Cranbourne / Pakenham / Sunbury",
       icon: <Train className="w-3.5 h-3.5" />,
       color: "#279FD5",
     },
     {
-      key: "pakenhamLine",
-      label: "Pakenham Line",
-      icon: <Train className="w-3.5 h-3.5" />,
-      color: "#279FD5",
-    },
-    {
-      key: "sunburyLine",
-      label: "Sunbury Line",
-      icon: <Train className="w-3.5 h-3.5" />,
-      color: "#279FD5",
-    },
-    {
-      key: "northernLoop",
-      label: "Northern Loop",
+      key: ["craigieburnLine", "upfieldLine"],
+      label: "Upfield / Craigieburn",
       icon: <Train className="w-3.5 h-3.5" />,
       color: "#FFD200",
     },
     {
-      key: "metroTunnel",
-      label: "Metro Tunnel",
+      key: ["belgraveLine", "lilydaleLine", "alameinLine", "glenWaverleyLine", "burnleyLoop"],
+      label: "Belgrave / Lilydale / Alamein / Glen Waverley",
       icon: <Train className="w-3.5 h-3.5" />,
-      color: "#279FD5",
+      color: "#152C6B",
     },
     {
-      key: "sandringhamLine",
-      label: "Sandringham Line",
+      key: "geelongLine",
+      label: "Geelong Line",
       icon: <Train className="w-3.5 h-3.5" />,
-      color: "#F178AF",
+      color: "#7c3aed",
     },
     {
-  key: "craigieburnLine",
-  label: "Craigieburn Line",
-  icon: <Train className="w-3.5 h-3.5" />,
-  color: "#FFD200",
-},
-{
-  key: "upfieldLine",
-  label: "Upfield Line",
-  icon: <Train className="w-3.5 h-3.5" />,
-  color: "#FFD200",
-},
-{
-  key: "lilydaleLine",
-  label: "Lilydale Line",
-  icon: <Train className="w-3.5 h-3.5" />,
-  color: "#279FD5",
-},
-{
-  key: "belgraveLine",
-  label: "Belgrave Line",
-  icon: <Train className="w-3.5 h-3.5" />,
-  color: "#279FD5",
-},
-{
-  key: "alameinLine",
-  label: "Alamein Line",
-  icon: <Train className="w-3.5 h-3.5" />,
-  color: "#279FD5",
-},
-{
-  key: "glenWaverleyLine",
-  label: "Glen Waverley Line",
-  icon: <Train className="w-3.5 h-3.5" />,
-  color: "#279FD5",
-},
-{
-  key: "burnleyLoop",
-  label: "Burnley Loop",
-  icon: <Train className="w-3.5 h-3.5" />,
-  color: "#279FD5",
-},
+      key: "warrnamboolLine",
+      label: "Warrnambool Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "ballaratLine",
+      label: "Ballarat Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "araratLine",
+      label: "Ararat Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "maryboroughLine",
+      label: "Maryborough Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "bendigoLine",
+      label: "Bendigo Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "echucaLine",
+      label: "Echuca Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "swanHillLine",
+      label: "Swan Hill Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "seymourLine",
+      label: "Seymour Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "sheppartonLine",
+      label: "Shepparton Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "alburyLine",
+      label: "Albury Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "traralgonLine",
+      label: "Traralgon Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
+    {
+      key: "bairnsdaleLine",
+      label: "Bairnsdale Line",
+      icon: <Train className="w-3.5 h-3.5" />,
+      color: "#7c3aed",
+    },
     {
       key: "inspectors",
       label: "Inspectors",
@@ -13936,7 +14404,7 @@ label: "Werribee / Williamstown / Altona",
   return (
     <div className="absolute top-20 right-3 z-[1000] flex flex-col items-end gap-2">
       <button
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => onOpenChange(!open)}
         className="w-10 h-10 rounded-full bg-gray-900/90 border border-white/10 shadow-xl flex items-center justify-center text-white hover:bg-gray-800 transition-colors"
         title="Map Layers"
       >
@@ -13944,34 +14412,43 @@ label: "Werribee / Williamstown / Altona",
       </button>
 
       {open && (
-        <div className="bg-gray-900/95 border border-white/10 rounded-2xl p-3 shadow-2xl flex flex-col gap-1.5 min-w-[170px]">
-          <p className="text-[10px] uppercase tracking-widest text-white/40 px-1 mb-1">
+        <div className="flex max-h-[calc(100vh-11rem)] min-w-[170px] flex-col gap-1.5 overflow-y-auto rounded-2xl border border-white/10 bg-gray-900/95 p-3 shadow-2xl">
+          <p className="sticky -top-3 -mx-3 -mt-3 bg-gray-900/95 px-4 pb-1 pt-3 text-[10px] uppercase tracking-widest text-white/40">
             Map Layers
           </p>
 
-          {controls.map(({ key, label, icon, color }) => (
-            <button
-              key={key}
-              onClick={() => onChange(key)}
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
-                layers[key]
-                  ? "bg-white/10 text-white"
-                  : "text-white/40 hover:text-white/60 hover:bg-white/5"
-              }`}
-            >
-              <span style={{ color: layers[key] ? color : undefined }}>
-                {icon}
-              </span>
-              <span>{label}</span>
-              <span className="ml-auto">
-                {layers[key] ? (
-                  <Eye className="w-3.5 h-3.5 text-white/50" />
-                ) : (
-                  <EyeOff className="w-3.5 h-3.5 text-white/20" />
-                )}
-              </span>
-            </button>
-          ))}
+          {controls.map(({ key, label, icon, color }) => {
+            // A grouped row (e.g. "Northern Group") controls several
+            // individual LayerState flags at once so every line that shares
+            // a physical corridor toggles together instead of needing N
+            // separate rows — it reads as "on" if any member is currently
+            // on, matching the same lockstep on/off convention already used
+            // by the service-filter groups elsewhere on the map.
+            const isOn = Array.isArray(key) ? key.some((k) => layers[k]) : layers[key];
+            return (
+              <button
+                key={Array.isArray(key) ? key.join("+") : key}
+                onClick={() => onChange(key)}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                  isOn
+                    ? "bg-white/10 text-white"
+                    : "text-white/40 hover:text-white/60 hover:bg-white/5"
+                }`}
+              >
+                <span style={{ color: isOn ? color : undefined }}>
+                  {icon}
+                </span>
+                <span>{label}</span>
+                <span className="ml-auto">
+                  {isOn ? (
+                    <Eye className="w-3.5 h-3.5 text-white/50" />
+                  ) : (
+                    <EyeOff className="w-3.5 h-3.5 text-white/20" />
+                  )}
+                </span>
+              </button>
+            );
+          })}
 
           <div className="border-t border-white/10 mt-1 pt-2">
             <p className="text-[10px] text-white/30 px-1">Filter by Transport</p>
@@ -14026,6 +14503,7 @@ export function Map({
   const iosLeanMapEnabled = isIos && mobilePerformanceMode !== "off";
   const mapRef = useRef<L.Map | null>(null);
   const lastEmittedLayerStateRef = useRef<LayerState | null>(null);
+  const lastAppliedPersistedLayerStateRef = useRef<Partial<LayerState> | null>(null);
   const consistData = { active: false } as any;
   const [trainLookupQuery, setTrainLookupQuery] = useState("");
   const [trainLookupMessage, setTrainLookupMessage] = useState("");
@@ -14536,7 +15014,7 @@ export function Map({
       }))
     // A regional vehicle without a matched GTFS trip must not inherit a metro
     // line pattern. That created false stops such as a next stop named “V/Line”.
-    : selectedVehicle && isVlineLiveTrain(selectedVehicle)
+    : selectedVehicle && (isVlineLiveTrain(selectedVehicle) || isNswTrainLinkLiveTrain(selectedVehicle))
       ? getRegionalGtfsPatternStations(selectedVehicle)
       : selectedVehicleMetroStops;
   const selectedVehicleSnapshotConsist = selectedVehicle ? getSnapshotConsistId(selectedVehicle.consist) : null;
@@ -14559,11 +15037,23 @@ export function Map({
   const selectedTrainFormationSegments = selectedTrainTrip?.formationSegments?.length
     ? selectedTrainTrip.formationSegments
     : selectedTrainTrip?.segments ?? [];
-  const selectedTrainFormationOrigin = selectedTrainFormationSegments[0]?.origin
+  const selectedTrainFormationOriginRaw = selectedTrainFormationSegments[0]?.origin
     ?.replace(/\s+Station$/i, "");
-  const selectedTrainFormationDestination = selectedTrainFormationSegments.at(-1)?.destination
+  const selectedTrainFormationDestinationRaw = selectedTrainFormationSegments.at(-1)?.destination
     ?.replace(/\s+Station$/i, "")
     .replace(/\s+via\s+.+$/i, "");
+  // A City Loop out-and-back (Frankston -> city -> Frankston) is a completely
+  // normal same-terminus round trip across the day's full formation chain,
+  // but showing that span as "Frankston to Frankston service via City Loop"
+  // reads as a bug, not a real destination. When the chain's first and last
+  // segment share a terminus, there's no useful "spans the whole day" label
+  // to show — fall through to the CURRENT leg's own real origin/destination
+  // instead (selectedTrainCurrentOrigin/Destination below).
+  const selectedTrainFormationSpansSameTerminus =
+    Boolean(selectedTrainFormationOriginRaw) &&
+    selectedTrainFormationOriginRaw === selectedTrainFormationDestinationRaw;
+  const selectedTrainFormationOrigin = selectedTrainFormationSpansSameTerminus ? undefined : selectedTrainFormationOriginRaw;
+  const selectedTrainFormationDestination = selectedTrainFormationSpansSameTerminus ? undefined : selectedTrainFormationDestinationRaw;
   const selectedHcmtOrigin = selectedVehicleIsHcmtMetroTunnel
     ? selectedTrainFormationOrigin ?? selectedTrainTrip?.stops[0]?.name.replace(/\s+Station$/i, "")
     : undefined;
@@ -14585,7 +15075,8 @@ export function Map({
   const selectedTrainCurrentDestination = (
     selectedTrainCurrentFormation?.destination ?? selectedTrainTrip?.stops.at(-1)?.name
   )?.replace(/\s+Station$/i, "");
-  const selectedTrainFinalDestination = selectedTrainCurrentFormationIndex >= 0
+  const selectedTrainFinalDestination = !selectedTrainFormationSpansSameTerminus
+    && selectedTrainCurrentFormationIndex >= 0
     && selectedTrainCurrentFormationIndex < selectedTrainFormationSegments.length - 1
     ? selectedTrainNextFormation?.destination
         ?.replace(/\s+Station$/i, "")
@@ -14633,8 +15124,18 @@ export function Map({
         ? getRegionalFallbackMeta(selectedVehicle)?.destination ?? selectedVehicle.destination
         : selectedVehicle.destination)
     : "";
+  // The Werribee/Williamstown/Altona/Sandringham group runs real point-to-
+  // point through services between two outer termini via Flinders Street —
+  // for those, which terminus this service actually came from is the real,
+  // useful fact, not the interchange every cross-city service already
+  // passes through, so this shows "<destination> via <origin>" instead of
+  // "<origin> to <destination> service via Flinders Street".
+  const selectedVehicleIsCrossCity = selectedVehicle ? isCrossCityLiveTrain(selectedVehicle) : false;
   const selectedVehiclePatternLabel = selectedVehicle
-    ? selectedServiceViaLabel && selectedVehicleOriginLabel && selectedVehicleDestinationLabel
+    ? selectedVehicleIsCrossCity && selectedVehicleOriginLabel && selectedVehicleDestinationLabel
+      && selectedVehicleOriginLabel.toLowerCase() !== selectedVehicleDestinationLabel.toLowerCase()
+      ? `${selectedVehicleDestinationLabel} via ${selectedVehicleOriginLabel}`
+      : selectedServiceViaLabel && selectedVehicleOriginLabel && selectedVehicleDestinationLabel
       ? `${selectedVehicleOriginLabel} to ${selectedVehicleDestinationLabel} service via ${selectedServiceViaLabel}`
       : selectedTrainFormationSegments.length > 1 && selectedTrainFormationOrigin && selectedTrainFormationDestination
         ? `${selectedTrainFormationOrigin} → ${selectedTrainFormationDestination} through service`
@@ -14830,6 +15331,12 @@ export function Map({
       featuredConsistSnapshot?.status === "active" ||
       featuredConsistSnapshot?.position,
   );
+  // Lifted out of LayerControl so the live-count pills (top-left) can hide
+  // themselves while the layers panel is open — with the panel's width now
+  // driven by its longest combined line label, it overlaps that fixed pill
+  // position on narrow screens; hiding the pills for as long as the panel is
+  // open is the simplest fix without needing to cap the panel's width.
+  const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(false);
   const [layers, setLayers] = useState<LayerState>({
     merndaLine: true,
     hurstbridgeLine: true,
@@ -14850,11 +15357,19 @@ export function Map({
     metroTunnel: true,
     werribeeLine: true,
     sandringhamLine: true,
-    geelongRegional: true,
-    ballaratRegional: true,
-    bendigoRegional: true,
-    seymourRegional: true,
-    traralgonRegional: true,
+    geelongLine: true,
+    warrnamboolLine: true,
+    ballaratLine: true,
+    araratLine: true,
+    maryboroughLine: true,
+    bendigoLine: true,
+    echucaLine: true,
+    swanHillLine: true,
+    seymourLine: true,
+    sheppartonLine: true,
+    alburyLine: true,
+    traralgonLine: true,
+    bairnsdaleLine: true,
     inspectors: true,
     delays: true,
     incidents: true,
@@ -15049,11 +15564,20 @@ export function Map({
     retry: false,
   });
 
+  // This only reacts to persistedLayerState itself changing (e.g. saved
+  // preferences finishing their initial load) — it used to also depend on
+  // `layers` and compare against the live value, which meant every local
+  // toggle re-ran it immediately. Since onLayerStateChange's save below is
+  // async, persistedLayerState is still the OLD value for a moment after a
+  // toggle, so that comparison kept finding a "difference" and snapping the
+  // just-toggled flag straight back — the toggle "spazzing" back and forth
+  // instead of sticking.
   useEffect(() => {
-    if (persistedLayerState && !areLayerStatesEqual(layers, { ...layers, ...persistedLayerState })) {
-      setLayers((prev) => ({ ...prev, ...persistedLayerState }));
-    }
-  }, [layers, persistedLayerState]);
+    if (!persistedLayerState) return;
+    if (areLayerStatesEqual(lastAppliedPersistedLayerStateRef.current, persistedLayerState)) return;
+    lastAppliedPersistedLayerStateRef.current = persistedLayerState;
+    setLayers((prev) => ({ ...prev, ...persistedLayerState }));
+  }, [persistedLayerState]);
 
   useEffect(() => {
     if (!onLayerStateChange) return;
@@ -15061,6 +15585,14 @@ export function Map({
       return;
     }
     lastEmittedLayerStateRef.current = layers;
+    // Home.tsx echoes this straight back down as the next persistedLayerState
+    // (its preferences state updates synchronously, unlike the actual server
+    // save) — pre-mark it as already-applied so the sync effect above doesn't
+    // treat that echo as new external data and run an extra, redundant
+    // setLayers on top of the toggle that's already correct. That redundant
+    // round trip was the remaining cause of the visible "spazz": every toggle
+    // was applying twice in a row.
+    lastAppliedPersistedLayerStateRef.current = layers;
     onLayerStateChange(layers);
   }, [layers, onLayerStateChange]);
 
@@ -15259,8 +15791,14 @@ export function Map({
     return entries.sort((a, b) => a.distanceMetres - b.distanceMetres).slice(0, 8);
   }, [userLoc]);
 
-  const toggleLayer = useCallback((key: keyof LayerState) => {
-    setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
+  const toggleLayer = useCallback((key: keyof LayerState | (keyof LayerState)[]) => {
+    setLayers((prev) => {
+      if (Array.isArray(key)) {
+        const nextValue = !key.some((groupKey) => prev[groupKey]);
+        return { ...prev, ...Object.fromEntries(key.map((groupKey) => [groupKey, nextValue])) };
+      }
+      return { ...prev, [key]: !prev[key] };
+    });
   }, []);
 
   const toggleStationPillLine = useCallback((station: Station) => {
@@ -15311,16 +15849,30 @@ export function Map({
     }
     setLayers((prev) => {
       switch (filter) {
-        case "geelongRegionalGroup":
-          return { ...prev, geelongRegional: shouldForceShowRegional ? true : !prev.geelongRegional };
-        case "ballaratRegionalGroup":
-          return { ...prev, ballaratRegional: shouldForceShowRegional ? true : !prev.ballaratRegional };
-        case "bendigoRegionalGroup":
-          return { ...prev, bendigoRegional: shouldForceShowRegional ? true : !prev.bendigoRegional };
-        case "seymourRegionalGroup":
-          return { ...prev, seymourRegional: shouldForceShowRegional ? true : !prev.seymourRegional };
-        case "traralgonRegionalGroup":
-          return { ...prev, traralgonRegional: shouldForceShowRegional ? true : !prev.traralgonRegional };
+        // Each of these groups now toggles the union of the specific named
+        // lines that made up its corridor (see the LayerState split above) —
+        // this chip's own on/off behaviour is unchanged, it just fans out to
+        // more than one underlying flag now.
+        case "geelongRegionalGroup": {
+          const nextValue = shouldForceShowRegional ? true : !(prev.geelongLine || prev.warrnamboolLine);
+          return { ...prev, geelongLine: nextValue, warrnamboolLine: nextValue };
+        }
+        case "ballaratRegionalGroup": {
+          const nextValue = shouldForceShowRegional ? true : !(prev.ballaratLine || prev.araratLine || prev.maryboroughLine);
+          return { ...prev, ballaratLine: nextValue, araratLine: nextValue, maryboroughLine: nextValue };
+        }
+        case "bendigoRegionalGroup": {
+          const nextValue = shouldForceShowRegional ? true : !(prev.bendigoLine || prev.echucaLine || prev.swanHillLine);
+          return { ...prev, bendigoLine: nextValue, echucaLine: nextValue, swanHillLine: nextValue };
+        }
+        case "seymourRegionalGroup": {
+          const nextValue = shouldForceShowRegional ? true : !(prev.seymourLine || prev.sheppartonLine || prev.alburyLine);
+          return { ...prev, seymourLine: nextValue, sheppartonLine: nextValue, alburyLine: nextValue };
+        }
+        case "traralgonRegionalGroup": {
+          const nextValue = shouldForceShowRegional ? true : !(prev.traralgonLine || prev.bairnsdaleLine);
+          return { ...prev, traralgonLine: nextValue, bairnsdaleLine: nextValue };
+        }
         case "metroTunnelServices":
           return {
             ...prev,
@@ -15599,15 +16151,15 @@ export function Map({
   const isServiceFilterActive = useCallback((filter: ServiceFilterKey) => {
     switch (filter) {
       case "geelongRegionalGroup":
-        return transportModes.includes("vline") && layers.geelongRegional;
+        return transportModes.includes("vline") && (layers.geelongLine || layers.warrnamboolLine);
       case "ballaratRegionalGroup":
-        return transportModes.includes("vline") && layers.ballaratRegional;
+        return transportModes.includes("vline") && (layers.ballaratLine || layers.araratLine || layers.maryboroughLine);
       case "bendigoRegionalGroup":
-        return transportModes.includes("vline") && layers.bendigoRegional;
+        return transportModes.includes("vline") && (layers.bendigoLine || layers.echucaLine || layers.swanHillLine);
       case "seymourRegionalGroup":
-        return transportModes.includes("vline") && layers.seymourRegional;
+        return transportModes.includes("vline") && (layers.seymourLine || layers.sheppartonLine || layers.alburyLine);
       case "traralgonRegionalGroup":
-        return transportModes.includes("vline") && layers.traralgonRegional;
+        return transportModes.includes("vline") && (layers.traralgonLine || layers.bairnsdaleLine);
       case "metroTunnelServices":
         return layers.metroTunnel || layers.sunburyLine || layers.cranbourneLine || layers.pakenhamLine;
       case "crossCityPink":
@@ -16252,11 +16804,11 @@ export function Map({
             {GENERATED_VLINE_GTFS.map((route) => {
               const routeKey = route.id.split("-").at(-1)?.replace(":", "") ?? "";
               const visible =
-                (["GEL", "WBL"].includes(routeKey) && layers.geelongRegional) ||
-                (["BAT", "ART", "MBY"].includes(routeKey) && layers.ballaratRegional) ||
-                (["BGO", "ECH", "SWL"].includes(routeKey) && layers.bendigoRegional) ||
-                (["SER", "SNH", "ABY"].includes(routeKey) && layers.seymourRegional) ||
-                (["TRN", "BDE"].includes(routeKey) && layers.traralgonRegional);
+                (["GEL", "WBL"].includes(routeKey) && (layers.geelongLine || layers.warrnamboolLine)) ||
+                (["BAT", "ART", "MBY"].includes(routeKey) && (layers.ballaratLine || layers.araratLine || layers.maryboroughLine)) ||
+                (["BGO", "ECH", "SWL"].includes(routeKey) && (layers.bendigoLine || layers.echucaLine || layers.swanHillLine)) ||
+                (["SER", "SNH", "ABY"].includes(routeKey) && (layers.seymourLine || layers.sheppartonLine || layers.alburyLine)) ||
+                (["TRN", "BDE"].includes(routeKey) && (layers.traralgonLine || layers.bairnsdaleLine));
               if (!visible) return null;
               const stations: Station[] = route.stations.map((station) => ({
                 name: station.name,
@@ -16838,9 +17390,9 @@ export function Map({
           })}
       </MapContainer>
 
-      <LayerControl layers={layers} onChange={toggleLayer} />
+      <LayerControl layers={layers} onChange={toggleLayer} open={isLayerPanelOpen} onOpenChange={setIsLayerPanelOpen} />
 
-      {modeIsTrainVisible && (
+      {modeIsTrainVisible && !isLayerPanelOpen && (
         <div className="pointer-events-none absolute left-3 top-[7.25rem] z-[1000] sm:left-4 sm:top-28">
           <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold shadow-lg backdrop-blur-xl ${liveTrainStatusTone}`}>
             <Train className="h-3.5 w-3.5" />
@@ -16849,7 +17401,7 @@ export function Map({
         </div>
       )}
 
-      {modeIsBusVisible && (
+      {modeIsBusVisible && !isLayerPanelOpen && (
         <div className="pointer-events-none absolute left-3 top-[9.25rem] z-[1000] sm:left-4 sm:top-36">
           <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold shadow-lg backdrop-blur-xl ${liveBusStatusTone}`}>
             <Bus className="h-3.5 w-3.5" />
@@ -16858,7 +17410,7 @@ export function Map({
         </div>
       )}
 
-      {modeIsTramVisible && (
+      {modeIsTramVisible && !isLayerPanelOpen && (
         <div className="pointer-events-none absolute left-3 top-[11.25rem] z-[1000] sm:left-4 sm:top-44">
           <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold shadow-lg backdrop-blur-xl ${liveTramStatusTone}`}>
             <TramFront className="h-3.5 w-3.5" />
@@ -17391,15 +17943,13 @@ export function Map({
                 <p className="mt-1 text-sm font-semibold text-white">
                   {isNswTrainLinkLiveTrain(selectedDetail.vehicle)
                     ? "NSW TrainLink"
-                    : isVlineLiveTrain(selectedDetail.vehicle)
-                      ? "V/Line"
-                      : "Metro Trains Melbourne"}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Window</p>
-                <p className="mt-1 text-sm font-semibold text-white">
-                  {getVehicleWindowLabel(selectedVehicleSnapshot, selectedDetail.vehicle)}
+                    : isSydneyTrainsLiveTrain(selectedDetail.vehicle)
+                      ? "Sydney Trains"
+                      : isVlineLiveTrain(selectedDetail.vehicle)
+                        ? "V/Line"
+                        : /sydney metro/i.test(selectedDetail.vehicle.line)
+                          ? "Sydney Metro"
+                          : "Metro Trains Melbourne"}
                 </p>
               </div>
             </div>
@@ -17525,9 +18075,33 @@ export function Map({
                   </button>
                 </div>
               )}
+              {(() => {
+                // The final stop's own dwellSeconds is always 0 — the trip
+                // record ends there. The train doesn't vanish though: it sits
+                // at the platform until it reforms as the next TDN in the
+                // chain (the same "Next service" card below already shows
+                // that TDN's real departure time) — real, computable dwell,
+                // not a guess.
+                let nextServiceDepartsAt: string | undefined;
+                if (selectedTrainTrip?.segments?.length) {
+                  const available = selectedTrainTrip.formationSegments?.length
+                    ? selectedTrainTrip.formationSegments
+                    : selectedTrainTrip.segments;
+                  const activeTripId = selectedTrainTrip.scheduledTripId || selectedTrainTrip.tripId;
+                  const workings = selectedTrainTrip.serviceWorkings ?? available.map((segment) => ({ crossCity: false, segments: [segment] }));
+                  const currentIndex = workings.findIndex((working) => working.segments.some((segment) => segment.tripId === activeTripId));
+                  const nextWorking = currentIndex >= 0 ? workings[currentIndex + 1] : undefined;
+                  nextServiceDepartsAt = nextWorking?.segments[0]?.departsAt;
+                }
+
+                return (
               <div className="px-3.5 py-2">
                 {selectedVehicleVisiblePatternStops.map(({ station, index }, visibleIndex) => {
                   const tripStop = selectedTrainTrip?.stops[index];
+                  const isLastVisibleStop = visibleIndex === selectedVehicleVisiblePatternStops.length - 1;
+                  const dwellUntilNextServiceMinutes = isLastVisibleStop && tripStop?.expectedArrivalAt && nextServiceDepartsAt
+                    ? Math.round((Date.parse(nextServiceDepartsAt) - Date.parse(tripStop.expectedArrivalAt)) / 60_000)
+                    : null;
                   const isCurrent = selectedVehicleIsStoppedAtPublishedStop && index === selectedVehicleCurrentStopIndex;
                   const isPassed = tripStop?.status === "passed" || (selectedVehicleCurrentStopIndex >= 0 && index < selectedVehicleCurrentStopIndex);
                   const isLast = visibleIndex === selectedVehicleVisiblePatternStops.length - 1;
@@ -17543,6 +18117,12 @@ export function Map({
                     ? new Date(tripStop.expectedDepartureAt).toLocaleTimeString("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" })
                     : null;
                   const delayMinutes = Math.round((tripStop?.delaySeconds ?? 0) / 60);
+                  // NSW TrainLink XPT has no live per-stop match (fetchTrainTrip only
+                  // queries PTV's Victorian timetable API), so tripStop is always
+                  // undefined for it — fall back to the real published GTFS schedule
+                  // this station carries instead of a blank "Time TBC".
+                  const scheduledArrival = !tripStop ? formatGtfsScheduleTime(station.scheduledArrival) : null;
+                  const scheduledDeparture = !tripStop ? formatGtfsScheduleTime(station.scheduledDeparture) : null;
 
                   const showLivePositionBefore = selectedVehicleLiveTimelinePosition?.beforeIndex === index;
 
@@ -17572,10 +18152,16 @@ export function Map({
                       className={`grid grid-cols-[4.25rem_1.25rem_minmax(0,1fr)] gap-2.5 ${isPassed ? "opacity-45" : ""}`}
                     >
                       <div className="py-3 text-right">
-                        <p className={`text-sm font-semibold ${isCurrent ? "text-white" : "text-white/70"}`}>{arrivalTime || (publishedTime ? formatRouteWindow(publishedTime) : isCurrent ? "Now" : "Time TBC")}</p>
-                        {departureTime && departureTime !== arrivalTime && <p className="text-xs font-semibold text-white/55">{departureTime} dep</p>}
+                        <p className={`text-sm font-semibold ${isCurrent ? "text-white" : "text-white/70"}`}>{arrivalTime || (publishedTime ? formatRouteWindow(publishedTime) : scheduledArrival || (isCurrent ? "Now" : "Time TBC"))}</p>
+                        {(departureTime && departureTime !== arrivalTime) || (scheduledDeparture && scheduledDeparture !== scheduledArrival) ? (
+                          <p className="text-xs font-semibold text-white/55">{departureTime || scheduledDeparture} dep</p>
+                        ) : null}
                         <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/35">
-                          {tripStop?.status === "skipped" ? "Not stopping" : isPrevious ? "Last stop" : isCurrent ? "Stopped here" : isNext ? "Next stop" : tripStop ? `${Math.round(tripStop.dwellSeconds / 60)}m dwell` : "Schedule unavailable"}
+                          {tripStop?.status === "skipped"
+                            ? "Not stopping"
+                            : dwellUntilNextServiceMinutes !== null && dwellUntilNextServiceMinutes > 0
+                              ? `${dwellUntilNextServiceMinutes}m dwell until next service`
+                              : isPrevious ? "Last stop" : isCurrent ? "Stopped here" : isNext ? "Next stop" : tripStop ? `${Math.round(tripStop.dwellSeconds / 60)}m dwell` : scheduledArrival ? "Scheduled" : "Schedule unavailable"}
                         </p>
                       </div>
 
@@ -17601,13 +18187,13 @@ export function Map({
                             <p className={`truncate font-semibold ${isCurrent ? "text-base text-white" : "text-sm text-white/90"}`}>
                               {station.name}
                             </p>
-                            <p className="mt-0.5 text-xs text-white/45">{tripStop?.platform ? `Platform ${tripStop.platform}` : "Platform not published"}</p>
-                            {tripStop?.pickupType === "none" && (
+                            <p className="mt-0.5 text-xs text-white/45">{tripStop?.platform ? `Platform ${tripStop.platform}` : !tripStop && station.platform ? `Platform ${station.platform}` : "Platform not published"}</p>
+                            {(tripStop?.pickupType === "none" || (!tripStop && station.pickupType === "1")) && (
                               <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white/70">
                                 <Ban className="h-2.5 w-2.5" /> Drop off only
                               </span>
                             )}
-                            {tripStop?.dropOffType === "none" && (
+                            {(tripStop?.dropOffType === "none" || (!tripStop && station.dropOffType === "1")) && (
                               <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white/70">
                                 <Ban className="h-2.5 w-2.5" /> Pick up only
                               </span>
@@ -17631,6 +18217,8 @@ export function Map({
                   );
                 })}
               </div>
+                );
+              })()}
 
               {selectedTrainTrip?.segments?.length ? (
                 <div className="grid gap-2 border-t border-white/10 px-3.5 py-3">
@@ -17799,7 +18387,17 @@ export function Map({
                 </div>
               ) : null}
 
-              <p className="border-t border-white/10 px-3.5 py-2.5 text-[10px] leading-4 text-white/40">{selectedTrainTrip?.source || (selectedDetail.vehicle.tripId ? "Checking the verified Transport Victoria timetable." : "This vehicle feed did not publish a trip ID, so exact times and platforms cannot be matched safely.")}</p>
+              <p className="border-t border-white/10 px-3.5 py-2.5 text-[10px] leading-4 text-white/40">
+                {selectedTrainTrip?.source
+                  || (isNswTrainLinkLiveTrain(selectedDetail.vehicle)
+                    // fetchTrainTrip only ever queries PTV's Victorian timetable API, so
+                    // this "checking" state would never resolve for a NSW TrainLink trip —
+                    // say what's actually backing the times shown above instead.
+                    ? "Transport for NSW GTFS schedule."
+                    : selectedDetail.vehicle.tripId
+                      ? "Checking the verified Transport Victoria timetable."
+                      : "This vehicle feed did not publish a trip ID, so exact times and platforms cannot be matched safely.")}
+              </p>
             </div>
           )}
 
@@ -19201,14 +19799,14 @@ export function Map({
       {!selectedDetail && <button
         type="button"
         onClick={() => setIsNearbyStopsOpen((open) => !open)}
-        className="absolute top-4 left-3 z-[1002] inline-flex h-10 items-center gap-2 rounded-full border border-white/15 bg-slate-950/88 px-3 text-xs font-semibold text-white shadow-xl backdrop-blur-xl sm:hidden"
+        className="absolute top-[4.25rem] left-3 z-[1002] inline-flex h-10 items-center gap-2 rounded-full border border-white/15 bg-slate-950/88 px-3 text-xs font-semibold text-white shadow-xl backdrop-blur-xl sm:hidden"
         aria-expanded={isNearbyStopsOpen}
       >
         {isNearbyStopsOpen ? <X className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
         {isNearbyStopsOpen ? "Close nearby" : "Nearby stops"}
       </button>}
 
-      {!selectedDetail && <div className={`pointer-events-none absolute top-16 left-3 z-[1001] max-w-[calc(100%-1.5rem)] sm:top-4 sm:left-4 sm:block sm:max-w-[19rem] ${isNearbyStopsOpen ? "block" : "hidden"}`}>
+      {!selectedDetail && <div className={`pointer-events-none absolute top-[7.25rem] left-3 z-[1001] max-w-[calc(100%-1.5rem)] sm:top-4 sm:left-4 sm:block sm:max-w-[19rem] ${isNearbyStopsOpen ? "block" : "hidden"}`}>
         <div className="pointer-events-auto rounded-2xl border border-white/10 bg-slate-950/94 p-3 shadow-xl backdrop-blur-xl">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/45">

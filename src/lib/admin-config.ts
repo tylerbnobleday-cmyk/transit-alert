@@ -68,6 +68,23 @@ export async function fetchAdminAccounts() {
   };
 }
 
+export async function broadcastWelcomeEmail() {
+  const response = await fetch(getApiUrl("/api/admin/broadcast-welcome"), {
+    method: "POST",
+    headers: buildSessionHeaders(),
+  });
+  const payload = (await response.json().catch(() => ({ error: "Failed to send broadcast" }))) as {
+    error?: string;
+    sent?: number;
+    failed?: number;
+    total?: number;
+  };
+  if (!response.ok) {
+    throw new Error(payload.error || "Failed to send broadcast");
+  }
+  return { sent: payload.sent ?? 0, failed: payload.failed ?? 0, total: payload.total ?? 0 };
+}
+
 export async function updateAdminAccount(
   accountId: string,
   patch: Pick<AdminAccountRecord, "role" | "isAdmin" | "isPremium">,

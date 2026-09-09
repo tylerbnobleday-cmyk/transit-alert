@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import AdmZip from "adm-zip";
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
+import { isPtvV3Configured, ptvV3Fetch } from "../_lib/ptv-v3.js";
 
 const PTV_BASE_URL =
   "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/tram";
@@ -190,6 +191,66 @@ function buildPtvLiveTrams(feed, headsignIndex) {
     .filter(Boolean);
 }
 
+// Trains already fall back to PTV's separate Timetable v3 API when the
+// primary GTFS-Realtime feed fails (see fetchPtvV3LiveTrains in
+// live-trains.js) — trams had no equivalent at all. route_types: 1 is
+// PTV's own tram mode code (confirmed live: 24 real routes returned).
+// This is real redundancy for a narrower failure where only one of the two
+// sources is down; it does not help when both are down at once (confirmed
+// live during this same outage: v3 also returned zero vehicle_position
+// entries across every sampled route — a shared upstream data problem, not
+// something either fallback can route around).
+let ptvV3TramCache = { loadedAt: 0, trams: [] };
+
+function buildPtvV3LiveTrams(data) {
+  return (data?.runs ?? [])
+    .map((run) => {
+      const position = run.vehicle_position;
+      const latitude = Number(position?.latitude);
+      const longitude = Number(position?.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+      if (latitude === 0 || longitude === 0) return null;
+
+      const route = normaliseRoute(run.route_id || run.route_number, "Tram");
+      const destination = normaliseDestination(run.destination_name);
+      const descriptor = run.vehicle_descriptor || {};
+      const fleetNumber = typeof descriptor.id === "string" && /^\d+$/.test(descriptor.id.trim())
+        ? descriptor.id.trim()
+        : undefined;
+
+      return {
+        id: run.run_id ? String(run.run_id) : `${route}-${latitude}-${longitude}`,
+        tripId: run.run_id ? String(run.run_id) : undefined,
+        label: normaliseLabel(descriptor.id, descriptor.description, route),
+        fleetNumber,
+        lat: latitude,
+        lng: longitude,
+        route,
+        destination,
+        status: "live",
+        timestamp: new Date().toISOString(),
+        heading: Number.isFinite(Number(position.bearing)) ? Number(position.bearing) : undefined,
+        operator: "Yarra Trams",
+        source: "PTV Timetable v3",
+      };
+    })
+    .filter(Boolean);
+}
+
+async function fetchPtvV3LiveTrams() {
+  if (Date.now() - ptvV3TramCache.loadedAt < 8_000) return ptvV3TramCache.trams;
+  const routeData = await ptvV3Fetch("/v3/routes", { route_types: 1 });
+  const routes = (routeData?.routes ?? []).filter((route) => route.route_id);
+  const results = await Promise.allSettled(
+    routes.map((route) =>
+      ptvV3Fetch(`/v3/runs/route/${route.route_id}`, { expand: "VehiclePosition" }).then(buildPtvV3LiveTrams),
+    ),
+  );
+  const trams = results.filter((result) => result.status === "fulfilled").flatMap((result) => result.value);
+  ptvV3TramCache = { loadedAt: Date.now(), trams };
+  return trams;
+}
+
 function readBoundsFilter(query = {}) {
   const minLat = Number(query.minLat);
   const maxLat = Number(query.maxLat);
@@ -229,8 +290,10 @@ export default async function handler(req, res) {
     return;
   }
 
+  const bounds = readBoundsFilter(req.query);
+  let primaryError;
+
   try {
-    const bounds = readBoundsFilter(req.query);
     const response = await fetch(`${PTV_BASE_URL}/vehicle-positions`, {
       headers: {
         KeyID: ptvSubscriptionKey,
@@ -240,20 +303,79 @@ export default async function handler(req, res) {
 
     if (!response.ok) {
       const details = await response.text().catch(() => "");
-      res.status(response.status).json({
-        error: `PTV request failed (${response.status})`,
-        details: details.slice(0, 200),
-      });
+      primaryError = `PTV request failed (${response.status}): ${details.slice(0, 200)}`;
+    } else {
+      const buffer = await response.arrayBuffer();
+      const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+      const headsignIndex = await loadTramHeadsignIndex().catch(() => undefined);
+      const trams = buildPtvLiveTrams(feed, headsignIndex).filter((tram) => withinBounds(tram, bounds));
+      res.status(200).json({ trams });
       return;
     }
-
-    const buffer = await response.arrayBuffer();
-    const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
-    const headsignIndex = await loadTramHeadsignIndex().catch(() => undefined);
-    res.status(200).json({ trams: buildPtvLiveTrams(feed, headsignIndex).filter((tram) => withinBounds(tram, bounds)) });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to load live trams",
-    });
+    primaryError = error instanceof Error ? error.message : "Failed to load live trams";
   }
+
+  // Primary feed failed — try the v3 fallback before giving up.
+  if (isPtvV3Configured()) {
+    try {
+      const trams = (await fetchPtvV3LiveTrams()).filter((tram) => withinBounds(tram, bounds));
+      if (trams.length > 0) {
+        res.status(200).json({ trams, source: "PTV Timetable v3" });
+        return;
+      }
+    } catch (error) {
+      console.warn("[live-trams] v3 fallback failed:", error instanceof Error ? error.message : error);
+    }
+  }
+
+  // Both real sources came back empty — this is a genuine PTV-side outage,
+  // not something either fallback can route around. Report it plainly
+  // (with the real error text) rather than a bare 500, so callers — and,
+  // via metro-notify/alerts.js, the Today's Alerts feed — can surface it as
+  // an actual "tram tracking is down" notice instead of trams just quietly
+  // vanishing from the map.
+  res.status(503).json({
+    error: "Live tram tracking is currently unavailable — PTV's own tram data feed is down.",
+    code: "TRAM_FEED_DOWN",
+    details: primaryError,
+    trams: [],
+  });
+}
+
+// Used by metro-notify/alerts.js to decide whether to surface a real "tram
+// tracking is down" alert — reuses the exact same check this handler does,
+// so the alert only ever reflects a genuine, currently-confirmed outage.
+export async function checkTramFeedStatus() {
+  const ptvSubscriptionKey =
+    process.env.PTV_SUBSCRIPTION_KEY ||
+    process.env.PTV_subscription_key ||
+    process.env.OCP_APIM_SUBSCRIPTION_KEY ||
+    process.env.PTV_API_KEY;
+  if (!ptvSubscriptionKey) return { down: false };
+
+  try {
+    const response = await fetch(`${PTV_BASE_URL}/vehicle-positions`, {
+      headers: { KeyID: ptvSubscriptionKey, "Ocp-Apim-Subscription-Key": ptvSubscriptionKey },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (response.ok) {
+      const buffer = await response.arrayBuffer();
+      const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+      if ((feed.entity ?? []).length > 0) return { down: false };
+    }
+  } catch {
+    // fall through to the v3 check
+  }
+
+  if (isPtvV3Configured()) {
+    try {
+      const trams = await fetchPtvV3LiveTrams();
+      if (trams.length > 0) return { down: false };
+    } catch {
+      // both sources unavailable
+    }
+  }
+
+  return { down: true };
 }

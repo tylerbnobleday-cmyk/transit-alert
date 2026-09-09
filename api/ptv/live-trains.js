@@ -1,6 +1,6 @@
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { isPtvV3Configured, ptvV3Fetch } from "../_lib/ptv-v3.js";
-import { getVerifiedTrainMarkerDestination } from "../_lib/ptv-timetable.js";
+import { getVerifiedTrainMarkerDestination, resolveStaticTripIdByRouteAndStartTime } from "../_lib/ptv-timetable.js";
 
 const PTV_FEEDS = [
   {
@@ -18,6 +18,95 @@ const PTV_FEEDS = [
 ];
 
 const NSW_TRAINS_VEHICLE_POSITIONS_URL = "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/nswtrains";
+// Separate Transport for NSW Open Data feed from nswtrains above — that one
+// is NSW TrainLink's regional/interstate fleet (XPT, Xplorer, ...); this is
+// the Sydney Trains suburban network (T1-T9), which had no live feed wired
+// in at all before this, so it always showed zero vehicles on the Fleet
+// Tracker regardless of what was actually running. Sydney Trains was only
+// ever published on Open Data's v2 vehicle-positions product — v1 404s for
+// it even though v1 is correct for nswtrains/metro/buses/lightrail above.
+const SYDNEY_TRAINS_VEHICLE_POSITIONS_URL = "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/sydneytrains";
+// Sydney Trains' live vehicle positions carry no fleet-class field (see the
+// comment on buildSydneyTrainsLiveTrains), but Transport for NSW's own
+// static schedule for the same product does: trips.txt has a real
+// vehicle_category_id per trip, resolved to a real name ("8 car Waratah",
+// "4 car Tangara", ...) via vehicle_categories.txt — confirmed by fetching
+// both directly and checking that live trip_ids match static trip_ids
+// exactly. This is real, sourced data, not a guess from vehicle numbering.
+const SYDNEY_TRAINS_SCHEDULE_URL = "https://api.transport.nsw.gov.au/v1/gtfs/schedule/sydneytrains";
+const SYDNEY_TRAINS_FLEET_CACHE_MS = 12 * 60 * 60 * 1000;
+let sydneyTrainsFleetCache = { loadedAt: 0, tripCategory: new Map(), categoryNames: new Map(), routeInfo: new Map() };
+let sydneyTrainsFleetPromise = null;
+
+function parseGtfsCsv(text) {
+  const rows = [];
+  let row = [], field = "", quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i], next = text[i + 1];
+    if (ch === '"') {
+      if (quoted && next === '"') { field += '"'; i += 1; } else quoted = !quoted;
+    } else if (ch === "," && !quoted) { row.push(field); field = ""; }
+    else if ((ch === "\n" || ch === "\r") && !quoted) {
+      if (ch === "\r" && next === "\n") i += 1;
+      row.push(field); if (row.some(Boolean)) rows.push(row); row = []; field = "";
+    } else field += ch;
+  }
+  const headers = rows.shift().map((value) => value.replace(/^﻿/, ""));
+  return rows.map((values) => Object.fromEntries(headers.map((key, index) => [key, values[index] ?? ""])));
+}
+
+async function loadSydneyTrainsFleetLookup(apiKey) {
+  if (Date.now() - sydneyTrainsFleetCache.loadedAt < SYDNEY_TRAINS_FLEET_CACHE_MS) {
+    return sydneyTrainsFleetCache;
+  }
+  if (!sydneyTrainsFleetPromise) {
+    sydneyTrainsFleetPromise = (async () => {
+      const [{ default: AdmZip }, response] = await Promise.all([
+        import("adm-zip"),
+        fetch(SYDNEY_TRAINS_SCHEDULE_URL, {
+          headers: { Authorization: `apikey ${apiKey}` },
+          signal: AbortSignal.timeout(45_000),
+        }),
+      ]);
+      if (!response.ok) {
+        throw buildFeedError("sydneytrains-schedule", response.status);
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const zip = new AdmZip(buffer);
+
+      const categoryNames = new Map();
+      for (const row of parseGtfsCsv(zip.readAsText("vehicle_categories.txt"))) {
+        categoryNames.set(row.vehicle_category_id, row.vehicle_category_name);
+      }
+
+      const tripCategory = new Map();
+      for (const row of parseGtfsCsv(zip.readAsText("trips.txt"))) {
+        if (row.trip_id && row.vehicle_category_id) tripCategory.set(row.trip_id, row.vehicle_category_id);
+      }
+
+      // routes.txt's route_short_name is the real T-line number (e.g. "T1",
+      // "T8") shown on real signage and third-party apps — the live feed's
+      // own routeId ("NTH_2a") is just an internal schedule key with no
+      // meaning to a rider.
+      const routeInfo = new Map();
+      for (const row of parseGtfsCsv(zip.readAsText("routes.txt"))) {
+        if (row.route_id) {
+          routeInfo.set(row.route_id, {
+            shortName: row.route_short_name,
+            longName: row.route_long_name,
+            color: row.route_color,
+          });
+        }
+      }
+
+      sydneyTrainsFleetCache = { loadedAt: Date.now(), tripCategory, categoryNames, routeInfo };
+      return sydneyTrainsFleetCache;
+    })().finally(() => {
+      sydneyTrainsFleetPromise = null;
+    });
+  }
+  return sydneyTrainsFleetPromise;
+}
 let ptvV3Cache = { loadedAt: 0, trains: [] };
 // Realtime feeds update in short bursts. Keep this cache just long enough to
 // coalesce simultaneous clients, not long enough to make moving trains stale.
@@ -132,6 +221,10 @@ function buildFeedError(sourceKey, status) {
 function sanitiseFeedFailure(message) {
   if (/rate-limited|:429\b/i.test(message)) {
     return "Live train feed is rate limited. Showing cached/fallback data where available.";
+  }
+
+  if (/sydneytrains/i.test(message)) {
+    return "Sydney Trains live feed is unavailable right now.";
   }
 
   if (/nswtrains/i.test(message)) {
@@ -303,6 +396,76 @@ function buildNswLiveTrains(feed) {
     .filter(Boolean);
 }
 
+// Sydney Trains' GTFS-RT vehicle positions have no field naming the physical
+// fleet class directly — vehicle.vehicle.id is an anonymised, per-request-
+// rotating string (not a real set number the way Melbourne's consist numbers
+// are). But Transport for NSW's own static schedule for this same product
+// names the real fleet class per trip_id (vehicle_category_id, resolved via
+// vehicle_categories.txt — see loadSydneyTrainsFleetLookup), and live
+// trip_ids match the static schedule's exactly, so this looks the real
+// class up rather than guessing one. vehicle.vehicle.label also carries a
+// real, useful scheduled "HH:MM Origin Station to Destination Station"
+// string, parsed here for the real origin/destination.
+function buildSydneyTrainsLiveTrains(feed, fleetLookup) {
+  return (feed.entity ?? [])
+    .map((entity) => {
+      const vehicle = entity.vehicle;
+      const position = vehicle?.position;
+      if (!vehicle || !position) return null;
+
+      const latitude = position.latitude;
+      const longitude = position.longitude;
+      if (typeof latitude !== "number" || typeof longitude !== "number") return null;
+
+      const tripId = vehicle.trip?.tripId;
+      const routeId = vehicle.trip?.routeId;
+      const vehicleLabel = vehicle.vehicle?.label;
+      const vehicleId = vehicle.vehicle?.id;
+      const labelMatch = typeof vehicleLabel === "string"
+        ? vehicleLabel.match(/^\s*(\d{1,2}:\d{2})\s+(.+?)\s+to\s+(.+?)\s*$/i)
+        : null;
+      const origin = labelMatch?.[2]?.replace(/\s+Station$/i, "");
+      const destination = labelMatch?.[3]?.replace(/\s+Station$/i, "");
+      // The full trip_id ("190L.807.169.48.B.8.91072023") is an internal
+      // schedule key, not something a rider recognises — its first segment
+      // ("190L") is the real day trip number, the same short form real
+      // Sydney apps like AnyTrip show as the trip's identifier.
+      const tdn = tripId?.split(".")[0] || getFirstMeaningfulText(tripId, routeId, entity.id, "Sydney Trains");
+      const consist = normaliseConsistLabel(vehicleLabel, tdn);
+      const timestamp = toNumber(vehicle.timestamp);
+      const directionId = toNumber(vehicle.trip?.directionId);
+      const categoryId = tripId ? fleetLookup?.tripCategory.get(tripId) : undefined;
+      const fleetClass = categoryId ? fleetLookup?.categoryNames.get(categoryId) : undefined;
+      // route_short_name (e.g. "T1", "T8") is the real line number shown on
+      // signage and third-party apps — routeId itself ("NTH_2a") is just an
+      // internal schedule key with no meaning to a rider. Kept out of the
+      // `line` field itself since isSydneyTrainsLiveTrain and the operator
+      // lookup above match on the literal text "Sydney Trains" there.
+      const routeInfo = routeId ? fleetLookup?.routeInfo.get(routeId) : undefined;
+
+      return {
+        tdn,
+        tripId,
+        lat: latitude,
+        lng: longitude,
+        line: "Sydney Trains",
+        origin,
+        destination: destination || "Sydney Trains",
+        status: "on_time",
+        timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
+        direction: directionId === 0 ? "up" : directionId === 1 ? "down" : "outbound",
+        heading: typeof position.bearing === "number" ? position.bearing : undefined,
+        trainType: fleetClass ?? "Sydney Trains",
+        consist,
+        serviceDescription: [
+          routeInfo?.shortName,
+          origin && destination ? `${origin} to ${destination}` : null,
+        ].filter(Boolean).join(" · ") || "Sydney Trains",
+      };
+    })
+    .filter(Boolean);
+}
+
 function buildPtvLiveTrains(feed, source) {
   return (feed.entity ?? [])
     .map((entity) => {
@@ -330,6 +493,15 @@ function buildPtvLiveTrains(feed, source) {
       return {
         tdn: publishedTdn || label,
         tripId,
+        // Some real vehicles report a trip_id in a PTV-generated namespace
+        // that never matches the static schedule (e.g.
+        // "vic:02BEG:_:H:vpt._Belgrave_3449_20260909") — a real gap in the
+        // feed itself. The same TripDescriptor still carries real, standard
+        // route_id/start_time fields refreshLiveTrains uses as a GTFS-RT
+        // fallback match against the static schedule when tripId alone
+        // doesn't resolve.
+        rawRouteId: vehicle.trip?.routeId || undefined,
+        startTime: vehicle.trip?.startTime || undefined,
         serviceDate: vehicle.trip?.startDate || new Intl.DateTimeFormat("en-CA", {
           timeZone: "Australia/Melbourne", year: "numeric", month: "2-digit", day: "2-digit",
         }).format(new Date()).replace(/-/g, ""),
@@ -340,7 +512,18 @@ function buildPtvLiveTrains(feed, source) {
         destination: resolvedLine,
         status: "on_time",
         timestamp: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
-        direction: directionId === 0 ? "up" : "down",
+        // V/Line's own GTFS direction_id convention is the reverse of Metro's:
+        // confirmed against the real static schedule (trips.txt), a Seymour-line
+        // trip with direction_id 0 has trip_headsign "Seymour" (outbound, away
+        // from the city) while direction_id 1 is headsign "Southern Cross"
+        // (city-bound) — the opposite of Metro, where 0 is "up"/city-bound.
+        // Using Metro's mapping for V/Line reported every outbound regional
+        // service as city-bound, which fed straight into the unselected
+        // marker's destination label showing "Southern Cross" for trains
+        // that were actually heading away from it.
+        direction: source.key === "vline"
+          ? (directionId === 0 ? "down" : "up")
+          : (directionId === 0 ? "up" : "down"),
         heading: typeof position.bearing === "number" ? position.bearing : undefined,
         trainType: source.trainType,
         consist,
@@ -455,6 +638,32 @@ async function refreshLiveTrains({ ptvSubscriptionKey, ptvV3Configured, nswTrans
             const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
             return buildNswLiveTrains(feed);
           })(),
+          (async () => {
+            const [response, fleetLookup] = await Promise.all([
+              fetch(SYDNEY_TRAINS_VEHICLE_POSITIONS_URL, {
+                headers: {
+                  Authorization: `apikey ${nswTransportApiKey}`,
+                  Accept: "application/x-google-protobuf",
+                },
+                signal: AbortSignal.timeout(20_000),
+              }),
+              // The 12-hour cache means this almost never actually fetches
+              // the (large, ~10MB) static schedule on the request path — it
+              // only re-downloads it a couple of times a day.
+              loadSydneyTrainsFleetLookup(nswTransportApiKey).catch((error) => {
+                console.warn("[live-trains] Sydney Trains fleet lookup unavailable:", error instanceof Error ? error.message : error);
+                return null;
+              }),
+            ]);
+
+            if (!response.ok) {
+              throw buildFeedError("sydneytrains", response.status);
+            }
+
+            const buffer = await response.arrayBuffer();
+            const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+            return buildSydneyTrainsLiveTrains(feed, fleetLookup);
+          })(),
         ]
       : []),
   ];
@@ -482,15 +691,47 @@ async function refreshLiveTrains({ ptvSubscriptionKey, ptvV3Configured, nswTrans
       train.allocation = resolveVlineAllocation(train, allocations);
       train.leadingSet = (await reportedVlineLeadingSets(train.serviceDate)).get(train.tdn) || null;
     }
-    const verifiedJourney = await getVerifiedTrainMarkerDestination(train.tripId);
-    return verifiedJourney
-      ? {
-          ...train,
-          origin: verifiedJourney.origin,
-          destination: verifiedJourney.destination,
-          serviceDescription: `${train.line} · ${verifiedJourney.origin} → ${verifiedJourney.destination}`,
+    let effectiveTripId = train.tripId;
+    let verifiedJourney = await getVerifiedTrainMarkerDestination(effectiveTripId);
+    if (!verifiedJourney && train.rawRouteId && train.startTime) {
+      const resolvedTripId = await resolveStaticTripIdByRouteAndStartTime(
+        train.rawRouteId,
+        train.startTime,
+        train.serviceDate,
+      );
+      if (resolvedTripId) {
+        const resolvedJourney = await getVerifiedTrainMarkerDestination(resolvedTripId);
+        if (resolvedJourney) {
+          effectiveTripId = resolvedTripId;
+          verifiedJourney = resolvedJourney;
         }
-      : train;
+      }
+    }
+    if (!verifiedJourney) return train;
+    // The live feed's own direction_id has been observed to disagree with the
+    // static schedule's direction_id for the very same V/Line trip_id (e.g. a
+    // real Swan Hill->Southern Cross working reported as "down"/outbound when
+    // the schedule and stopping pattern both confirm it is city-bound) — so
+    // for V/Line, trust the verified destination (looked up from the static
+    // schedule by trip_id, which is reliable) over the feed's direction_id.
+    const direction = train.tripId?.startsWith("01-")
+      ? /southern cross|flinders street|melbourne central|flagstaff|parliament/i.test(verifiedJourney.destination)
+        ? "up"
+        : "down"
+      : train.direction;
+    return {
+      ...train,
+      // When the live feed's own trip_id didn't match anything and we
+      // resolved a real one by route+start-time instead, expose THAT trip_id
+      // — every downstream stopping-pattern/platform lookup keys off this
+      // field, so without it those would still fail even though we now know
+      // the real trip.
+      tripId: effectiveTripId,
+      origin: verifiedJourney.origin,
+      destination: verifiedJourney.destination,
+      direction,
+      serviceDescription: `${train.line} · ${verifiedJourney.origin} → ${verifiedJourney.destination}`,
+    };
   }));
 
   if (trains.length > 0) {
@@ -498,6 +739,18 @@ async function refreshLiveTrains({ ptvSubscriptionKey, ptvV3Configured, nswTrans
   }
 
   return { responses, trains };
+}
+
+// Reused by push.js's 430M service-change check — that runs on its own
+// background schedule, separate from any inbound HTTP request, so it reads
+// whatever this same in-memory cache already holds rather than triggering
+// a second, redundant PTV fetch of its own. In practice this is fresh
+// whenever the app has any real traffic (every /api/ptv/live-trains
+// request refreshes it); if nobody has polled recently it can be briefly
+// stale or empty, which just means that check quietly tries again next
+// cycle rather than firing on stale data.
+export function getCachedLiveTrains() {
+  return liveTrainCache.trains;
 }
 
 export default async function handler(req, res) {
