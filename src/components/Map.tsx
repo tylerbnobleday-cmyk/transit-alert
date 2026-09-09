@@ -1274,7 +1274,7 @@ const TRANSPORT_EMOJI: Record<string, string> = {
   stop: "🚏",
 };
 
-const APP_VERSION = "0.95"; const GUEST_PREVIEW_VERSION = APP_VERSION; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
+const APP_VERSION = "1.0"; const GUEST_PREVIEW_VERSION = APP_VERSION; const MAX_VISIBLE_BUS_STOPS = 28; const REPORT_COLOR: Record<string, string> = {
   inspector: "#e11d48",
   delay: "#f59e0b",
   incident: "#3b82f6",

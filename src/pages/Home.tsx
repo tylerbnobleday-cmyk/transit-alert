@@ -395,7 +395,7 @@ const VERSION_LOG: ChangelogEntry[] = [
     version: TRANSITALERT_WEB_VERSION,
     date: "05/09/2026",
     notes: [
-      "Version 0.95 adds faster live-vehicle refresh and steadier train movement while zooming or moving the map.",
+      "Version 1.0 adds faster live-vehicle refresh and steadier train movement while zooming or moving the map.",
       "Train bubbles now use destination, origin and the real City Loop, Metro Tunnel or Flinders Street routing without duplicate wording such as Frankston via Frankston.",
       "Train formation bubbles now show car count, fleet family and useful consist identifiers; HCMTs show seven cars and their published set number.",
       "Regional stopping patterns now use live and verified GTFS data where available, preserve prior stops across TDN changes, and mark the train's current map position.",
@@ -542,7 +542,7 @@ const TRANSITALERT_SYSTEM_NOTES = [
 
 const VERSION_HIGHLIGHT_CARDS = [
   {
-    title: "What’s new in 0.95",
+    title: "What’s new in 1.0",
     body: "Clearer train and bus bubbles, faster live movement, complete stopping patterns, and safer Metro, V/Line and NSW TrainLink identification.",
   },
   {

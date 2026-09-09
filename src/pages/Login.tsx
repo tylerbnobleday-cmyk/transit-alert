@@ -505,7 +505,7 @@ export default function Login() {
                   Create an account
                 </h2>
                 <p className="mt-2 text-sm text-white/60">
-                  Registration is currently for approved debug testers only. Guest version {TRANSITALERT_WEB_VERSION} keeps public browsing open, and public Traveller sign-ups open in version 1.0.
+                  Registration is currently for approved debug testers only. Guest version {TRANSITALERT_WEB_VERSION} keeps public browsing open, and public Traveller sign-ups will open in a future release.
                 </p>
 
                 <form

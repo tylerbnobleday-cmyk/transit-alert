@@ -38,12 +38,12 @@ const TRANSITALERT_UPDATE_ENTRIES = [
   {
     date: "05/09/2026",
     items: [
-      "Version 0.95 improves live map refresh, mobile service centring, train formation bubbles, and route wording across selected and unselected vehicles.",
+      "Version 1.0 improves live map refresh, mobile service centring, train formation bubbles, and route wording across selected and unselected vehicles.",
       "Metro through-running labels now preserve origins, destinations, City Loop, Metro Tunnel and Flinders Street routing without duplicate place names.",
       "Regional services now have GTFS-backed stopping patterns and current-position markers, while prior stops survive TDN changes where the service continues.",
       "V/Line Albury trains no longer get mistaken for NSW TrainLink XPT services; genuine XPT and HCMT car counts are displayed correctly.",
       "Bus bubbles now put a useful destination or nearby locality before the route number and retain the operator label.",
-      "Premium Fleet Tracker search, map selection, guest live-data access, and the version 0.95 release history were added across the app.",
+      "Premium Fleet Tracker search, map selection, guest live-data access, and the version 1.0 release history were added across the app.",
     ],
   },
   {

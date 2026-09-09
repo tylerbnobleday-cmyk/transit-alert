@@ -4,15 +4,15 @@ TransitAlert is an independent Melbourne public transport map and tracking app f
 
 ## Current release
 
-- Web version: `0.95`
+- Web version: `1.0`
 - Webpage: [transit-alert.com](https://transit-alert.com)
 - Local/live backend host target: local Node server with optional tunnel or Render-style deployment
 - Frontend: Vite + React + TypeScript
 - Backend/API style: local Node server with API handlers under [`api/`](api/)
 
-## Guest version 0.95
+## Guest version 1.0
 
-Version `0.95` is the current public guest release.
+Version `1.0` is the current public guest release.
 
 - Guest users can browse the map and planner without making an account
 - Signed-in tester/admin accounts now persist in the real embedded database configured through `DATABASE_URL`
