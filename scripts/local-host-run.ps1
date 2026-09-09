@@ -24,6 +24,8 @@ if ($HostConfig.DatabaseUrl) {
   $env:DATABASE_URL = [string]$HostConfig.DatabaseUrl
 }
 
+$env:REGISTRATION_PHASE = if ($HostConfig.RegistrationPhase) { [string]$HostConfig.RegistrationPhase } else { "public" }
+
 if ($HostConfig.PtvSubscriptionKey) {
   $env:PTV_SUBSCRIPTION_KEY = [string]$HostConfig.PtvSubscriptionKey
 }
@@ -39,6 +41,16 @@ if ($HostConfig.PtvApiKey) {
 if ($HostConfig.NswTransportApiKey) {
   $env:NSW_TRANSPORT_API_KEY = [string]$HostConfig.NswTransportApiKey
 }
+
+if ($HostConfig.VapidPublicKey) {
+  $env:VAPID_PUBLIC_KEY = [string]$HostConfig.VapidPublicKey
+}
+
+if ($HostConfig.VapidPrivateKey) {
+  $env:VAPID_PRIVATE_KEY = [string]$HostConfig.VapidPrivateKey
+}
+
+$env:VAPID_SUBJECT = if ($HostConfig.VapidSubject) { [string]$HostConfig.VapidSubject } else { "mailto:admin@transit-alert.com" }
 
 $stdoutNative = $stdoutPath.Replace("/", "\")
 $stderrNative = $stderrPath.Replace("/", "\")

@@ -1757,6 +1757,25 @@ export default defineConfig(async ({ mode }) => {
     root: path.resolve(import.meta.dirname),
     build: {
       chunkSizeWarningLimit: 1600,
+      rollupOptions: {
+        output: {
+          // Vendor libraries change far less often than app code and the
+          // growing data/bus-fleet/*.json imports (currently ~530KB raw,
+          // and set to grow with each new operator import) — splitting both
+          // out of the main app chunk means a deploy that only touches app
+          // code doesn't force browsers to re-download either, and the two
+          // can load in parallel with the app chunk on first visit instead
+          // of one ~2.5MB blocking bundle.
+          manualChunks: (id) => {
+            if (id.includes("/data/bus-fleet/")) return "bus-fleet-data";
+            // A single vendor bucket avoids circular chunk references between
+            // finer-grained groups (react-dom/leaflet/etc. cross-import each
+            // other internally), while still separating all of node_modules
+            // from app code so it's cached independently across app deploys.
+            if (id.includes("node_modules")) return "vendor";
+          },
+        },
+      },
     },
     server: {
       port,

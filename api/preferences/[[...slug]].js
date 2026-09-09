@@ -29,6 +29,22 @@ export default async function handler(req, res) {
 
     if (req.method === "POST" || req.method === "PUT") {
       const body = await readJsonBody(req);
+      // premiumAccess is an admin-granted flag (see /api/admin/accounts), never
+      // something a non-admin's own settings save should be able to change. A
+      // client's local preferences state can go stale (e.g. loaded before an
+      // admin granted premium), and this endpoint used to trust whatever
+      // appPreferences object the client sent wholesale — silently reverting
+      // a real grant the moment the user next saved any unrelated setting.
+      // Non-admins always keep the server's existing value here regardless of
+      // what the client submitted; admins retain the Settings self-toggle for
+      // their own account (see the "Enable/Disable" premium button).
+      if (!user.isAdmin && body && typeof body === "object" && body.appPreferences && typeof body.appPreferences === "object") {
+        const existing = await getUserPreferences(user.id);
+        body.appPreferences = {
+          ...body.appPreferences,
+          premiumAccess: existing?.appPreferences?.premiumAccess === true,
+        };
+      }
       const preferences = await upsertUserPreferences(user.id, body);
       sendJson(res, 200, { preferences });
       return;
@@ -54,9 +70,12 @@ export default async function handler(req, res) {
         ...(existing.selectedMapFilters ?? {}),
         ...((body.selectedMapFilters ?? {}) || {}),
       },
+      // Same admin-only-grant protection as the plain save handler above:
+      // never let a non-admin's client-submitted merge move premiumAccess.
       appPreferences: {
         ...(existing.appPreferences ?? {}),
         ...((body.appPreferences ?? {}) || {}),
+        ...(user.isAdmin ? {} : { premiumAccess: existing?.appPreferences?.premiumAccess === true }),
       },
     });
 

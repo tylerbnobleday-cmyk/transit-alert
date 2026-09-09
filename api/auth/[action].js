@@ -267,9 +267,13 @@ export default async function handler(req, res) {
     }
 
     let user;
-    const finalRole = approvedTester ? (requestedRole === "Traveller" ? "Bug Tester" : requestedRole) : "Traveller";
+    // Every newly created account starts as a plain Traveller with no admin
+    // access, regardless of the debug-tester allowlist or requested role —
+    // staff, tester, and admin access are granted manually afterward via the
+    // admin panel, never automatically at sign-up.
+    const finalRole = "Traveller";
     try {
-      user = await registerUser({ username, email, password, role: finalRole });
+      user = await registerUser({ username, email, password, role: finalRole, grantPremium: approvedTester });
     } catch (error) {
       sendJson(res, 503, {
         error: error instanceof Error ? error.message : "Registration is unavailable right now",

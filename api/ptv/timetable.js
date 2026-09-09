@@ -42,8 +42,11 @@ export default async function handler(req, res) {
       const route = String(req.query?.route || "").trim();
       const lat = Number(req.query?.lat);
       const lng = Number(req.query?.lng);
-      if (!route || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-        res.status(400).json({ error: "A route and stop location are required." });
+      // An empty route is deliberate for multi-route stops (e.g. a bus
+      // interchange bay) — getVerifiedSurfaceStopDepartures already treats it
+      // as "every route serving this exact stop", only the location is required.
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        res.status(400).json({ error: "A stop location is required." });
         return;
       }
       res.status(200).json(await getVerifiedSurfaceStopDepartures({ mode, route, lat, lng }));

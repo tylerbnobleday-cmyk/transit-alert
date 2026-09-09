@@ -16,6 +16,69 @@ export type GeneratedTramRouteBundle = {
 
 export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
   {
+    "routeLabel": "1",
+    "longName": "South Melbourne Beach - East Coburg",
+    "color": "B5BD00",
+    "forwardDestination": "East Coburg",
+    "reverseDestination": "South Melbourne Beach",
+    "forwardStops": [{"name":"Beaconsfield Pde/Victoria Ave #32","locality":"PTV GTFS","position":[-37.84728368,144.94859909]},{"name":"Graham St/Victoria Ave #31","locality":"PTV GTFS","position":[-37.84567393,144.94982559]},{"name":"Richardson St/Victoria Ave #30","locality":"PTV GTFS","position":[-37.84394201,144.95128269]},{"name":"Bridport St/Victoria Ave #29","locality":"PTV GTFS","position":[-37.84153539,144.95332656]},{"name":"Montague St/Bridport St #28","locality":"PTV GTFS","position":[-37.84067899,144.95538431]},{"name":"Park St/Montague St #27","locality":"PTV GTFS","position":[-37.83752193,144.9541761]},{"name":"Ferrars St/Park St #26","locality":"PTV GTFS","position":[-37.83663243,144.95640508]},{"name":"Cecil St/Park St #25","locality":"PTV GTFS","position":[-37.83597182,144.95884359]},{"name":"Clarendon St/Park St #24","locality":"PTV GTFS","position":[-37.83520347,144.96130775]},{"name":"Moray St/Park St #23","locality":"PTV GTFS","position":[-37.83447246,144.96385036]},{"name":"Dorcas St/Eastern Rd #22","locality":"PTV GTFS","position":[-37.83222966,144.96495735]},{"name":"Kings Way/Sturt St #20","locality":"PTV GTFS","position":[-37.83009138,144.96533424]},{"name":"Miles St/Sturt St #19","locality":"PTV GTFS","position":[-37.82843147,144.96575477]},{"name":"Grant St/Sturt St #18","locality":"PTV GTFS","position":[-37.82577919,144.96663426]},{"name":"Arts Precinct/Sturt St #17","locality":"PTV GTFS","position":[-37.82378874,144.96722286]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82154414,144.96927255]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81811951,144.96769648]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81575796,144.96662528]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81270595,144.96523232]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.80979882,144.96388093]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80777307,144.96294838]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.8051985,144.96311]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.80209877,144.96364947]},{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79881947,144.96422789]},{"name":"Lygon St/Elgin St #112","locality":"PTV GTFS","position":[-37.79709343,144.96708042]},{"name":"Lytton St/Lygon St #113","locality":"PTV GTFS","position":[-37.79412682,144.96802483]},{"name":"Princes St/Lygon St #114","locality":"PTV GTFS","position":[-37.79268914,144.96826863]},{"name":"Melbourne Cemetery/Lygon St #115","locality":"PTV GTFS","position":[-37.78958017,144.96879666]},{"name":"Fenwick St/Lygon St #116","locality":"PTV GTFS","position":[-37.78736999,144.96918649]},{"name":"Richardson St/Lygon St #117","locality":"PTV GTFS","position":[-37.78403601,144.96973195]},{"name":"Pigdon St/Lygon St #118","locality":"PTV GTFS","position":[-37.78192413,144.97007361]},{"name":"Brunswick Rd/Lygon St #120","locality":"PTV GTFS","position":[-37.77845522,144.97063402]},{"name":"Weston St/Lygon St #121","locality":"PTV GTFS","position":[-37.77566737,144.9709714]},{"name":"Glenlyon Rd/Lygon St #122","locality":"PTV GTFS","position":[-37.77273715,144.97141481]},{"name":"Albert St/Lygon St #123","locality":"PTV GTFS","position":[-37.76978147,144.97194969]},{"name":"Victoria St/Lygon St #124","locality":"PTV GTFS","position":[-37.76820024,144.9722313]},{"name":"Blyth St/Lygon St #125","locality":"PTV GTFS","position":[-37.76666404,144.97251166]},{"name":"Stewart St/Lygon St #126","locality":"PTV GTFS","position":[-37.76442681,144.97290196]},{"name":"Albion St/Lygon St #127","locality":"PTV GTFS","position":[-37.76236934,144.97326463]},{"name":"Mitchell St/Holmes St #128","locality":"PTV GTFS","position":[-37.75938678,144.97433358]},{"name":"Moreland Rd/Holmes St #129","locality":"PTV GTFS","position":[-37.7568797,144.97475384]},{"name":"The Avenue/Nicholson St #130","locality":"PTV GTFS","position":[-37.75356579,144.97594518]},{"name":"Rennie St/Nicholson St #131","locality":"PTV GTFS","position":[-37.75134047,144.97650522]},{"name":"Crozier St/Nicholson St #132","locality":"PTV GTFS","position":[-37.7494177,144.97684134]},{"name":"Harding St/Nicholson St #133","locality":"PTV GTFS","position":[-37.74637073,144.97731019]},{"name":"Merribell Ave/Nicholson St #134","locality":"PTV GTFS","position":[-37.74435924,144.97772812]},{"name":"Bell St/Nicholson St #135","locality":"PTV GTFS","position":[-37.74286119,144.97813204]}],
+    "reverseStops": [{"name":"Bell St/Nicholson St #135","locality":"PTV GTFS","position":[-37.74286119,144.97813204]},{"name":"Merribell Ave/Nicholson St #134","locality":"PTV GTFS","position":[-37.74437098,144.97788668]},{"name":"Harding St/Nicholson St #133","locality":"PTV GTFS","position":[-37.74605896,144.97752296]},{"name":"Crozier St/Nicholson St #132","locality":"PTV GTFS","position":[-37.74939321,144.97698955]},{"name":"Rennie St/Nicholson St #131","locality":"PTV GTFS","position":[-37.75121728,144.97667882]},{"name":"The Avenue/Nicholson St #130","locality":"PTV GTFS","position":[-37.75337171,144.97618882]},{"name":"Moreland Rd/Nicholson St #129","locality":"PTV GTFS","position":[-37.75654111,144.97497874]},{"name":"Mitchell St/Holmes St #128","locality":"PTV GTFS","position":[-37.75926379,144.97451855]},{"name":"Albion St/Holmes St #127","locality":"PTV GTFS","position":[-37.76188739,144.97406103]},{"name":"Stewart St/Lygon St #126","locality":"PTV GTFS","position":[-37.76429482,144.97308719]},{"name":"Blyth St/Lygon St #125","locality":"PTV GTFS","position":[-37.76644237,144.97272205]},{"name":"Victoria St/Lygon St #124","locality":"PTV GTFS","position":[-37.76807726,144.9724163]},{"name":"Albert St/Lygon St #123","locality":"PTV GTFS","position":[-37.76964909,144.97211225]},{"name":"Glenlyon Rd/Lygon St #122","locality":"PTV GTFS","position":[-37.77251529,144.97161387]},{"name":"Weston St/Lygon St #121","locality":"PTV GTFS","position":[-37.77555281,144.97112212]},{"name":"Brunswick Rd/Lygon St #120","locality":"PTV GTFS","position":[-37.77811528,144.97077957]},{"name":"Pigdon St/Lygon St #118","locality":"PTV GTFS","position":[-37.78153934,144.97023174]},{"name":"Richardson St/Lygon St #117","locality":"PTV GTFS","position":[-37.78408261,144.96982152]},{"name":"Fenwick St/Lygon St #116","locality":"PTV GTFS","position":[-37.7872008,144.96930468]},{"name":"Melbourne Cemetery/Lygon St #115","locality":"PTV GTFS","position":[-37.78928546,144.96895236]},{"name":"Princes St/Lygon St #114","locality":"PTV GTFS","position":[-37.7921248,144.96846579]},{"name":"Lytton St/Lygon St #113","locality":"PTV GTFS","position":[-37.79413759,144.96812674]},{"name":"Lygon St/Elgin St #112","locality":"PTV GTFS","position":[-37.79703702,144.96642327]},{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79920679,144.96421725]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.8025045,144.96366104]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.80559522,144.96312181]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80814709,144.96321071]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.81039079,144.96423951]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81330672,144.96557932]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81629509,144.96693998]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81847551,144.96795936]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82193616,144.96953446]},{"name":"Arts Precinct/Sturt St #17","locality":"PTV GTFS","position":[-37.82409441,144.96718039]},{"name":"Grant St/Sturt St #18","locality":"PTV GTFS","position":[-37.8259239,144.96666437]},{"name":"Miles St/Sturt St #19","locality":"PTV GTFS","position":[-37.82818436,144.96605696]},{"name":"Kings Way/Sturt St #20","locality":"PTV GTFS","position":[-37.83011938,144.96539028]},{"name":"Dorcas St/Eastern Rd #22","locality":"PTV GTFS","position":[-37.83217053,144.96518622]},{"name":"Moray St/Park St #23","locality":"PTV GTFS","position":[-37.83450813,144.96434934]},{"name":"Clarendon St/Park St #24","locality":"PTV GTFS","position":[-37.83522349,144.9619435]},{"name":"Cecil St/Park St #25","locality":"PTV GTFS","position":[-37.83612022,144.95856679]},{"name":"Ferrars St/Park St #26","locality":"PTV GTFS","position":[-37.83662171,144.9568258]},{"name":"Montague St/Park St #27","locality":"PTV GTFS","position":[-37.8373287,144.95446552]},{"name":"Bridport St/Montague St #28","locality":"PTV GTFS","position":[-37.8404235,144.9557209]},{"name":"Bridport St/Victoria Ave #29","locality":"PTV GTFS","position":[-37.84169713,144.95329936]},{"name":"Richardson St/Victoria Ave #30","locality":"PTV GTFS","position":[-37.8437868,144.95168472]},{"name":"Graham St/Victoria Ave #31","locality":"PTV GTFS","position":[-37.84576736,144.95001619]},{"name":"Beaconsfield Pde/Victoria Ave #32","locality":"PTV GTFS","position":[-37.84728368,144.94859909]}]
+  },
+  {
+    "routeLabel": "3",
+    "longName": "East Malvern - Melbourne University",
+    "color": "8DC8E8",
+    "forwardDestination": "Melbourne University",
+    "reverseDestination": "East Malvern",
+    "forwardStops": [{"name":"Darling Rd/Waverley Rd #64","locality":"PTV GTFS","position":[-37.87726887,145.0587652]},{"name":"Hughes St/Waverley Rd #63","locality":"PTV GTFS","position":[-37.87710299,145.05690499]},{"name":"Macgregor St/Waverley Rd #62","locality":"PTV GTFS","position":[-37.87687328,145.05500099]},{"name":"Tennyson St/Waverley Rd #61","locality":"PTV GTFS","position":[-37.87637585,145.05108034]},{"name":"Burke Rd/Waverley Rd #60","locality":"PTV GTFS","position":[-37.87605084,145.04832621]},{"name":"Dandenong Rd/Waverley Rd #59","locality":"PTV GTFS","position":[-37.87584358,145.04506876]},{"name":"Caulfield Railway Station/Derby Rd #57","locality":"PTV GTFS","position":[-37.87640435,145.04193878]},{"name":"Caulfield Racecourse/Normanby Rd #56","locality":"PTV GTFS","position":[-37.8753568,145.03910153]},{"name":"Balaclava Rd/Normanby Rd #55","locality":"PTV GTFS","position":[-37.87449359,145.03813533]},{"name":"Kambrook Rd/Balaclava Rd #54","locality":"PTV GTFS","position":[-37.87414477,145.03613231]},{"name":"Caulfield Park/Balaclava Rd #53","locality":"PTV GTFS","position":[-37.87364387,145.0320415]},{"name":"Caulfield Park Bowling Club/Balaclava Rd #52","locality":"PTV GTFS","position":[-37.87313706,145.02814417]},{"name":"Hawthorn Rd/Balaclava Rd #51","locality":"PTV GTFS","position":[-37.87279508,145.02494735]},{"name":"Caulfield Junior College/Balaclava Rd #47","locality":"PTV GTFS","position":[-37.87229914,145.02117489]},{"name":"Kooyong Rd/Balaclava Rd #46","locality":"PTV GTFS","position":[-37.87189354,145.01795711]},{"name":"Kent Gr/Balaclava Rd #45","locality":"PTV GTFS","position":[-37.87155703,145.0151013]},{"name":"Otira Rd/Balaclava Rd #44","locality":"PTV GTFS","position":[-37.87117772,145.01238308]},{"name":"Orrong Rd/Balaclava Rd #43","locality":"PTV GTFS","position":[-37.87074752,145.00879091]},{"name":"Allan Rd/Balaclava Rd #42","locality":"PTV GTFS","position":[-37.87034177,145.00558465]},{"name":"Vadlure Ave/Balaclava Rd #41","locality":"PTV GTFS","position":[-37.86998445,145.00258173]},{"name":"Hotham St/Balaclava Rd #40","locality":"PTV GTFS","position":[-37.86960981,144.99962479]},{"name":"Carlisle Ave/Carlisle St #39","locality":"PTV GTFS","position":[-37.86924526,144.99673582]},{"name":"Balaclava Station/Carlisle St #38","locality":"PTV GTFS","position":[-37.86881332,144.9935986]},{"name":"Chapel St/Carlisle St #37","locality":"PTV GTFS","position":[-37.86844494,144.9904938]},{"name":"St Kilda Town Hall/Carlisle St #36","locality":"PTV GTFS","position":[-37.86822609,144.98876048]},{"name":"Brighton Rd/Carlisle St #35","locality":"PTV GTFS","position":[-37.86808134,144.9876731]},{"name":"Carlisle St/St Kilda Rd #35","locality":"PTV GTFS","position":[-37.86746974,144.98668939]},{"name":"Inkerman St/St Kilda Rd #34","locality":"PTV GTFS","position":[-37.8641144,144.98546212]},{"name":"Argyle St/St Kilda Rd #33","locality":"PTV GTFS","position":[-37.86262783,144.98495699]},{"name":"Alma Rd/St Kilda Rd #32","locality":"PTV GTFS","position":[-37.85995388,144.9840523]},{"name":"Barkly St/St Kilda Rd #31","locality":"PTV GTFS","position":[-37.85808627,144.98339848]},{"name":"St Kilda Junction/St Kilda Rd #30","locality":"PTV GTFS","position":[-37.85503126,144.98234516]},{"name":"Union St/St Kilda Rd #29","locality":"PTV GTFS","position":[-37.85259207,144.98146833]},{"name":"Lorne St/St Kilda Rd #27","locality":"PTV GTFS","position":[-37.84960853,144.98037912]},{"name":"Beatrice St/St Kilda Rd #26","locality":"PTV GTFS","position":[-37.84789461,144.97975537]},{"name":"Commercial Rd/St Kilda Rd #25","locality":"PTV GTFS","position":[-37.84413114,144.97838075]},{"name":"Leopold St/St Kilda Rd #24","locality":"PTV GTFS","position":[-37.84148319,144.97741896]},{"name":"Arthur St/St Kilda Rd #23","locality":"PTV GTFS","position":[-37.83929754,144.97661506]},{"name":"Toorak Rd/St Kilda Rd #22","locality":"PTV GTFS","position":[-37.83547707,144.97507185]},{"name":"Anzac Station/St Kilda Rd #20","locality":"PTV GTFS","position":[-37.83321372,144.97237268]},{"name":"Shrine of Remembrance/St Kilda Rd #19","locality":"PTV GTFS","position":[-37.8289949,144.97124975]},{"name":"Grant St-Police Memorial/St Kilda Rd #17","locality":"PTV GTFS","position":[-37.82427831,144.97052685]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82154414,144.96927255]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81811951,144.96769648]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81575796,144.96662528]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81270595,144.96523232]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.80979882,144.96388093]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80777307,144.96294838]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.8051985,144.96311]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.80209877,144.96364947]},{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79881947,144.96422789]}],
+    "reverseStops": [{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79920679,144.96421725]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.8025045,144.96366104]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.80559522,144.96312181]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80814709,144.96321071]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.81039079,144.96423951]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81330672,144.96557932]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81629509,144.96693998]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81847551,144.96795936]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82193616,144.96953446]},{"name":"Grant St-Police Memorial/St Kilda Rd #17","locality":"PTV GTFS","position":[-37.82461589,144.97076754]},{"name":"Shrine of Remembrance/St Kilda Rd #19","locality":"PTV GTFS","position":[-37.8283305,144.97139292]},{"name":"Anzac Station/St Kilda Rd #20","locality":"PTV GTFS","position":[-37.83361022,144.97341853]},{"name":"Toorak Rd/St Kilda Rd #22","locality":"PTV GTFS","position":[-37.83589708,144.97538989]},{"name":"Arthur St/St Kilda Rd #23","locality":"PTV GTFS","position":[-37.8388552,144.97657033]},{"name":"Leopold St/St Kilda Rd #24","locality":"PTV GTFS","position":[-37.84115853,144.97740511]},{"name":"Commercial Rd/St Kilda Rd #25","locality":"PTV GTFS","position":[-37.84449554,144.97860944]},{"name":"Moubray St/St Kilda Rd #26","locality":"PTV GTFS","position":[-37.84755154,144.97971927]},{"name":"High St/St Kilda Rd #27","locality":"PTV GTFS","position":[-37.84959207,144.98047049]},{"name":"Union St/St Kilda Rd #29","locality":"PTV GTFS","position":[-37.8530017,144.9817072]},{"name":"St Kilda Junction/St Kilda Rd #30","locality":"PTV GTFS","position":[-37.85529579,144.98253116]},{"name":"Barkly St/St Kilda Rd #31","locality":"PTV GTFS","position":[-37.85823311,144.9835536]},{"name":"Alma Rd/St Kilda Rd #32","locality":"PTV GTFS","position":[-37.86097051,144.98447926]},{"name":"Argyle St/St Kilda Rd #33","locality":"PTV GTFS","position":[-37.86189511,144.98479508]},{"name":"Inkerman St/St Kilda Rd #34","locality":"PTV GTFS","position":[-37.86508579,144.98587899]},{"name":"Carlisle St/St Kilda Rd #35","locality":"PTV GTFS","position":[-37.8674805,144.9867914]},{"name":"St Kilda Town Hall/Carlisle St #36","locality":"PTV GTFS","position":[-37.86808962,144.98868461]},{"name":"Chapel St/Carlisle St #37","locality":"PTV GTFS","position":[-37.86824957,144.99013534]},{"name":"Balaclava Station/Carlisle St #38","locality":"PTV GTFS","position":[-37.8687923,144.99395158]},{"name":"Orange Gr/Carlisle St #39","locality":"PTV GTFS","position":[-37.86907024,144.9965132]},{"name":"Hotham St/Carlisle St #40","locality":"PTV GTFS","position":[-37.86943287,144.99928854]},{"name":"Empress Rd/Balaclava Rd #41","locality":"PTV GTFS","position":[-37.86970606,145.00157749]},{"name":"Sidwell Ave/Balaclava Rd #42","locality":"PTV GTFS","position":[-37.87016601,145.00531655]},{"name":"Orrong Rd/Balaclava Rd #43","locality":"PTV GTFS","position":[-37.87055279,145.00846648]},{"name":"Ontario St/Balaclava Rd #44","locality":"PTV GTFS","position":[-37.87106925,145.01236326]},{"name":"Kent Gr/Balaclava Rd #45","locality":"PTV GTFS","position":[-37.87134353,145.01473187]},{"name":"Kooyong Rd/Balaclava Rd #46","locality":"PTV GTFS","position":[-37.87172566,145.01762056]},{"name":"Elmhurst Rd/Balaclava Rd #47","locality":"PTV GTFS","position":[-37.87214468,145.02109944]},{"name":"Hawthorn Rd/Balaclava Rd #51","locality":"PTV GTFS","position":[-37.87257012,145.02443041]},{"name":"Caulfield Park Bowling Club/Balaclava Rd #52","locality":"PTV GTFS","position":[-37.87308067,145.02854358]},{"name":"Caulfield Park/Balaclava Rd #53","locality":"PTV GTFS","position":[-37.87339637,145.03125228]},{"name":"Kambrook Rd/Balaclava Rd #54","locality":"PTV GTFS","position":[-37.8739593,145.03581891]},{"name":"Normanby Rd/Balaclava Rd #55","locality":"PTV GTFS","position":[-37.87419795,145.03769979]},{"name":"Caulfield Racecourse/Normanby Rd #56","locality":"PTV GTFS","position":[-37.87541577,145.03939556]},{"name":"Caulfield Railway Station/Derby Rd #57","locality":"PTV GTFS","position":[-37.8764,145.0416774]},{"name":"Dandenong Rd/Derby Rd #58","locality":"PTV GTFS","position":[-37.87570923,145.04186623]},{"name":"Dandenong Rd/Waverley Rd #59","locality":"PTV GTFS","position":[-37.87576043,145.04494589]},{"name":"Burke Rd/Waverley Rd #60","locality":"PTV GTFS","position":[-37.875893,145.04804615]},{"name":"Tennyson St/Waverley Rd #61","locality":"PTV GTFS","position":[-37.87624729,145.05093593]},{"name":"The Avenue/Waverley Rd #62","locality":"PTV GTFS","position":[-37.87669687,145.05468729]},{"name":"Oak Gr/Waverley Rd #63","locality":"PTV GTFS","position":[-37.87691683,145.05654607]},{"name":"Darling Rd/Waverley Rd #64","locality":"PTV GTFS","position":[-37.87726887,145.0587652]}]
+  },
+  {
+    "routeLabel": "5",
+    "longName": "Malvern - Melbourne University",
+    "color": "D50032",
+    "forwardDestination": "Melbourne University",
+    "reverseDestination": "Malvern",
+    "forwardStops": [{"name":"Burke Rd/Wattletree Rd #52","locality":"PTV GTFS","position":[-37.86507635,145.05007082]},{"name":"Nott St/Wattletree Rd #51","locality":"PTV GTFS","position":[-37.86478209,145.04699802]},{"name":"Anderson St/Wattletree Rd #50","locality":"PTV GTFS","position":[-37.86438507,145.04371198]},{"name":"Tooronga Rd/Wattletree Rd #49","locality":"PTV GTFS","position":[-37.8639855,145.04027827]},{"name":"Dixon St/Wattletree Rd #48","locality":"PTV GTFS","position":[-37.86357179,145.03708368]},{"name":"Cabrini Hospital/Wattletree Rd #47","locality":"PTV GTFS","position":[-37.86314842,145.03385529]},{"name":"Soudan St/Wattletree Rd #46","locality":"PTV GTFS","position":[-37.86282778,145.0313858]},{"name":"Glenferrie Rd/Wattletree Rd #45","locality":"PTV GTFS","position":[-37.8624552,145.02850849]},{"name":"Duncraig Ave/Wattletree Rd #44","locality":"PTV GTFS","position":[-37.86206934,145.0253815]},{"name":"Egerton Rd/Wattletree Rd #43","locality":"PTV GTFS","position":[-37.86170982,145.02275399]},{"name":"Kooyong Rd/Wattletree Rd #42","locality":"PTV GTFS","position":[-37.86134642,145.01989926]},{"name":"Wattletree Rd/Dandenong Rd #40","locality":"PTV GTFS","position":[-37.86078749,145.01453776]},{"name":"Orrong Rd/Dandenong Rd #38","locality":"PTV GTFS","position":[-37.8603014,145.01083392]},{"name":"Lansdowne Rd/Dandenong Rd #37","locality":"PTV GTFS","position":[-37.8598359,145.0072887]},{"name":"Alexandra St/Dandenong Rd #36","locality":"PTV GTFS","position":[-37.85944356,145.00434398]},{"name":"Williams Rd/Dandenong Rd #35","locality":"PTV GTFS","position":[-37.85908223,145.00163715]},{"name":"Westbury St/Dandenong Rd #34","locality":"PTV GTFS","position":[-37.8585357,144.99758276]},{"name":"Hornby St/Dandenong Rd #33","locality":"PTV GTFS","position":[-37.85827918,144.99574837]},{"name":"Chapel St/Dandenong Rd #32","locality":"PTV GTFS","position":[-37.85740799,144.99169152]},{"name":"Queens Way/Queens Way #31","locality":"PTV GTFS","position":[-37.85624589,144.98749492]},{"name":"St Kilda Junction/St Kilda Rd #30","locality":"PTV GTFS","position":[-37.85503126,144.98234516]},{"name":"Union St/St Kilda Rd #29","locality":"PTV GTFS","position":[-37.85259207,144.98146833]},{"name":"Lorne St/St Kilda Rd #27","locality":"PTV GTFS","position":[-37.84960853,144.98037912]},{"name":"Beatrice St/St Kilda Rd #26","locality":"PTV GTFS","position":[-37.84789461,144.97975537]},{"name":"Commercial Rd/St Kilda Rd #25","locality":"PTV GTFS","position":[-37.84413114,144.97838075]},{"name":"Leopold St/St Kilda Rd #24","locality":"PTV GTFS","position":[-37.84148319,144.97741896]},{"name":"Arthur St/St Kilda Rd #23","locality":"PTV GTFS","position":[-37.83929754,144.97661506]},{"name":"Toorak Rd/St Kilda Rd #22","locality":"PTV GTFS","position":[-37.83547707,144.97507185]},{"name":"Anzac Station/St Kilda Rd #20","locality":"PTV GTFS","position":[-37.83321372,144.97237268]},{"name":"Shrine of Remembrance/St Kilda Rd #19","locality":"PTV GTFS","position":[-37.8289949,144.97124975]},{"name":"Grant St-Police Memorial/St Kilda Rd #17","locality":"PTV GTFS","position":[-37.82427831,144.97052685]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82154414,144.96927255]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81811951,144.96769648]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81575796,144.96662528]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81270595,144.96523232]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.80979882,144.96388093]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80777307,144.96294838]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.8051985,144.96311]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.80209877,144.96364947]},{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79881947,144.96422789]}],
+    "reverseStops": [{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79920679,144.96421725]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.8025045,144.96366104]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.80559522,144.96312181]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80814709,144.96321071]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.81039079,144.96423951]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81330672,144.96557932]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81629509,144.96693998]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81847551,144.96795936]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82193616,144.96953446]},{"name":"Grant St-Police Memorial/St Kilda Rd #17","locality":"PTV GTFS","position":[-37.82461589,144.97076754]},{"name":"Shrine of Remembrance/St Kilda Rd #19","locality":"PTV GTFS","position":[-37.8283305,144.97139292]},{"name":"Anzac Station/St Kilda Rd #20","locality":"PTV GTFS","position":[-37.83361022,144.97341853]},{"name":"Toorak Rd/St Kilda Rd #22","locality":"PTV GTFS","position":[-37.83589708,144.97538989]},{"name":"Arthur St/St Kilda Rd #23","locality":"PTV GTFS","position":[-37.8388552,144.97657033]},{"name":"Leopold St/St Kilda Rd #24","locality":"PTV GTFS","position":[-37.84115853,144.97740511]},{"name":"Commercial Rd/St Kilda Rd #25","locality":"PTV GTFS","position":[-37.84449554,144.97860944]},{"name":"Moubray St/St Kilda Rd #26","locality":"PTV GTFS","position":[-37.84755154,144.97971927]},{"name":"High St/St Kilda Rd #27","locality":"PTV GTFS","position":[-37.84959207,144.98047049]},{"name":"Union St/St Kilda Rd #29","locality":"PTV GTFS","position":[-37.8530017,144.9817072]},{"name":"St Kilda Junction/St Kilda Rd #30","locality":"PTV GTFS","position":[-37.85529579,144.98253116]},{"name":"Queens Way/Queens Way #31","locality":"PTV GTFS","position":[-37.85615426,144.98740648]},{"name":"Chapel St/Dandenong Rd #32","locality":"PTV GTFS","position":[-37.8574847,144.99196222]},{"name":"Hornby St/Dandenong Rd #33","locality":"PTV GTFS","position":[-37.85820616,144.99569351]},{"name":"The Avenue/Dandenong Rd #34","locality":"PTV GTFS","position":[-37.85841203,144.99719966]},{"name":"Williams Rd/Dandenong Rd #35","locality":"PTV GTFS","position":[-37.85906176,145.00202416]},{"name":"Closeburn Ave/Dandenong Rd #36","locality":"PTV GTFS","position":[-37.85940219,145.00456106]},{"name":"Lansdowne Rd/Dandenong Rd #37","locality":"PTV GTFS","position":[-37.85978455,145.00744922]},{"name":"Orrong Rd/Dandenong Rd #38","locality":"PTV GTFS","position":[-37.86026058,145.01108508]},{"name":"Wattletree Rd/Dandenong Rd #40","locality":"PTV GTFS","position":[-37.86082371,145.0150824]},{"name":"Armadale St/Wattletree Rd #41","locality":"PTV GTFS","position":[-37.86094153,145.01779588]},{"name":"Kooyong Rd/Wattletree Rd #42","locality":"PTV GTFS","position":[-37.86118851,145.01961932]},{"name":"Egerton Rd/Wattletree Rd #43","locality":"PTV GTFS","position":[-37.86159177,145.02270031]},{"name":"Duncraig Ave/Wattletree Rd #44","locality":"PTV GTFS","position":[-37.86189324,145.02509066]},{"name":"Glenferrie Rd/Wattletree Rd #45","locality":"PTV GTFS","position":[-37.86227758,145.02812675]},{"name":"Nicholls St/Wattletree Rd #46","locality":"PTV GTFS","position":[-37.86265842,145.03095836]},{"name":"Cabrini Hospital/Wattletree Rd #47","locality":"PTV GTFS","position":[-37.86296049,145.03339424]},{"name":"Dixon St/Wattletree Rd #48","locality":"PTV GTFS","position":[-37.86339306,145.03663374]},{"name":"Tooronga Rd/Wattletree Rd #49","locality":"PTV GTFS","position":[-37.86382745,145.03998691]},{"name":"Vincent St/Wattletree Rd #50","locality":"PTV GTFS","position":[-37.86422627,145.04337516]},{"name":"Erica Ave/Wattletree Rd #51","locality":"PTV GTFS","position":[-37.86461278,145.04657053]},{"name":"Burke Rd/Wattletree Rd #52","locality":"PTV GTFS","position":[-37.86507635,145.05007082]}]
+  },
+  {
+    "routeLabel": "6",
+    "longName": "Glen Iris - Moreland",
+    "color": "01426A",
+    "forwardDestination": "Moreland",
+    "reverseDestination": "Glen Iris",
+    "forwardStops": [{"name":"Malvern Rd/High St #53","locality":"PTV GTFS","position":[-37.86000111,145.05651309]},{"name":"Boyanda Rd/High St #52","locality":"PTV GTFS","position":[-37.85978247,145.05418867]},{"name":"Burke Rd/High St #51","locality":"PTV GTFS","position":[-37.85948571,145.0515026]},{"name":"Belmont Ave/High St #50","locality":"PTV GTFS","position":[-37.85911004,145.04840943]},{"name":"Harold Holt Swim Centre/High St #49","locality":"PTV GTFS","position":[-37.85867005,145.04470421]},{"name":"Tooronga Rd/High St #48","locality":"PTV GTFS","position":[-37.85827203,145.04136165]},{"name":"Dixon St/High St #47","locality":"PTV GTFS","position":[-37.85781967,145.0380092]},{"name":"Fraser St/High St #46","locality":"PTV GTFS","position":[-37.85755753,145.03579973]},{"name":"De La Salle College/High St #45","locality":"PTV GTFS","position":[-37.85715747,145.03288924]},{"name":"Glenferrie Rd/High St #44","locality":"PTV GTFS","position":[-37.85671426,145.02955939]},{"name":"Mercer Rd/High St #43","locality":"PTV GTFS","position":[-37.85628898,145.02622909]},{"name":"Huntingtower Rd/High St #42","locality":"PTV GTFS","position":[-37.85599635,145.02382731]},{"name":"Kooyong Rd/High St #41","locality":"PTV GTFS","position":[-37.85558508,145.02080359]},{"name":"Armadale Station/High St #40","locality":"PTV GTFS","position":[-37.85527432,145.01840234]},{"name":"Auburn Gr/High St #39","locality":"PTV GTFS","position":[-37.85487154,145.01535572]},{"name":"Orrong Rd/High St #38","locality":"PTV GTFS","position":[-37.85438644,145.01170897]},{"name":"Airlie Ave/High St #37","locality":"PTV GTFS","position":[-37.85399287,145.00868491]},{"name":"Chatsworth Rd/High St #36","locality":"PTV GTFS","position":[-37.85376394,145.00687257]},{"name":"Williams Rd/High St #35","locality":"PTV GTFS","position":[-37.85316909,145.00261516]},{"name":"Lewisham Rd/High St #34","locality":"PTV GTFS","position":[-37.85282921,145.00011256]},{"name":"Prahran RSL/High St  #33","locality":"PTV GTFS","position":[-37.85262338,144.99860652]},{"name":"Hornby St/High St #32","locality":"PTV GTFS","position":[-37.85235382,144.99653395]},{"name":"Chapel St/High St #31","locality":"PTV GTFS","position":[-37.85195124,144.99353304]},{"name":"Prahran Station/High St #30","locality":"PTV GTFS","position":[-37.85139234,144.98929759]},{"name":"Perth St/High St #29","locality":"PTV GTFS","position":[-37.85120671,144.98792745]},{"name":"Punt Rd/High St #28","locality":"PTV GTFS","position":[-37.85075836,144.98437099]},{"name":"Lorne St/St Kilda Rd #27","locality":"PTV GTFS","position":[-37.84960853,144.98037912]},{"name":"Beatrice St/St Kilda Rd #26","locality":"PTV GTFS","position":[-37.84789461,144.97975537]},{"name":"Commercial Rd/St Kilda Rd #25","locality":"PTV GTFS","position":[-37.84413114,144.97838075]},{"name":"Leopold St/St Kilda Rd #24","locality":"PTV GTFS","position":[-37.84148319,144.97741896]},{"name":"Arthur St/St Kilda Rd #23","locality":"PTV GTFS","position":[-37.83929754,144.97661506]},{"name":"Toorak Rd/St Kilda Rd #22","locality":"PTV GTFS","position":[-37.83547707,144.97507185]},{"name":"Anzac Station/St Kilda Rd #20","locality":"PTV GTFS","position":[-37.83321372,144.97237268]},{"name":"Shrine of Remembrance/St Kilda Rd #19","locality":"PTV GTFS","position":[-37.8289949,144.97124975]},{"name":"Grant St-Police Memorial/St Kilda Rd #17","locality":"PTV GTFS","position":[-37.82427831,144.97052685]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82154414,144.96927255]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81811951,144.96769648]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81575796,144.96662528]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81270595,144.96523232]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.80979882,144.96388093]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80777307,144.96294838]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.8051985,144.96311]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.80209877,144.96364947]},{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79881947,144.96422789]},{"name":"Lygon St/Elgin St #112","locality":"PTV GTFS","position":[-37.79709343,144.96708042]},{"name":"Lytton St/Lygon St #113","locality":"PTV GTFS","position":[-37.79412682,144.96802483]},{"name":"Princes St/Lygon St #114","locality":"PTV GTFS","position":[-37.79268914,144.96826863]},{"name":"Melbourne Cemetery/Lygon St #115","locality":"PTV GTFS","position":[-37.78958017,144.96879666]},{"name":"Fenwick St/Lygon St #116","locality":"PTV GTFS","position":[-37.78736999,144.96918649]},{"name":"Richardson St/Lygon St #117","locality":"PTV GTFS","position":[-37.78403601,144.96973195]},{"name":"Pigdon St/Lygon St #118","locality":"PTV GTFS","position":[-37.78192413,144.97007361]},{"name":"Brunswick Rd/Lygon St #120","locality":"PTV GTFS","position":[-37.77845522,144.97063402]},{"name":"Weston St/Lygon St #121","locality":"PTV GTFS","position":[-37.77566737,144.9709714]},{"name":"Glenlyon Rd/Lygon St #122","locality":"PTV GTFS","position":[-37.77273715,144.97141481]},{"name":"Albert St/Lygon St #123","locality":"PTV GTFS","position":[-37.76978147,144.97194969]},{"name":"Victoria St/Lygon St #124","locality":"PTV GTFS","position":[-37.76820024,144.9722313]},{"name":"Blyth St/Lygon St #125","locality":"PTV GTFS","position":[-37.76666404,144.97251166]},{"name":"Stewart St/Lygon St #126","locality":"PTV GTFS","position":[-37.76442681,144.97290196]},{"name":"Albion St/Lygon St #127","locality":"PTV GTFS","position":[-37.76236934,144.97326463]},{"name":"Mitchell St/Holmes St #128","locality":"PTV GTFS","position":[-37.75938678,144.97433358]},{"name":"Moreland Rd/Holmes St #129","locality":"PTV GTFS","position":[-37.7568797,144.97475384]},{"name":"Barrow St/Moreland Rd #130","locality":"PTV GTFS","position":[-37.75620573,144.97015253]},{"name":"De Carle St/Moreland Rd #131","locality":"PTV GTFS","position":[-37.75580964,144.96651984]},{"name":"Sydney Rd/Moreland Rd #132","locality":"PTV GTFS","position":[-37.75556367,144.96427918]},{"name":"Moreland Station/Moreland Rd #133","locality":"PTV GTFS","position":[-37.75526049,144.96238062]}],
+    "reverseStops": [{"name":"Moreland Station/Cameron St #133","locality":"PTV GTFS","position":[-37.75529201,144.96211869]},{"name":"Sydney Rd/Moreland Rd #132","locality":"PTV GTFS","position":[-37.75534004,144.96385399]},{"name":"De Carle St/Moreland Rd #131","locality":"PTV GTFS","position":[-37.75566258,144.96635361]},{"name":"Barrow St/Moreland Rd #130","locality":"PTV GTFS","position":[-37.75605848,144.96997495]},{"name":"Moreland Rd/Holmes St #129","locality":"PTV GTFS","position":[-37.7565711,144.97462605]},{"name":"Mitchell St/Holmes St #128","locality":"PTV GTFS","position":[-37.75926379,144.97451855]},{"name":"Albion St/Holmes St #127","locality":"PTV GTFS","position":[-37.76188739,144.97406103]},{"name":"Stewart St/Lygon St #126","locality":"PTV GTFS","position":[-37.76429482,144.97308719]},{"name":"Blyth St/Lygon St #125","locality":"PTV GTFS","position":[-37.76644237,144.97272205]},{"name":"Victoria St/Lygon St #124","locality":"PTV GTFS","position":[-37.76807726,144.9724163]},{"name":"Albert St/Lygon St #123","locality":"PTV GTFS","position":[-37.76964909,144.97211225]},{"name":"Glenlyon Rd/Lygon St #122","locality":"PTV GTFS","position":[-37.77251529,144.97161387]},{"name":"Weston St/Lygon St #121","locality":"PTV GTFS","position":[-37.77555281,144.97112212]},{"name":"Brunswick Rd/Lygon St #120","locality":"PTV GTFS","position":[-37.77811528,144.97077957]},{"name":"Pigdon St/Lygon St #118","locality":"PTV GTFS","position":[-37.78153934,144.97023174]},{"name":"Richardson St/Lygon St #117","locality":"PTV GTFS","position":[-37.78408261,144.96982152]},{"name":"Fenwick St/Lygon St #116","locality":"PTV GTFS","position":[-37.7872008,144.96930468]},{"name":"Melbourne Cemetery/Lygon St #115","locality":"PTV GTFS","position":[-37.78928546,144.96895236]},{"name":"Princes St/Lygon St #114","locality":"PTV GTFS","position":[-37.7921248,144.96846579]},{"name":"Lytton St/Lygon St #113","locality":"PTV GTFS","position":[-37.79413759,144.96812674]},{"name":"Lygon St/Elgin St #112","locality":"PTV GTFS","position":[-37.79703702,144.96642327]},{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79920679,144.96421725]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.8025045,144.96366104]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.80559522,144.96312181]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80814709,144.96321071]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.81039079,144.96423951]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81330672,144.96557932]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81629509,144.96693998]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81847551,144.96795936]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82193616,144.96953446]},{"name":"Grant St-Police Memorial/St Kilda Rd #17","locality":"PTV GTFS","position":[-37.82461589,144.97076754]},{"name":"Shrine of Remembrance/St Kilda Rd #19","locality":"PTV GTFS","position":[-37.8283305,144.97139292]},{"name":"Anzac Station/St Kilda Rd #20","locality":"PTV GTFS","position":[-37.83361022,144.97341853]},{"name":"Toorak Rd/St Kilda Rd #22","locality":"PTV GTFS","position":[-37.83589708,144.97538989]},{"name":"Arthur St/St Kilda Rd #23","locality":"PTV GTFS","position":[-37.8388552,144.97657033]},{"name":"Leopold St/St Kilda Rd #24","locality":"PTV GTFS","position":[-37.84115853,144.97740511]},{"name":"Commercial Rd/St Kilda Rd #25","locality":"PTV GTFS","position":[-37.84449554,144.97860944]},{"name":"Moubray St/St Kilda Rd #26","locality":"PTV GTFS","position":[-37.84755154,144.97971927]},{"name":"High St/St Kilda Rd #27","locality":"PTV GTFS","position":[-37.84959207,144.98047049]},{"name":"Punt Rd/High St #28","locality":"PTV GTFS","position":[-37.85056356,144.98404671]},{"name":"Perth St/High St #29","locality":"PTV GTFS","position":[-37.85105009,144.98772713]},{"name":"Prahran Station/High St #30","locality":"PTV GTFS","position":[-37.85131864,144.98973147]},{"name":"Chapel St/High St #31","locality":"PTV GTFS","position":[-37.85175647,144.99320872]},{"name":"Hornby St/High St #32","locality":"PTV GTFS","position":[-37.85219895,144.99643585]},{"name":"Prahran RSL/High St  #33","locality":"PTV GTFS","position":[-37.85243434,144.99808883]},{"name":"Lewisham Rd/High St #34","locality":"PTV GTFS","position":[-37.85265073,144.9996855]},{"name":"Williams Rd/High St #35","locality":"PTV GTFS","position":[-37.85301095,145.00232392]},{"name":"Chatsworth Rd/High St #36","locality":"PTV GTFS","position":[-37.85355558,145.00627581]},{"name":"Airlie Ave/High St #37","locality":"PTV GTFS","position":[-37.85386619,145.00865422]},{"name":"Orrong Rd/High St #38","locality":"PTV GTFS","position":[-37.85421989,145.01145203]},{"name":"Auburn Gr/High St #39","locality":"PTV GTFS","position":[-37.85468487,145.01497429]},{"name":"Armadale Station/High St #40","locality":"PTV GTFS","position":[-37.85511852,145.01824739]},{"name":"Kooyong Rd/High St #41","locality":"PTV GTFS","position":[-37.85541912,145.02058071]},{"name":"Huntingtower Rd/High St #42","locality":"PTV GTFS","position":[-37.85583154,145.02367259]},{"name":"Mercer Rd/High St #43","locality":"PTV GTFS","position":[-37.85612189,145.02593803]},{"name":"Glenferrie Rd/High St #44","locality":"PTV GTFS","position":[-37.85653646,145.02916631]},{"name":"De La Salle College/High St #45","locality":"PTV GTFS","position":[-37.85694174,145.0323835]},{"name":"Fraser St/High St #46","locality":"PTV GTFS","position":[-37.85738316,145.03561113]},{"name":"Dixon St/High St #47","locality":"PTV GTFS","position":[-37.85769356,145.03801254]},{"name":"Tooronga Rd/High St #48","locality":"PTV GTFS","position":[-37.85807757,145.04104854]},{"name":"Harold Holt Swim Centre/High St #49","locality":"PTV GTFS","position":[-37.85845437,145.04419842]},{"name":"Belmont Ave/High St #50","locality":"PTV GTFS","position":[-37.85894526,145.04825465]},{"name":"Burke Rd/High St #51","locality":"PTV GTFS","position":[-37.85930967,145.0512117]},{"name":"Boyanda Rd/High St #52","locality":"PTV GTFS","position":[-37.85961375,145.05379528]},{"name":"Malvern Rd/High St #53","locality":"PTV GTFS","position":[-37.86000111,145.05651309]}]
+  },
+  {
+    "routeLabel": "16",
+    "longName": "Kew - Melbourne University",
+    "color": "FBD872",
+    "forwardDestination": "Melbourne University",
+    "reverseDestination": "Kew",
+    "forwardStops": [{"name":"Cotham Rd/Glenferrie Rd #80","locality":"PTV GTFS","position":[-37.80790432,145.03808168]},{"name":"Wellington St/Glenferrie Rd #79","locality":"PTV GTFS","position":[-37.80990067,145.03782438]},{"name":"Fitzwilliam St/Glenferrie Rd #78","locality":"PTV GTFS","position":[-37.81202142,145.03746153]},{"name":"Barkers Rd/Glenferrie Rd #77","locality":"PTV GTFS","position":[-37.81461694,145.03692705]},{"name":"Johnson St/Glenferrie Rd #76","locality":"PTV GTFS","position":[-37.8167741,145.03658591]},{"name":"Liddiard St/Glenferrie Rd #75","locality":"PTV GTFS","position":[-37.8186064,145.03621927]},{"name":"Glenferrie Railway Station/Glenferrie Rd #74","locality":"PTV GTFS","position":[-37.82131863,145.03565887]},{"name":"Burwood Rd/Glenferrie Rd #73","locality":"PTV GTFS","position":[-37.82249563,145.03544589]},{"name":"Manningtree Rd/Glenferrie Rd #72","locality":"PTV GTFS","position":[-37.82402337,145.03518952]},{"name":"Urquhart St/Glenferrie Rd #71","locality":"PTV GTFS","position":[-37.82597315,145.03484241]},{"name":"Riversdale Rd/Glenferrie Rd #70","locality":"PTV GTFS","position":[-37.82863208,145.03432876]},{"name":"South St/Glenferrie Rd #69","locality":"PTV GTFS","position":[-37.83111179,145.03387663]},{"name":"Callantina Rd/Glenferrie Rd #68","locality":"PTV GTFS","position":[-37.83322332,145.03350242]},{"name":"Gardiner Rd/Glenferrie Rd #67","locality":"PTV GTFS","position":[-37.83545138,145.03309101]},{"name":"Vision Australia/Glenferrie Rd #66","locality":"PTV GTFS","position":[-37.83833625,145.03261666]},{"name":"Kooyong Railway Station/Glenferrie Rd #65","locality":"PTV GTFS","position":[-37.83933346,145.03243108]},{"name":"Power St/Glenferrie Rd #64","locality":"PTV GTFS","position":[-37.84184,145.03196673]},{"name":"Toorak Rd/Glenferrie Rd #63","locality":"PTV GTFS","position":[-37.8436462,145.03165734]},{"name":"Mayfield Ave/Glenferrie Rd #62","locality":"PTV GTFS","position":[-37.84536194,145.03132761]},{"name":"Moorakyne Ave/Glenferrie Rd #61","locality":"PTV GTFS","position":[-37.84773354,145.03087813]},{"name":"Stonnington Pl/Glenferrie Rd #60","locality":"PTV GTFS","position":[-37.84967391,145.03050829]},{"name":"Malvern Rd/Glenferrie Rd #59","locality":"PTV GTFS","position":[-37.85152495,145.03018627]},{"name":"Sorrett Ave/Glenferrie Rd #58","locality":"PTV GTFS","position":[-37.85409547,145.02977687]},{"name":"High St/Glenferrie Rd #57","locality":"PTV GTFS","position":[-37.85649579,145.02942881]},{"name":"Malvern Tram Depot/Glenferrie Rd #56","locality":"PTV GTFS","position":[-37.8588415,145.02904808]},{"name":"Edsall St/Glenferrie Rd #55","locality":"PTV GTFS","position":[-37.86103406,145.0286714]},{"name":"Wattletree Rd/Glenferrie Rd #54","locality":"PTV GTFS","position":[-37.86215775,145.02850505]},{"name":"Malvern Railway Station/Glenferrie Rd #53","locality":"PTV GTFS","position":[-37.86417955,145.02815562]},{"name":"Dandenong Rd/Glenferrie Rd #52","locality":"PTV GTFS","position":[-37.86605722,145.02781001]},{"name":"Hawthorn Rd/Dandenong Rd #48","locality":"PTV GTFS","position":[-37.86582814,145.02650886]},{"name":"Arthur St/Hawthorn Rd #49","locality":"PTV GTFS","position":[-37.86768993,145.02575438]},{"name":"Inkerman Rd/Hawthorn Rd #50","locality":"PTV GTFS","position":[-37.86951355,145.02541013]},{"name":"Balaclava Rd/Hawthorn Rd #51","locality":"PTV GTFS","position":[-37.87244149,145.02482038]},{"name":"Caulfield Junior College/Balaclava Rd #47","locality":"PTV GTFS","position":[-37.87229914,145.02117489]},{"name":"Kooyong Rd/Balaclava Rd #46","locality":"PTV GTFS","position":[-37.87189354,145.01795711]},{"name":"Kent Gr/Balaclava Rd #45","locality":"PTV GTFS","position":[-37.87155703,145.0151013]},{"name":"Otira Rd/Balaclava Rd #44","locality":"PTV GTFS","position":[-37.87117772,145.01238308]},{"name":"Orrong Rd/Balaclava Rd #43","locality":"PTV GTFS","position":[-37.87074752,145.00879091]},{"name":"Allan Rd/Balaclava Rd #42","locality":"PTV GTFS","position":[-37.87034177,145.00558465]},{"name":"Vadlure Ave/Balaclava Rd #41","locality":"PTV GTFS","position":[-37.86998445,145.00258173]},{"name":"Hotham St/Balaclava Rd #40","locality":"PTV GTFS","position":[-37.86960981,144.99962479]},{"name":"Carlisle Ave/Carlisle St #39","locality":"PTV GTFS","position":[-37.86924526,144.99673582]},{"name":"Balaclava Station/Carlisle St #38","locality":"PTV GTFS","position":[-37.86881332,144.9935986]},{"name":"Chapel St/Carlisle St #37","locality":"PTV GTFS","position":[-37.86844494,144.9904938]},{"name":"St Kilda Town Hall/Carlisle St #36","locality":"PTV GTFS","position":[-37.86822609,144.98876048]},{"name":"Brighton Rd/Carlisle St #35","locality":"PTV GTFS","position":[-37.86808134,144.9876731]},{"name":"Mitchell St/Carlisle St #34","locality":"PTV GTFS","position":[-37.8675944,144.98396911]},{"name":"Barkly St/Carlisle St #33","locality":"PTV GTFS","position":[-37.86725274,144.9813866]},{"name":"Havelock St/Carlisle St #32","locality":"PTV GTFS","position":[-37.86704244,144.97858454]},{"name":"Luna Park/The Esplanade #138","locality":"PTV GTFS","position":[-37.86698652,144.97690366]},{"name":"Alfred Square/The Esplanade #136","locality":"PTV GTFS","position":[-37.86518866,144.97349717]},{"name":"Acland St/Fitzroy St #135","locality":"PTV GTFS","position":[-37.86209519,144.97335457]},{"name":"Park St/Fitzroy St #134","locality":"PTV GTFS","position":[-37.8609042,144.975365]},{"name":"Canterbury Rd/Fitzroy St #133","locality":"PTV GTFS","position":[-37.8599323,144.97701701]},{"name":"Princes St/Fitzroy St #132","locality":"PTV GTFS","position":[-37.85804935,144.9801942]},{"name":"St Kilda Rd/Fitzroy St #131","locality":"PTV GTFS","position":[-37.85679732,144.9823311]},{"name":"St Kilda Junction/St Kilda Rd #30","locality":"PTV GTFS","position":[-37.85503126,144.98234516]},{"name":"Union St/St Kilda Rd #29","locality":"PTV GTFS","position":[-37.85259207,144.98146833]},{"name":"Lorne St/St Kilda Rd #27","locality":"PTV GTFS","position":[-37.84960853,144.98037912]},{"name":"Beatrice St/St Kilda Rd #26","locality":"PTV GTFS","position":[-37.84789461,144.97975537]},{"name":"Commercial Rd/St Kilda Rd #25","locality":"PTV GTFS","position":[-37.84413114,144.97838075]},{"name":"Leopold St/St Kilda Rd #24","locality":"PTV GTFS","position":[-37.84148319,144.97741896]},{"name":"Arthur St/St Kilda Rd #23","locality":"PTV GTFS","position":[-37.83929754,144.97661506]},{"name":"Toorak Rd/St Kilda Rd #22","locality":"PTV GTFS","position":[-37.83547707,144.97507185]},{"name":"Anzac Station/St Kilda Rd #20","locality":"PTV GTFS","position":[-37.83321372,144.97237268]},{"name":"Shrine of Remembrance/St Kilda Rd #19","locality":"PTV GTFS","position":[-37.8289949,144.97124975]},{"name":"Grant St-Police Memorial/St Kilda Rd #17","locality":"PTV GTFS","position":[-37.82427831,144.97052685]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82154414,144.96927255]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81811951,144.96769648]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81575796,144.96662528]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81270595,144.96523232]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.80979882,144.96388093]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80777307,144.96294838]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.8051985,144.96311]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.80209877,144.96364947]},{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79881947,144.96422789]}],
+    "reverseStops": [{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79920679,144.96421725]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.8025045,144.96366104]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.80559522,144.96312181]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80814709,144.96321071]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.81039079,144.96423951]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81330672,144.96557932]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81629509,144.96693998]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81847551,144.96795936]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82193616,144.96953446]},{"name":"Grant St-Police Memorial/St Kilda Rd #17","locality":"PTV GTFS","position":[-37.82461589,144.97076754]},{"name":"Shrine of Remembrance/St Kilda Rd #19","locality":"PTV GTFS","position":[-37.8283305,144.97139292]},{"name":"Anzac Station/St Kilda Rd #20","locality":"PTV GTFS","position":[-37.83361022,144.97341853]},{"name":"Toorak Rd/St Kilda Rd #22","locality":"PTV GTFS","position":[-37.83589708,144.97538989]},{"name":"Arthur St/St Kilda Rd #23","locality":"PTV GTFS","position":[-37.8388552,144.97657033]},{"name":"Leopold St/St Kilda Rd #24","locality":"PTV GTFS","position":[-37.84115853,144.97740511]},{"name":"Commercial Rd/St Kilda Rd #25","locality":"PTV GTFS","position":[-37.84449554,144.97860944]},{"name":"Moubray St/St Kilda Rd #26","locality":"PTV GTFS","position":[-37.84755154,144.97971927]},{"name":"High St/St Kilda Rd #27","locality":"PTV GTFS","position":[-37.84959207,144.98047049]},{"name":"Union St/St Kilda Rd #29","locality":"PTV GTFS","position":[-37.8530017,144.9817072]},{"name":"St Kilda Junction/St Kilda Rd #30","locality":"PTV GTFS","position":[-37.85529579,144.98253116]},{"name":"St Kilda Rd/Fitzroy St #131","locality":"PTV GTFS","position":[-37.85696632,144.98220146]},{"name":"Princes St/Fitzroy St #132","locality":"PTV GTFS","position":[-37.85792968,144.98057256]},{"name":"Canterbury Rd/Fitzroy St #133","locality":"PTV GTFS","position":[-37.86018041,144.97677153]},{"name":"Park St/Fitzroy St #134","locality":"PTV GTFS","position":[-37.86103814,144.97529313]},{"name":"Jacka Bvd/Fitzroy St #135","locality":"PTV GTFS","position":[-37.86228141,144.97317897]},{"name":"Alfred Square/The Esplanade #136","locality":"PTV GTFS","position":[-37.86529263,144.9737785]},{"name":"Luna Park/The Esplanade #138","locality":"PTV GTFS","position":[-37.8669732,144.97717685]},{"name":"Barkly St/Carlisle St #33","locality":"PTV GTFS","position":[-37.86706733,144.98108473]},{"name":"Greeves St/Carlisle St #34","locality":"PTV GTFS","position":[-37.86747788,144.98400639]},{"name":"St Kilda Rd/Carlisle St #35","locality":"PTV GTFS","position":[-37.8678281,144.98656595]},{"name":"St Kilda Town Hall/Carlisle St #36","locality":"PTV GTFS","position":[-37.86808962,144.98868461]},{"name":"Chapel St/Carlisle St #37","locality":"PTV GTFS","position":[-37.86824957,144.99013534]},{"name":"Balaclava Station/Carlisle St #38","locality":"PTV GTFS","position":[-37.8687923,144.99395158]},{"name":"Orange Gr/Carlisle St #39","locality":"PTV GTFS","position":[-37.86907024,144.9965132]},{"name":"Hotham St/Carlisle St #40","locality":"PTV GTFS","position":[-37.86943287,144.99928854]},{"name":"Empress Rd/Balaclava Rd #41","locality":"PTV GTFS","position":[-37.86970606,145.00157749]},{"name":"Sidwell Ave/Balaclava Rd #42","locality":"PTV GTFS","position":[-37.87016601,145.00531655]},{"name":"Orrong Rd/Balaclava Rd #43","locality":"PTV GTFS","position":[-37.87055279,145.00846648]},{"name":"Ontario St/Balaclava Rd #44","locality":"PTV GTFS","position":[-37.87106925,145.01236326]},{"name":"Kent Gr/Balaclava Rd #45","locality":"PTV GTFS","position":[-37.87134353,145.01473187]},{"name":"Kooyong Rd/Balaclava Rd #46","locality":"PTV GTFS","position":[-37.87172566,145.01762056]},{"name":"Elmhurst Rd/Balaclava Rd #47","locality":"PTV GTFS","position":[-37.87214468,145.02109944]},{"name":"Hawthorn Rd/Balaclava Rd #51","locality":"PTV GTFS","position":[-37.87257012,145.02443041]},{"name":"Inkerman Rd/Hawthorn Rd #50","locality":"PTV GTFS","position":[-37.86969909,145.02518919]},{"name":"Wanda Rd/Hawthorn Rd #49","locality":"PTV GTFS","position":[-37.86799239,145.02551895]},{"name":"Dandenong Rd/Hawthorn Rd #48A","locality":"PTV GTFS","position":[-37.86589911,145.02590449]},{"name":"Hawthorn Rd/Dandenong Rd #48","locality":"PTV GTFS","position":[-37.86582199,145.02667954]},{"name":"Malvern Railway Station/Glenferrie Rd #53","locality":"PTV GTFS","position":[-37.86526359,145.02777434]},{"name":"Wattletree Rd/Glenferrie Rd #54","locality":"PTV GTFS","position":[-37.86247803,145.02825781]},{"name":"Llaneast St/Glenferrie Rd #55","locality":"PTV GTFS","position":[-37.86114774,145.02846377]},{"name":"Malvern Tram Depot/Glenferrie Rd #56","locality":"PTV GTFS","position":[-37.85901804,145.02882741]},{"name":"High St/Glenferrie Rd #57","locality":"PTV GTFS","position":[-37.85682509,145.02918135]},{"name":"Bell St/Glenferrie Rd #58","locality":"PTV GTFS","position":[-37.85407422,145.02958422]},{"name":"Malvern Rd/Glenferrie Rd #59","locality":"PTV GTFS","position":[-37.85183623,145.02993931]},{"name":"Stonnington Pl/Glenferrie Rd #60","locality":"PTV GTFS","position":[-37.84966243,145.03036085]},{"name":"Moorakyne Ave/Glenferrie Rd #61","locality":"PTV GTFS","position":[-37.84770405,145.03073118]},{"name":"Mayfield Ave/Glenferrie Rd #62","locality":"PTV GTFS","position":[-37.84573666,145.03110172]},{"name":"Toorak Rd/Glenferrie Rd #63","locality":"PTV GTFS","position":[-37.84393985,145.03143361]},{"name":"Mernda Rd/Glenferrie Rd #64","locality":"PTV GTFS","position":[-37.84247481,145.03166576]},{"name":"Warra St/Glenferrie Rd #65","locality":"PTV GTFS","position":[-37.84004052,145.03213956]},{"name":"Kooyong Tennis Centre/Glenferrie Rd #66","locality":"PTV GTFS","position":[-37.83849403,145.03235111]},{"name":"Gardiner Rd/Glenferrie Rd #67","locality":"PTV GTFS","position":[-37.83555701,145.03294049]},{"name":"Callantina Rd/Glenferrie Rd #68","locality":"PTV GTFS","position":[-37.83342728,145.03330384]},{"name":"South St/Glenferrie Rd #69","locality":"PTV GTFS","position":[-37.83138762,145.03366479]},{"name":"Riversdale Rd/Glenferrie Rd #70","locality":"PTV GTFS","position":[-37.8289794,145.03408094]},{"name":"Urquhart St/Glenferrie Rd #71","locality":"PTV GTFS","position":[-37.82604142,145.03461337]},{"name":"Manningtree Rd/Glenferrie Rd #72","locality":"PTV GTFS","position":[-37.82415489,145.03497017]},{"name":"Burwood Rd/Glenferrie Rd #73","locality":"PTV GTFS","position":[-37.82270898,145.03526982]},{"name":"Glenferrie Station/Glenferrie Rd #74","locality":"PTV GTFS","position":[-37.82053476,145.03566829]},{"name":"Chrystobel Cres/Glenferrie Rd #75","locality":"PTV GTFS","position":[-37.81888148,145.03596205]},{"name":"Johnson St/Glenferrie Rd #76","locality":"PTV GTFS","position":[-37.81685063,145.03631124]},{"name":"Barkers Rd/Glenferrie Rd #77","locality":"PTV GTFS","position":[-37.81481171,145.03671742]},{"name":"Fitzwilliam St/Glenferrie Rd #78","locality":"PTV GTFS","position":[-37.81211635,145.03720911]},{"name":"Wellington St/Glenferrie Rd #79","locality":"PTV GTFS","position":[-37.81008681,145.03763771]},{"name":"Cotham Rd/Glenferrie Rd #80","locality":"PTV GTFS","position":[-37.80790432,145.03808168]}]
+  },
+  {
+    "routeLabel": "64",
+    "longName": "East Brighton - Melbourne University",
+    "color": "00AB8E",
+    "forwardDestination": "Melbourne University",
+    "reverseDestination": "East Brighton",
+    "forwardStops": [{"name":"East Brighton/Hawthorn Rd #68","locality":"PTV GTFS","position":[-37.91421246,145.0168786]},{"name":"Howell St/Hawthorn Rd #67","locality":"PTV GTFS","position":[-37.9110941,145.01739457]},{"name":"Union St/Hawthorn Rd #66","locality":"PTV GTFS","position":[-37.90873026,145.01776513]},{"name":"Davey Ave/Hawthorn Rd #65","locality":"PTV GTFS","position":[-37.90657379,145.01814147]},{"name":"Taylor St/Hawthorn Rd #64","locality":"PTV GTFS","position":[-37.90409419,145.01859469]},{"name":"North Rd/Hawthorn Rd #63","locality":"PTV GTFS","position":[-37.90156994,145.01907183]},{"name":"Gardenvale Rd/Hawthorn Rd #62","locality":"PTV GTFS","position":[-37.89949587,145.01952548]},{"name":"Raynes St/Hawthorn Rd #61","locality":"PTV GTFS","position":[-37.89670233,145.02006662]},{"name":"Dover St/Hawthorn Rd #60","locality":"PTV GTFS","position":[-37.89505832,145.02037223]},{"name":"Princes Park/Hawthorn Rd #59","locality":"PTV GTFS","position":[-37.89313508,145.0206853]},{"name":"Sycamore St/Hawthorn Rd #58","locality":"PTV GTFS","position":[-37.88993771,145.02132813]},{"name":"Glenhuntly Rd/Hawthorn Rd #57","locality":"PTV GTFS","position":[-37.88708072,145.02184807]},{"name":"Lockhart St/Hawthorn Rd #56","locality":"PTV GTFS","position":[-37.88458384,145.02234697]},{"name":"Sylverly Gr/Hawthorn Rd #55","locality":"PTV GTFS","position":[-37.88258047,145.02271892]},{"name":"Glen Eira Rd/Hawthorn Rd #54","locality":"PTV GTFS","position":[-37.88012843,145.02320518]},{"name":"Crotonhurst Ave/Hawthorn Rd #53","locality":"PTV GTFS","position":[-37.87748761,145.02371919]},{"name":"Halstead St/Hawthorn Rd #52","locality":"PTV GTFS","position":[-37.87525099,145.02415415]},{"name":"Balaclava Rd/Hawthorn Rd #51","locality":"PTV GTFS","position":[-37.87288844,145.0246038]},{"name":"Inkerman Rd/Hawthorn Rd #50","locality":"PTV GTFS","position":[-37.86969909,145.02518919]},{"name":"Wanda Rd/Hawthorn Rd #49","locality":"PTV GTFS","position":[-37.86799239,145.02551895]},{"name":"Dandenong Rd/Hawthorn Rd #48A","locality":"PTV GTFS","position":[-37.86589911,145.02590449]},{"name":"Hawthorn Rd/Dandenong Rd #48","locality":"PTV GTFS","position":[-37.86537804,145.02546369]},{"name":"Bailey Ave/Dandenong Rd #44","locality":"PTV GTFS","position":[-37.8646181,145.02367658]},{"name":"Matlock Ct/Dandenong Rd #43","locality":"PTV GTFS","position":[-37.86382247,145.02191318]},{"name":"Kooyong Rd/Dandenong Rd #42","locality":"PTV GTFS","position":[-37.86251938,145.01891304]},{"name":"Wattletree Rd/Dandenong Rd #40","locality":"PTV GTFS","position":[-37.86078749,145.01453776]},{"name":"Orrong Rd/Dandenong Rd #38","locality":"PTV GTFS","position":[-37.8603014,145.01083392]},{"name":"Lansdowne Rd/Dandenong Rd #37","locality":"PTV GTFS","position":[-37.8598359,145.0072887]},{"name":"Alexandra St/Dandenong Rd #36","locality":"PTV GTFS","position":[-37.85944356,145.00434398]},{"name":"Williams Rd/Dandenong Rd #35","locality":"PTV GTFS","position":[-37.85908223,145.00163715]},{"name":"Westbury St/Dandenong Rd #34","locality":"PTV GTFS","position":[-37.8585357,144.99758276]},{"name":"Hornby St/Dandenong Rd #33","locality":"PTV GTFS","position":[-37.85827918,144.99574837]},{"name":"Chapel St/Dandenong Rd #32","locality":"PTV GTFS","position":[-37.85740799,144.99169152]},{"name":"Queens Way/Queens Way #31","locality":"PTV GTFS","position":[-37.85624589,144.98749492]},{"name":"St Kilda Junction/St Kilda Rd #30","locality":"PTV GTFS","position":[-37.85503126,144.98234516]},{"name":"Union St/St Kilda Rd #29","locality":"PTV GTFS","position":[-37.85259207,144.98146833]},{"name":"Lorne St/St Kilda Rd #27","locality":"PTV GTFS","position":[-37.84960853,144.98037912]},{"name":"Beatrice St/St Kilda Rd #26","locality":"PTV GTFS","position":[-37.84789461,144.97975537]},{"name":"Commercial Rd/St Kilda Rd #25","locality":"PTV GTFS","position":[-37.84413114,144.97838075]},{"name":"Leopold St/St Kilda Rd #24","locality":"PTV GTFS","position":[-37.84148319,144.97741896]},{"name":"Arthur St/St Kilda Rd #23","locality":"PTV GTFS","position":[-37.83929754,144.97661506]},{"name":"Toorak Rd/St Kilda Rd #22","locality":"PTV GTFS","position":[-37.83547707,144.97507185]},{"name":"Anzac Station/St Kilda Rd #20","locality":"PTV GTFS","position":[-37.83321372,144.97237268]},{"name":"Shrine of Remembrance/St Kilda Rd #19","locality":"PTV GTFS","position":[-37.8289949,144.97124975]},{"name":"Grant St-Police Memorial/St Kilda Rd #17","locality":"PTV GTFS","position":[-37.82427831,144.97052685]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82154414,144.96927255]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81811951,144.96769648]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81575796,144.96662528]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81270595,144.96523232]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.80979882,144.96388093]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80777307,144.96294838]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.8051985,144.96311]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.80209877,144.96364947]},{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79881947,144.96422789]}],
+    "reverseStops": [{"name":"Melbourne University/Swanston St #1","locality":"PTV GTFS","position":[-37.79920679,144.96421725]},{"name":"Lincoln Square/Swanston St #3","locality":"PTV GTFS","position":[-37.8025045,144.96366104]},{"name":"Queensberry St/Swanston St #4","locality":"PTV GTFS","position":[-37.80559522,144.96312181]},{"name":"RMIT University/Swanston St #7","locality":"PTV GTFS","position":[-37.80814709,144.96321071]},{"name":"Melbourne Central Station/Swanston St #8","locality":"PTV GTFS","position":[-37.81039079,144.96423951]},{"name":"Bourke Street Mall/Swanston St #10","locality":"PTV GTFS","position":[-37.81330672,144.96557932]},{"name":"City Square/Swanston St #11","locality":"PTV GTFS","position":[-37.81629509,144.96693998]},{"name":"Federation Square/Swanston St #13","locality":"PTV GTFS","position":[-37.81847551,144.96795936]},{"name":"Arts Precinct/St Kilda Rd #14","locality":"PTV GTFS","position":[-37.82193616,144.96953446]},{"name":"Grant St-Police Memorial/St Kilda Rd #17","locality":"PTV GTFS","position":[-37.82461589,144.97076754]},{"name":"Shrine of Remembrance/St Kilda Rd #19","locality":"PTV GTFS","position":[-37.8283305,144.97139292]},{"name":"Anzac Station/St Kilda Rd #20","locality":"PTV GTFS","position":[-37.83361022,144.97341853]},{"name":"Toorak Rd/St Kilda Rd #22","locality":"PTV GTFS","position":[-37.83589708,144.97538989]},{"name":"Arthur St/St Kilda Rd #23","locality":"PTV GTFS","position":[-37.8388552,144.97657033]},{"name":"Leopold St/St Kilda Rd #24","locality":"PTV GTFS","position":[-37.84115853,144.97740511]},{"name":"Commercial Rd/St Kilda Rd #25","locality":"PTV GTFS","position":[-37.84449554,144.97860944]},{"name":"Moubray St/St Kilda Rd #26","locality":"PTV GTFS","position":[-37.84755154,144.97971927]},{"name":"High St/St Kilda Rd #27","locality":"PTV GTFS","position":[-37.84959207,144.98047049]},{"name":"Union St/St Kilda Rd #29","locality":"PTV GTFS","position":[-37.8530017,144.9817072]},{"name":"St Kilda Junction/St Kilda Rd #30","locality":"PTV GTFS","position":[-37.85529579,144.98253116]},{"name":"Queens Way/Queens Way #31","locality":"PTV GTFS","position":[-37.85615426,144.98740648]},{"name":"Chapel St/Dandenong Rd #32","locality":"PTV GTFS","position":[-37.8574847,144.99196222]},{"name":"Hornby St/Dandenong Rd #33","locality":"PTV GTFS","position":[-37.85820616,144.99569351]},{"name":"The Avenue/Dandenong Rd #34","locality":"PTV GTFS","position":[-37.85841203,144.99719966]},{"name":"Williams Rd/Dandenong Rd #35","locality":"PTV GTFS","position":[-37.85906176,145.00202416]},{"name":"Closeburn Ave/Dandenong Rd #36","locality":"PTV GTFS","position":[-37.85940219,145.00456106]},{"name":"Lansdowne Rd/Dandenong Rd #37","locality":"PTV GTFS","position":[-37.85978455,145.00744922]},{"name":"Orrong Rd/Dandenong Rd #38","locality":"PTV GTFS","position":[-37.86026058,145.01108508]},{"name":"Wattletree Rd/Dandenong Rd #40","locality":"PTV GTFS","position":[-37.86082371,145.0150824]},{"name":"Kooyong Rd/Dandenong Rd #42","locality":"PTV GTFS","position":[-37.86253202,145.01912867]},{"name":"Egerton Rd/Dandenong Rd #43","locality":"PTV GTFS","position":[-37.86378873,145.02205049]},{"name":"Bailey Ave/Dandenong Rd #44","locality":"PTV GTFS","position":[-37.86455771,145.02383733]},{"name":"Hawthorn Rd/Dandenong Rd #48","locality":"PTV GTFS","position":[-37.86540006,145.02570182]},{"name":"Arthur St/Hawthorn Rd #49","locality":"PTV GTFS","position":[-37.86768993,145.02575438]},{"name":"Inkerman Rd/Hawthorn Rd #50","locality":"PTV GTFS","position":[-37.86951355,145.02541013]},{"name":"Balaclava Rd/Hawthorn Rd #51","locality":"PTV GTFS","position":[-37.87244149,145.02482038]},{"name":"Halstead St/Hawthorn Rd #52","locality":"PTV GTFS","position":[-37.87493896,145.02435575]},{"name":"Northcote Ave/Hawthorn Rd #53","locality":"PTV GTFS","position":[-37.87721162,145.02391985]},{"name":"Glen Eira Rd/Hawthorn Rd #54","locality":"PTV GTFS","position":[-37.87993351,145.02340368]},{"name":"Sylverly Gr/Hawthorn Rd #55","locality":"PTV GTFS","position":[-37.8824486,145.02291574]},{"name":"Briggs St/Hawthorn Rd #56","locality":"PTV GTFS","position":[-37.88483778,145.02244251]},{"name":"Glenhuntly Rd/Hawthorn Rd #57","locality":"PTV GTFS","position":[-37.88666137,145.02209808]},{"name":"Sycamore St/Hawthorn Rd #58","locality":"PTV GTFS","position":[-37.88960806,145.02155301]},{"name":"Princes Park/Hawthorn Rd #59","locality":"PTV GTFS","position":[-37.89303963,145.02090392]},{"name":"Dover St/Hawthorn Rd #60","locality":"PTV GTFS","position":[-37.89488104,145.02054756]},{"name":"Stone St/Hawthorn Rd #61","locality":"PTV GTFS","position":[-37.89655226,145.0202526]},{"name":"Gardenvale Rd/Hawthorn Rd #62","locality":"PTV GTFS","position":[-37.89896881,145.01980118]},{"name":"North Rd/Hawthorn Rd #63","locality":"PTV GTFS","position":[-37.90119582,145.01933206]},{"name":"Taylor St/Hawthorn Rd #64","locality":"PTV GTFS","position":[-37.90378237,145.01880778]},{"name":"Davey Ave/Hawthorn Rd #65","locality":"PTV GTFS","position":[-37.90636968,145.01832893]},{"name":"Union St/Hawthorn Rd #66","locality":"PTV GTFS","position":[-37.90851734,145.0179642]},{"name":"Rogers Ave/Hawthorn Rd #67","locality":"PTV GTFS","position":[-37.91107838,145.01753149]},{"name":"East Brighton/Hawthorn Rd #68","locality":"PTV GTFS","position":[-37.91421246,145.0168786]}]
+  },
+  {
+    "routeLabel": "96",
+    "longName": "St Kilda Beach - East Brunswick",
+    "color": "C6007E",
+    "forwardDestination": "East Brunswick",
+    "reverseDestination": "St Kilda Beach",
+    "forwardStops": [{"name":"Belford St/Acland St #139","locality":"PTV GTFS","position":[-37.86883229,144.97995661]},{"name":"Luna Park/The Esplanade #138","locality":"PTV GTFS","position":[-37.86698652,144.97690366]},{"name":"Alfred Square/The Esplanade #136","locality":"PTV GTFS","position":[-37.86518866,144.97349717]},{"name":"Acland St/Fitzroy St #135","locality":"PTV GTFS","position":[-37.86209519,144.97335457]},{"name":"Park St/Fitzroy St #134","locality":"PTV GTFS","position":[-37.8609042,144.975365]},{"name":"Canterbury Rd/Fitzroy St #133","locality":"PTV GTFS","position":[-37.8599323,144.97701701]},{"name":"St Kilda Station/Fitzroy St #132","locality":"PTV GTFS","position":[-37.85906307,144.9773022]},{"name":"Fraser St/Light Rail #131","locality":"PTV GTFS","position":[-37.8539184,144.9710781]},{"name":"Middle Park Station/Light Rail #130","locality":"PTV GTFS","position":[-37.84957648,144.96543513]},{"name":"Melbourne Sports and Aquatic Centre/Light Rail #129","locality":"PTV GTFS","position":[-37.84554718,144.96172748]},{"name":"Albert Park Station/Light Rail #128","locality":"PTV GTFS","position":[-37.84007645,144.95857134]},{"name":"South Melbourne Station/Light Rail #127","locality":"PTV GTFS","position":[-37.83309943,144.95534362]},{"name":"City Rd/Light Rail #126","locality":"PTV GTFS","position":[-37.82923453,144.95437095]},{"name":"Clarendon St/Whiteman St #125","locality":"PTV GTFS","position":[-37.82587949,144.95629277]},{"name":"Casino/MCEC/Clarendon St #124A","locality":"PTV GTFS","position":[-37.82353421,144.95616433]},{"name":"Batman Park/Spencer St #124","locality":"PTV GTFS","position":[-37.82155404,144.95526467]},{"name":"Southern Cross Railway Station/Spencer St #122","locality":"PTV GTFS","position":[-37.81833799,144.95377437]},{"name":"Spencer St/Bourke St #1","locality":"PTV GTFS","position":[-37.81681107,144.95406646]},{"name":"William St/Bourke St #3","locality":"PTV GTFS","position":[-37.81572375,144.95787925]},{"name":"Queen St/Bourke St #4","locality":"PTV GTFS","position":[-37.8151038,144.96006602]},{"name":"Elizabeth St/Bourke St #5","locality":"PTV GTFS","position":[-37.8140574,144.96365033]},{"name":"Swanston St/Bourke St #6","locality":"PTV GTFS","position":[-37.81324957,144.9664442]},{"name":"Russell St/Bourke St #7","locality":"PTV GTFS","position":[-37.8124401,144.96914719]},{"name":"Spring St/Bourke St #9","locality":"PTV GTFS","position":[-37.81152149,144.97231882]},{"name":"Albert St/Nicholson St #10","locality":"PTV GTFS","position":[-37.80946736,144.9728748]},{"name":"Melbourne Museum/Nicholson St #11","locality":"PTV GTFS","position":[-37.80576602,144.97354393]},{"name":"Moor St/Nicholson St #12","locality":"PTV GTFS","position":[-37.80158747,144.97423738]},{"name":"Johnston St/Nicholson St #13","locality":"PTV GTFS","position":[-37.79757986,144.97491472]},{"name":"Rose St/Nicholson St #14","locality":"PTV GTFS","position":[-37.79489343,144.97538556]},{"name":"Alexandra Pde/Nicholson St #15","locality":"PTV GTFS","position":[-37.79173977,144.97593725]},{"name":"Freeman St/Nicholson St #16","locality":"PTV GTFS","position":[-37.78853303,144.97654711]},{"name":"Reid St/Nicholson St #17","locality":"PTV GTFS","position":[-37.78529888,144.97713495]},{"name":"Scotchmer St/Nicholson St #18","locality":"PTV GTFS","position":[-37.78279258,144.9776007]},{"name":"Brunswick Rd/Nicholson St #19","locality":"PTV GTFS","position":[-37.77936083,144.97822789]},{"name":"Miller St/Nicholson St #20","locality":"PTV GTFS","position":[-37.77656511,144.97863331]},{"name":"Glenlyon Rd/Nicholson St #21","locality":"PTV GTFS","position":[-37.7739233,144.97907993]},{"name":"Albert St/Nicholson St #22","locality":"PTV GTFS","position":[-37.7698886,144.97975742]},{"name":"Blyth St/Nicholson St #23","locality":"PTV GTFS","position":[-37.76698692,144.98029048]}],
+    "reverseStops": [{"name":"Blyth St/Nicholson St #23","locality":"PTV GTFS","position":[-37.76698692,144.98029048]},{"name":"Albert St/Nicholson St #22","locality":"PTV GTFS","position":[-37.77054596,144.97972818]},{"name":"Glenlyon Rd/Nicholson St #21","locality":"PTV GTFS","position":[-37.77332251,144.97925523]},{"name":"Miller St/Nicholson St #20","locality":"PTV GTFS","position":[-37.77696184,144.97864522]},{"name":"Holden St/Nicholson St #19","locality":"PTV GTFS","position":[-37.77983746,144.97816948]},{"name":"Scotchmer St/Nicholson St #18","locality":"PTV GTFS","position":[-37.78307201,144.97760444]},{"name":"Reid St/Nicholson St #17","locality":"PTV GTFS","position":[-37.78554228,144.97713967]},{"name":"Freeman St/Nicholson St #16","locality":"PTV GTFS","position":[-37.78876704,144.97652937]},{"name":"Alexandra Pde/Nicholson St #15","locality":"PTV GTFS","position":[-37.79197397,144.97593086]},{"name":"Rose St/Nicholson St #14","locality":"PTV GTFS","position":[-37.79510981,144.97539101]},{"name":"Johnston St/Nicholson St #13","locality":"PTV GTFS","position":[-37.7983087,144.97484938]},{"name":"Moor St/Nicholson St #12","locality":"PTV GTFS","position":[-37.80189393,144.97424037]},{"name":"Melbourne Museum/Nicholson St #11","locality":"PTV GTFS","position":[-37.80612594,144.97351137]},{"name":"Albert St/Nicholson St #10","locality":"PTV GTFS","position":[-37.8096665,144.97292615]},{"name":"Spring St/Bourke St #9","locality":"PTV GTFS","position":[-37.81151658,144.97255749]},{"name":"Russell St/Bourke St #7","locality":"PTV GTFS","position":[-37.81270797,144.96848101]},{"name":"Swanston St/Bourke St #6","locality":"PTV GTFS","position":[-37.8135,144.96581257]},{"name":"Elizabeth St/Bourke St #5","locality":"PTV GTFS","position":[-37.81420601,144.96338498]},{"name":"Queen St/Bourke St #4","locality":"PTV GTFS","position":[-37.81523478,144.95982386]},{"name":"William St/Bourke St #3","locality":"PTV GTFS","position":[-37.81586374,144.95763684]},{"name":"Spencer St/Bourke St #1","locality":"PTV GTFS","position":[-37.81696847,144.95378947]},{"name":"Southern Cross Railway Station/Spencer St #122","locality":"PTV GTFS","position":[-37.81871203,144.95403669]},{"name":"Batman Park/Spencer St #124","locality":"PTV GTFS","position":[-37.82199993,144.95551366]},{"name":"Casino/MCEC/Clarendon St #124A","locality":"PTV GTFS","position":[-37.82345413,144.95622335]},{"name":"Port Junction/Whiteman St #125","locality":"PTV GTFS","position":[-37.82592571,144.95635966]},{"name":"City Rd/Light Rail #126","locality":"PTV GTFS","position":[-37.82943407,144.95444497]},{"name":"South Melbourne Station/Light Rail #127","locality":"PTV GTFS","position":[-37.83320127,144.95549988]},{"name":"Albert Park Station/Light Rail #128","locality":"PTV GTFS","position":[-37.84022332,144.95872638]},{"name":"Melbourne Sports and Aquatic Centre/Light Rail #129","locality":"PTV GTFS","position":[-37.84522956,144.96159986]},{"name":"Middle Park Station/Light Rail #130","locality":"PTV GTFS","position":[-37.84966127,144.96564873]},{"name":"Fraser St/Light Rail #131","locality":"PTV GTFS","position":[-37.85373609,144.97095808]},{"name":"St Kilda Station/Fitzroy St #132","locality":"PTV GTFS","position":[-37.8592851,144.97763712]},{"name":"Canterbury Rd/Fitzroy St #133","locality":"PTV GTFS","position":[-37.86018041,144.97677153]},{"name":"Park St/Fitzroy St #134","locality":"PTV GTFS","position":[-37.86103814,144.97529313]},{"name":"Jacka Bvd/Fitzroy St #135","locality":"PTV GTFS","position":[-37.86228141,144.97317897]},{"name":"Alfred Square/The Esplanade #136","locality":"PTV GTFS","position":[-37.86529263,144.9737785]},{"name":"Luna Park/The Esplanade #138","locality":"PTV GTFS","position":[-37.8669732,144.97717685]},{"name":"Belford St/Acland St #139","locality":"PTV GTFS","position":[-37.86880625,144.98001416]}]
+  },
+  {
     "routeLabel": "12",
     "longName": "St Kilda (Fitzroy St) - Victoria Gardens",
     "color": "007E92",
@@ -1504,7 +1567,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Spring St/Flinders St #8",
+        "name": "Spring St/Flinders Street #8",
         "locality": "PTV GTFS",
         "position": [
           -37.81553662,
@@ -1512,7 +1575,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Russell St/Flinders St #6",
+        "name": "Russell St/Flinders Street #6",
         "locality": "PTV GTFS",
         "position": [
           -37.81665933,
@@ -1520,7 +1583,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Swanston St/Flinders St #5",
+        "name": "Swanston St/Flinders Street #5",
         "locality": "PTV GTFS",
         "position": [
           -37.81775625,
@@ -1528,7 +1591,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Elizabeth St/Flinders St #4",
+        "name": "Elizabeth St/Flinders Street #4",
         "locality": "PTV GTFS",
         "position": [
           -37.81841196,
@@ -1536,7 +1599,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Market St/Flinders St #3",
+        "name": "Market St/Flinders Street #3",
         "locality": "PTV GTFS",
         "position": [
           -37.81930627,
@@ -1544,7 +1607,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Melbourne Aquarium/Flinders St #2",
+        "name": "Melbourne Aquarium/Flinders Street #2",
         "locality": "PTV GTFS",
         "position": [
           -37.82030972,
@@ -1552,7 +1615,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Spencer St/Flinders St #1",
+        "name": "Spencer St/Flinders Street #1",
         "locality": "PTV GTFS",
         "position": [
           -37.82105139,
@@ -1560,7 +1623,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Victoria Police Centre/Flinders St #D6",
+        "name": "Victoria Police Centre/Flinders Street #D6",
         "locality": "PTV GTFS",
         "position": [
           -37.82172569,
@@ -1666,7 +1729,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Victoria Police Centre/Flinders St #D6",
+        "name": "Victoria Police Centre/Flinders Street #D6",
         "locality": "PTV GTFS",
         "position": [
           -37.82172569,
@@ -1674,7 +1737,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Spencer St/Flinders St #1",
+        "name": "Spencer St/Flinders Street #1",
         "locality": "PTV GTFS",
         "position": [
           -37.82105139,
@@ -1682,7 +1745,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Melbourne Aquarium/Flinders St #2",
+        "name": "Melbourne Aquarium/Flinders Street #2",
         "locality": "PTV GTFS",
         "position": [
           -37.82030972,
@@ -1690,7 +1753,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Market St/Flinders St #3",
+        "name": "Market St/Flinders Street #3",
         "locality": "PTV GTFS",
         "position": [
           -37.81930627,
@@ -1698,7 +1761,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Elizabeth St/Flinders St #4",
+        "name": "Elizabeth St/Flinders Street #4",
         "locality": "PTV GTFS",
         "position": [
           -37.81841196,
@@ -1706,7 +1769,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Swanston St/Flinders St #5",
+        "name": "Swanston St/Flinders Street #5",
         "locality": "PTV GTFS",
         "position": [
           -37.81775625,
@@ -1714,7 +1777,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Russell St/Flinders St #6",
+        "name": "Russell St/Flinders Street #6",
         "locality": "PTV GTFS",
         "position": [
           -37.81665933,
@@ -1722,7 +1785,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Spring St/Flinders St #8",
+        "name": "Spring St/Flinders Street #8",
         "locality": "PTV GTFS",
         "position": [
           -37.81553662,
@@ -3433,7 +3496,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Flinders St/Queens Bridge St #1",
+        "name": "Flinders Street/Queens Bridge St #1",
         "locality": "PTV GTFS",
         "position": [
           -37.81942943,
@@ -3923,7 +3986,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Flinders St/Queens Bridge St #1",
+        "name": "Flinders Street/Queens Bridge St #1",
         "locality": "PTV GTFS",
         "position": [
           -37.81951285,
@@ -4927,7 +4990,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Flinders Street West/Flinders St #D6",
+        "name": "Flinders Street West/Flinders Street #D6",
         "locality": "PTV GTFS",
         "position": [
           -37.82147119,
@@ -4935,7 +4998,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Spencer St/Flinders St #1",
+        "name": "Spencer St/Flinders Street #1",
         "locality": "PTV GTFS",
         "position": [
           -37.82083429,
@@ -4943,7 +5006,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Melbourne Aquarium/Flinders St #2",
+        "name": "Melbourne Aquarium/Flinders Street #2",
         "locality": "PTV GTFS",
         "position": [
           -37.82010925,
@@ -4951,7 +5014,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Market St/Flinders St #3",
+        "name": "Market St/Flinders Street #3",
         "locality": "PTV GTFS",
         "position": [
           -37.81906291,
@@ -4959,7 +5022,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Elizabeth St/Flinders St #4",
+        "name": "Elizabeth St/Flinders Street #4",
         "locality": "PTV GTFS",
         "position": [
           -37.8182377,
@@ -4967,7 +5030,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Swanston St/Flinders St #5",
+        "name": "Swanston St/Flinders Street #5",
         "locality": "PTV GTFS",
         "position": [
           -37.81756006,
@@ -4975,7 +5038,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Russell St/Flinders St #6",
+        "name": "Russell St/Flinders Street #6",
         "locality": "PTV GTFS",
         "position": [
           -37.81642552,
@@ -5729,7 +5792,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Russell St/Flinders St #6",
+        "name": "Russell St/Flinders Street #6",
         "locality": "PTV GTFS",
         "position": [
           -37.81665933,
@@ -5737,7 +5800,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Swanston St/Flinders St #5",
+        "name": "Swanston St/Flinders Street #5",
         "locality": "PTV GTFS",
         "position": [
           -37.81775625,
@@ -5745,7 +5808,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Elizabeth St/Flinders St #4",
+        "name": "Elizabeth St/Flinders Street #4",
         "locality": "PTV GTFS",
         "position": [
           -37.81841196,
@@ -5753,7 +5816,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Market St/Flinders St #3",
+        "name": "Market St/Flinders Street #3",
         "locality": "PTV GTFS",
         "position": [
           -37.81930627,
@@ -5761,7 +5824,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Melbourne Aquarium/Flinders St #2",
+        "name": "Melbourne Aquarium/Flinders Street #2",
         "locality": "PTV GTFS",
         "position": [
           -37.82030972,
@@ -5769,7 +5832,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Spencer St/Flinders St #1",
+        "name": "Spencer St/Flinders Street #1",
         "locality": "PTV GTFS",
         "position": [
           -37.82105139,
@@ -5777,7 +5840,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Victoria Police Centre/Flinders St #D6",
+        "name": "Victoria Police Centre/Flinders Street #D6",
         "locality": "PTV GTFS",
         "position": [
           -37.82172569,
@@ -6821,7 +6884,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Flinders Street West/Flinders St #D6",
+        "name": "Flinders Street West/Flinders Street #D6",
         "locality": "PTV GTFS",
         "position": [
           -37.82147119,
@@ -6829,7 +6892,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Spencer St/Flinders St #1",
+        "name": "Spencer St/Flinders Street #1",
         "locality": "PTV GTFS",
         "position": [
           -37.82083429,
@@ -6837,7 +6900,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Melbourne Aquarium/Flinders St #2",
+        "name": "Melbourne Aquarium/Flinders Street #2",
         "locality": "PTV GTFS",
         "position": [
           -37.82010925,
@@ -6845,7 +6908,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Market St/Flinders St #3",
+        "name": "Market St/Flinders Street #3",
         "locality": "PTV GTFS",
         "position": [
           -37.81906291,
@@ -6853,7 +6916,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Elizabeth St/Flinders St #4",
+        "name": "Elizabeth St/Flinders Street #4",
         "locality": "PTV GTFS",
         "position": [
           -37.8182377,
@@ -6861,7 +6924,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Swanston St/Flinders St #5",
+        "name": "Swanston St/Flinders Street #5",
         "locality": "PTV GTFS",
         "position": [
           -37.81756006,
@@ -6869,7 +6932,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Russell St/Flinders St #6",
+        "name": "Russell St/Flinders Street #6",
         "locality": "PTV GTFS",
         "position": [
           -37.81642552,
@@ -6877,7 +6940,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Spring St/Flinders St #8",
+        "name": "Spring St/Flinders Street #8",
         "locality": "PTV GTFS",
         "position": [
           -37.81536272,
@@ -7895,7 +7958,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Spring St/Flinders St #8",
+        "name": "Spring St/Flinders Street #8",
         "locality": "PTV GTFS",
         "position": [
           -37.81553662,
@@ -7903,7 +7966,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Russell St/Flinders St #6",
+        "name": "Russell St/Flinders Street #6",
         "locality": "PTV GTFS",
         "position": [
           -37.81665933,
@@ -7911,7 +7974,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Swanston St/Flinders St #5",
+        "name": "Swanston St/Flinders Street #5",
         "locality": "PTV GTFS",
         "position": [
           -37.81775625,
@@ -7919,7 +7982,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Elizabeth St/Flinders St #4",
+        "name": "Elizabeth St/Flinders Street #4",
         "locality": "PTV GTFS",
         "position": [
           -37.81841196,
@@ -7927,7 +7990,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Market St/Flinders St #3",
+        "name": "Market St/Flinders Street #3",
         "locality": "PTV GTFS",
         "position": [
           -37.81930627,
@@ -7935,7 +7998,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Melbourne Aquarium/Flinders St #2",
+        "name": "Melbourne Aquarium/Flinders Street #2",
         "locality": "PTV GTFS",
         "position": [
           -37.82030972,
@@ -7943,7 +8006,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Spencer St/Flinders St #1",
+        "name": "Spencer St/Flinders Street #1",
         "locality": "PTV GTFS",
         "position": [
           -37.82105139,
@@ -7951,7 +8014,7 @@ export const GENERATED_TRAM_ROUTE_BUNDLES: GeneratedTramRouteBundle[] = [
         ]
       },
       {
-        "name": "Victoria Police Centre/Flinders St #D6",
+        "name": "Victoria Police Centre/Flinders Street #D6",
         "locality": "PTV GTFS",
         "position": [
           -37.82172569,
