@@ -1,10 +1,85 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import AdmZip from "adm-zip";
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 
 const PTV_BASE_URL =
   "https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/bus";
 
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const DEFAULT_GTFS_PATH = path.join(REPO_ROOT, ".local-host", "gtfs.zip");
+
+// GTFS-Realtime VehiclePosition's TripDescriptor never carries a headsign (it's
+// a static-schedule-only field) — every "trip.tripHeadsign" read below is
+// always undefined in the raw feed. The only way to know a bus's real
+// destination is to look up its trip_id against the static trips.txt.
+let busHeadsignIndexPromise;
+
+function parseCsvLine(line) {
+  const values = [];
+  let value = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') {
+        value += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "," && !quoted) {
+      values.push(value);
+      value = "";
+    } else {
+      value += character;
+    }
+  }
+  values.push(value);
+  return values;
+}
+
+async function loadBusHeadsignIndex() {
+  if (!busHeadsignIndexPromise) {
+    busHeadsignIndexPromise = Promise.resolve().then(() => {
+      const gtfsPath = process.env.GTFS_SCHEDULE_PATH || DEFAULT_GTFS_PATH;
+      const index = new Map();
+      if (!fs.existsSync(gtfsPath)) return index;
+
+      const outerZip = new AdmZip(gtfsPath);
+      const nestedEntry = outerZip.getEntry("4/google_transit.zip");
+      if (!nestedEntry) return index;
+      const nestedZip = new AdmZip(nestedEntry.getData());
+      const tripsEntry = nestedZip.getEntry("trips.txt");
+      if (!tripsEntry) return index;
+
+      const text = tripsEntry.getData().toString("utf8");
+      const lines = text.split("\n");
+      const headers = parseCsvLine(lines[0].replace(/^﻿/, "").replace(/\r$/, ""));
+      const tripIdIndex = headers.indexOf("trip_id");
+      const headsignIndex = headers.indexOf("trip_headsign");
+      if (tripIdIndex === -1 || headsignIndex === -1) return index;
+
+      for (let i = 1; i < lines.length; i += 1) {
+        const rawLine = lines[i].replace(/\r$/, "");
+        if (!rawLine) continue;
+        const values = parseCsvLine(rawLine);
+        const headsign = values[headsignIndex]?.trim();
+        if (headsign) index.set(values[tripIdIndex], headsign);
+      }
+      return index;
+    }).catch((error) => {
+      busHeadsignIndexPromise = undefined;
+      throw error;
+    });
+  }
+  return busHeadsignIndexPromise;
+}
+
 const BUS_REGISTRATION_IDENTITIES = {
   BS07RE: { fleetNumber: "0186", operator: "Kinetic Melbourne" },
+  BS07IZ: { fleetNumber: "0179", operator: "CDC Melbourne" },
 };
 
 // Melbourne route/operator directory, based on the public "List of bus routes in
@@ -106,7 +181,7 @@ function normaliseStopStatus(value) {
   return undefined;
 }
 
-function buildPtvLiveBuses(feed) {
+function buildPtvLiveBuses(feed, headsignIndex) {
   return (feed.entity ?? [])
     .map((entity) => {
       const vehicle = entity.vehicle;
@@ -119,20 +194,28 @@ function buildPtvLiveBuses(feed) {
 
       const route = normaliseBusRoute(vehicle.trip?.routeId);
       const timestamp = toNumber(vehicle.timestamp);
-      const label = normaliseLabel(vehicle.vehicle?.label, vehicle.vehicle?.licensePlate, route);
+      // This feed's VehicleDescriptor carries only `id` — confirmed against
+      // the raw decoded protobuf (e.g. {"id":"BS05HK"}), which is a real
+      // Victorian bus registration, not an opaque vehicle ID. There is no
+      // separate `label`/`licensePlate` field at all, so the previous
+      // `registration: vehicle.vehicle?.licensePlate` read was always empty —
+      // silently breaking every registration-keyed lookup (the small
+      // BUS_REGISTRATION_IDENTITIES table, and now the bus fleet database).
+      const registration = vehicle.vehicle?.id;
+      const label = normaliseLabel(registration, route);
       const destination = normaliseDestination(
+        headsignIndex?.get(vehicle.trip?.tripId),
         vehicle.trip?.tripHeadsign,
         vehicle.trip?.headsign,
         vehicle.trip?.tripShortName,
       );
-      const registration = vehicle.vehicle?.licensePlate;
       const identity = BUS_REGISTRATION_IDENTITIES[normaliseRegistrationKey(registration)];
 
       return {
-        id: entity.id || vehicle.vehicle?.id || `${route}-${latitude}-${longitude}`,
+        id: entity.id || registration || `${route}-${latitude}-${longitude}`,
         label,
-        vehicleId: vehicle.vehicle?.id,
-        fleetNumber: identity?.fleetNumber || vehicle.vehicle?.label,
+        vehicleId: registration,
+        fleetNumber: identity?.fleetNumber,
         registration,
         tripId: vehicle.trip?.tripId,
         lat: latitude,
@@ -208,7 +291,8 @@ export default async function handler(req, res) {
 
     const buffer = await response.arrayBuffer();
     const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
-    res.status(200).json({ buses: buildPtvLiveBuses(feed).filter((bus) => withinBounds(bus, bounds)) });
+    const headsignIndex = await loadBusHeadsignIndex().catch(() => undefined);
+    res.status(200).json({ buses: buildPtvLiveBuses(feed, headsignIndex).filter((bus) => withinBounds(bus, bounds)) });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to load live buses",

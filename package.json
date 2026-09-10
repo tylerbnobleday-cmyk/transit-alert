@@ -1,6 +1,6 @@
 {
   "name": "@workspace/transit-alert",
-  "version": "0.92.0",
+  "version": "1.0.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -94,6 +94,7 @@
     "leaflet": "^1.9.4",
     "pg": "^8.16.3",
     "protobufjs": "^8.0.1",
-    "react-leaflet": "^5.0.0"
+    "react-leaflet": "^5.0.0",
+    "web-push": "^3.6.7"
   }
 }

@@ -124,6 +124,7 @@ async function loadDbContext() {
           userPreferencesTable: schema.userPreferencesTable,
           appConfigTable: schema.appConfigTable,
           markerOverridesTable: schema.markerOverridesTable,
+          passwordResetTokensTable: schema.passwordResetTokensTable,
         }
       : null;
   } catch {
@@ -673,8 +674,15 @@ export async function registerUser(input) {
     })
     .returning();
 
+  // Role and admin access always start plain (Traveller, non-admin) — an
+  // approved debug tester only ever gets premium features unlocked
+  // automatically, never elevated role or admin access. Anything beyond
+  // premium is still a manual admin-panel grant.
   await db.insert(userPreferencesTable).values({
     userId: user.id,
+    ...(input.grantPremium
+      ? { appPreferences: { ...defaultPreferences.appPreferences, premiumAccess: true } }
+      : {}),
   });
 
   return sanitizeUser(user);
@@ -705,6 +713,66 @@ export async function getUserByUsernameOrEmail(username, email) {
     }
     return null;
   }
+}
+
+const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+// Always returns null on a "no such account" case rather than throwing, so
+// the calling API route can respond identically either way — never confirm
+// or deny whether an email address has an account (standard reset-flow
+// practice against email enumeration).
+export async function createPasswordResetToken(email) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
+  const passwordResetTokensTable = context?.passwordResetTokensTable;
+  if (!db || !passwordResetTokensTable) return null;
+
+  const user = await db.query.appUsersTable.findFirst({
+    where: (fields, operators) => operators.eq(fields.email, String(email || "").trim().toLowerCase()),
+  });
+  if (!user) return null;
+
+  const token = crypto.randomBytes(32).toString("hex");
+  await db.insert(passwordResetTokensTable).values({
+    token,
+    userId: user.id,
+    expiresAt: new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL_MS),
+  });
+  return { token, user: sanitizeUser(user) };
+}
+
+export async function resetPasswordWithToken(token, newPassword) {
+  const context = await loadDbContext();
+  const db = context?.db ?? null;
+  const appUsersTable = context?.appUsersTable;
+  const passwordResetTokensTable = context?.passwordResetTokensTable;
+  if (!db || !appUsersTable || !passwordResetTokensTable) {
+    throw new Error("Password resets require DATABASE_URL to be configured.");
+  }
+
+  const tokenRow = await db.query.passwordResetTokensTable.findFirst({
+    where: (fields, operators) =>
+      operators.and(operators.eq(fields.token, token), operators.isNull(fields.usedAt), operators.gt(fields.expiresAt, new Date())),
+  });
+  if (!tokenRow) {
+    throw new Error("This reset link is invalid or has expired. Request a new one.");
+  }
+
+  const [updatedUser] = await db
+    .update(appUsersTable)
+    .set({ passwordHash: createPasswordHash(newPassword), mustChangePassword: false, updatedAt: new Date() })
+    .where(eq(appUsersTable.id, tokenRow.userId))
+    .returning();
+  if (!updatedUser) {
+    throw new Error("Account not found.");
+  }
+
+  await db
+    .update(passwordResetTokensTable)
+    .set({ usedAt: new Date() })
+    .where(eq(passwordResetTokensTable.token, token));
+
+  return sanitizeUser(updatedUser);
 }
 
 export async function listAccounts() {

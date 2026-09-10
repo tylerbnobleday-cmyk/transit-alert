@@ -11,6 +11,7 @@ import {
   setAppConfigValue,
   updateAccountAccess,
 } from "../_lib/auth.js";
+import { isEmailConfigured, sendWelcomeEmail } from "../_lib/mailer.js";
 
 function isValidUrl(value) {
   if (!value) return true;
@@ -123,6 +124,31 @@ export default async function handler(req, res) {
     }
 
     sendJson(res, 405, { error: "Method not allowed" });
+    return;
+  }
+
+  // Deliberately a separate, explicit admin-triggered action rather than
+  // something that runs automatically — a bulk email to every registered
+  // account is a real, hard-to-reverse action affecting real people, so it
+  // only ever fires when an admin clicks the button for it.
+  if (resource === "broadcast-welcome") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    if (!isEmailConfigured()) {
+      sendJson(res, 503, { error: "Email isn't configured yet — set RESEND_API_KEY before sending a broadcast." });
+      return;
+    }
+
+    const accounts = await listAccounts();
+    const results = await Promise.all(
+      accounts
+        .filter((account) => account.email && account.role !== "Guest")
+        .map(async (account) => ({ email: account.email, ...(await sendWelcomeEmail(account)) })),
+    );
+    const sent = results.filter((result) => result.sent).length;
+    sendJson(res, 200, { sent, failed: results.length - sent, total: results.length });
     return;
   }
 

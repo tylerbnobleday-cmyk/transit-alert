@@ -1,5 +1,6 @@
 import { readJsonErrorMessage, readJsonResponse, responseIsJson } from "@/lib/http-json";
 import { getApiUrl } from "@/lib/api-config";
+import { lookupBusFleetInfo } from "@/lib/bus-fleet";
 
 export type LiveBus = {
   id: string;
@@ -29,6 +30,7 @@ type LiveBusResponse =
 
 const BUS_REGISTRATION_IDENTITIES: Record<string, { fleetNumber: string; operator: string }> = {
   BS07RE: { fleetNumber: "0186", operator: "Kinetic Melbourne" },
+  BS07IZ: { fleetNumber: "0179", operator: "CDC Melbourne" },
 };
 
 // Melbourne route/operator directory, based on the public "List of bus routes in
@@ -57,11 +59,21 @@ function normaliseRegistrationKey(value: unknown) {
   return typeof value === "string" ? value.replace(/[^a-z0-9]/gi, "").toUpperCase() : "";
 }
 
+// Never returns a "CDC Melbourne / Ventura Bus Lines"-style joined guess —
+// that only ever meant "this route is shared by two operators," not "this
+// specific bus belongs to both." A real per-vehicle match (registration
+// against the bus fleet database, or the small hardcoded identities table)
+// always wins since it names one real operator; a route shared by multiple
+// operators with no vehicle match falls all the way to the generic fallback
+// instead of guessing which one.
 function resolveBusOperator(route: string, registration: unknown, provided: unknown) {
   const registrationIdentity = BUS_REGISTRATION_IDENTITIES[normaliseRegistrationKey(registration)];
   if (registrationIdentity) return registrationIdentity.operator;
-  if (BUS_ROUTE_OPERATORS[route]) return BUS_ROUTE_OPERATORS[route];
-  if (typeof provided === "string" && provided.trim() && !/^(ptv bus|transport victoria)$/i.test(provided.trim())) {
+  const fleetInfo = lookupBusFleetInfo({ registration: typeof registration === "string" ? registration : undefined });
+  if (fleetInfo) return fleetInfo.operator;
+  const routeOperator = BUS_ROUTE_OPERATORS[route];
+  if (routeOperator && !routeOperator.includes(" / ")) return routeOperator;
+  if (typeof provided === "string" && provided.trim() && !/^(ptv bus|transport victoria)$/i.test(provided.trim()) && !provided.includes(" / ")) {
     return provided.trim();
   }
   return "PTV contracted bus service";

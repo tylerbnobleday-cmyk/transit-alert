@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ArrowLeft, BellRing, ExternalLink, MessageSquareWarning, TrainFront, X } from "lucide-react";
 import { useGetReports } from "@/lib/api-client-react/src/generated/api";
-import { fetchMetroNotifyAlerts, getTodaysCommunityAlerts, isAlertCurrent, isHeadlineAlert, isProminentAlert, type MetroNotifyAlert } from "@/lib/todays-alerts";
+import { fetchMetroNotifyAlerts, getTodaysCommunityAlerts, isAlertCurrent, isAlertWindowActiveNow, isHeadlineAlert, isProminentAlert, type MetroNotifyAlert } from "@/lib/todays-alerts";
 
 type FeaturedAlert =
   | Awaited<ReturnType<typeof fetchMetroNotifyAlerts>>[number]
@@ -14,6 +14,8 @@ type FeaturedAlert =
 type AlertFilterId =
   | "all"
   | "trespasser"
+  | "police-request"
+  | "cancellation"
   | "faulty-train"
   | "track-fault"
   | "bus-replacement"
@@ -30,7 +32,14 @@ type AlertGroupId =
   | "clifton-hill"
   | "northern"
   | "frankston"
-  | "sandringham"
+  | "stony-point"
+  | "buses"
+  | "trams"
+  | "vline-ballarat"
+  | "vline-bendigo"
+  | "vline-geelong"
+  | "vline-gippsland"
+  | "vline-seymour"
   | "other";
 
 type AlertFilter = {
@@ -59,10 +68,12 @@ type AlertBundle = {
 
 const ALERT_FILTERS: AlertFilter[] = [
   { id: "all", label: "All alerts" },
-  { id: "trespasser", label: "Trespassers", keywords: ["trespasser", "trespass", "police request", "person near the tracks", "person on the tracks"] },
+  { id: "trespasser", label: "Trespassers", keywords: ["trespasser", "trespass", "person near the tracks", "person on the tracks"] },
+  { id: "police-request", label: "Police request", keywords: ["police request", "police operation", "police presence", "police investigation", "police incident"] },
+  { id: "cancellation", label: "Cancellations", keywords: ["has been cancelled", "have been cancelled", "service has been cancelled", "cancellation", "run cancelled"] },
   { id: "faulty-train", label: "Faulty train", keywords: ["faulty train", "disabled train", "train fault", "mechanical fault", "mechanical issue", "equipment fault", "broken down train"] },
   { id: "track-fault", label: "Track fault", keywords: ["track fault", "signalling", "signal fault", "points fault", "overhead fault", "power fault", "infrastructure fault"] },
-  { id: "bus-replacement", label: "Bus replacement", keywords: ["bus replacement", "replacement bus", "coach replacement", "coach service"] },
+  { id: "bus-replacement", label: "Bus replacement", keywords: ["bus replacement", "replacement bus", "buses replace trains", "replacement buses", "buses will replace trains", "coach replacement", "coach service"] },
   { id: "works-upgrade", label: "Works / upgrades", keywords: ["planned work", "works", "maintenance", "upgrade", "big build", "occupation", "level crossing removal"] },
   { id: "station-access", label: "Station / access", keywords: ["station detour", "access", "exit", "lift outage", "escalator", "entrance closed", "platform closure"] },
   { id: "delay", label: "Delays", keywords: ["delay", "major delays", "delayed", "service change", "service disruption"] },
@@ -70,16 +81,24 @@ const ALERT_FILTERS: AlertFilter[] = [
 ];
 
 import { ALERT_NOTIFICATIONS_KEY, setNotificationsEnabled, showAppNotification } from "@/lib/pwa";
+import { subscribeToPush, unsubscribeFromPush } from "@/lib/push";
 
 const ALERT_GROUPS: AlertGroup[] = [
   { id: "all", label: "All groups", activeClassName: "border-white/25 bg-white/12 text-white", inactiveBadgeClassName: "border-white/10 bg-white/5 text-white/70", activeBadgeClassName: "border-white/25 bg-white/12 text-white" },
   { id: "metro-tunnel", label: "Cranbourne, Pakenham and Sunbury", aliases: ["metro tunnel", "pakenham line", "cranbourne line", "sunbury line", "town hall", "state library", "anzac", "arden", "parkville", "watergardens", "st albans", "sunshine", "west footscray", "middle footscray", "footscray", "carnegie", "murrumbeena", "hughesdale", "oakleigh", "huntingdale", "clayton", "westall", "springvale", "sandown park", "noble park", "yarraman", "dandenong", "lynbrook", "merinda park", "cranbourne", "hallam", "narre warren", "berwick", "beaconsfield", "officer", "cardinia road", "pakenham", "east pakenham"], activeClassName: "border-cyan-400/35 bg-cyan-500/15 text-cyan-100", inactiveBadgeClassName: "border-cyan-400/15 bg-cyan-500/10 text-cyan-100/85", activeBadgeClassName: "border-cyan-400/35 bg-cyan-500/15 text-cyan-100" },
-  { id: "cross-city", label: "Laverton, Werribee and Williamstown", aliases: ["laverton", "werribee line", "williamstown line", "altona loop", "north williamstown", "williamstown beach", "williamstown", "newport", "spotswood", "yarraville", "seddon", "south kensington", "aircraft", "williams landing", "hoppers crossing", "seaholme", "altona", "westona", "werribee", "point cook", "galvin", "paisley"], activeClassName: "border-[#F178AF]/45 bg-[#F178AF]/18 text-[#FFD8EA]", inactiveBadgeClassName: "border-[#F178AF]/25 bg-[#F178AF]/12 text-[#FFD8EA]", activeBadgeClassName: "border-[#F178AF]/45 bg-[#F178AF]/18 text-[#FFD8EA]" },
-  { id: "burnley", label: "Burnley group", aliases: ["belgrave line", "lilydale line", "glen waverley line", "alamein line", "burnley", "east richmond", "hawthorn", "glenferrie", "auburn", "camberwell", "east camberwell", "canterbury", "chatham", "surrey hills", "mont albert", "box hill", "laburnum", "blackburn", "nunawading", "mitcham", "heatherdale", "ringwood", "ringwood east", "croydon", "mooroolbark", "lilydale", "upper ferntree gully", "ferntree gully", "boronia", "bayswater", "heathmont", "tecoma", "belgrave", "riversdale", "willison", "hartwell", "burwood", "ashburton", "alamein", "heyington", "kooyong", "tooronga", "gardiner", "glen iris", "darling", "east malvern", "holmesglen", "jordanville", "mount waverley", "syndal", "glen waverley"], activeClassName: "border-[#4DA3FF]/55 bg-[linear-gradient(135deg,rgba(21,44,107,0.72),rgba(2,6,23,0.92))] text-[#DBEAFF] shadow-[0_0_28px_rgba(77,163,255,0.18)]", inactiveBadgeClassName: "border-[#4DA3FF]/30 bg-[#152C6B]/28 text-[#C8DDFF]", activeBadgeClassName: "border-[#4DA3FF]/50 bg-[#4DA3FF]/16 text-[#EAF4FF]" },
+  { id: "frankston", label: "Frankston", aliases: ["frankston line", "glen huntly", "ormond", "mckinnon", "bentleigh", "patterson", "moorabbin", "highett", "southland", "cheltenham", "mentone", "parkdale", "mordialloc", "aspendale", "edithvale", "chelsea", "bonbeach", "carrum", "seaford", "kananook", "frankston"], activeClassName: "border-emerald-400/35 bg-emerald-500/15 text-emerald-100", inactiveBadgeClassName: "border-emerald-400/15 bg-emerald-500/10 text-emerald-100/85", activeBadgeClassName: "border-emerald-400/35 bg-emerald-500/15 text-emerald-100" },
+  { id: "stony-point", label: "Stony Point", aliases: ["stony point line", "leawarra", "baxter", "somerville", "tyabb", "hastings", "bittern", "crib point", "morradoo", "stony point"], activeClassName: "border-[#028430]/45 bg-[#028430]/18 text-[#B9F5CE]", inactiveBadgeClassName: "border-[#028430]/25 bg-[#028430]/12 text-[#B9F5CE]", activeBadgeClassName: "border-[#028430]/45 bg-[#028430]/18 text-[#B9F5CE]" },
+  { id: "cross-city", label: "Werribee, Williamstown and Sandringham", aliases: ["laverton", "werribee line", "williamstown line", "altona loop", "north williamstown", "williamstown beach", "williamstown", "newport", "spotswood", "yarraville", "seddon", "south kensington", "aircraft", "williams landing", "hoppers crossing", "seaholme", "altona", "westona", "werribee", "point cook", "galvin", "paisley", "sandringham line", "prahran", "windsor", "balaclava", "ripponlea", "elsternwick", "gardenvale", "north brighton", "middle brighton", "brighton beach", "hampton", "sandringham"], activeClassName: "border-[#F178AF]/45 bg-[#F178AF]/18 text-[#FFD8EA]", inactiveBadgeClassName: "border-[#F178AF]/25 bg-[#F178AF]/12 text-[#FFD8EA]", activeBadgeClassName: "border-[#F178AF]/45 bg-[#F178AF]/18 text-[#FFD8EA]" },
+  { id: "burnley", label: "Belgrave / Lilydale / Alamein / Glen Waverley", aliases: ["belgrave line", "lilydale line", "glen waverley line", "alamein line", "burnley", "east richmond", "hawthorn", "glenferrie", "auburn", "camberwell", "east camberwell", "canterbury", "chatham", "surrey hills", "mont albert", "box hill", "laburnum", "blackburn", "nunawading", "mitcham", "heatherdale", "ringwood", "ringwood east", "croydon", "mooroolbark", "lilydale", "upper ferntree gully", "ferntree gully", "boronia", "bayswater", "heathmont", "tecoma", "belgrave", "riversdale", "willison", "hartwell", "burwood", "ashburton", "alamein", "heyington", "kooyong", "tooronga", "gardiner", "glen iris", "darling", "east malvern", "holmesglen", "jordanville", "mount waverley", "syndal", "glen waverley"], activeClassName: "border-[#4DA3FF]/55 bg-[linear-gradient(135deg,rgba(21,44,107,0.72),rgba(2,6,23,0.92))] text-[#DBEAFF] shadow-[0_0_28px_rgba(77,163,255,0.18)]", inactiveBadgeClassName: "border-[#4DA3FF]/30 bg-[#152C6B]/28 text-[#C8DDFF]", activeBadgeClassName: "border-[#4DA3FF]/50 bg-[#4DA3FF]/16 text-[#EAF4FF]" },
   { id: "clifton-hill", label: "Clifton Hill", aliases: ["mernda line", "hurstbridge line", "jolimont", "west richmond", "north richmond", "collingwood", "victoria park", "clifton hill", "rushall", "merri", "northcote", "croxton", "thornbury", "bell", "preston", "regent", "reservoir", "ruthven", "keon park", "thomastown", "lalor", "epping", "south morang", "middle gorge", "hawkstowe", "mernda", "westgarth", "dennis", "fairfield", "alphington", "darebin", "ivanhoe", "eaglemont", "heidelberg", "rosanna", "macleod", "watsonia", "greensborough", "montmorency", "eltham", "diamond creek", "wattle glen", "hurstbridge"], activeClassName: "border-rose-400/35 bg-rose-500/15 text-rose-100", inactiveBadgeClassName: "border-rose-400/15 bg-rose-500/10 text-rose-100/85", activeBadgeClassName: "border-rose-400/35 bg-rose-500/15 text-rose-100" },
   { id: "northern", label: "Upfield and Craigieburn", aliases: ["upfield line", "craigieburn line", "north melbourne", "kensington", "newmarket", "ascot vale", "moonee ponds", "essendon", "glenbervie", "strathmore", "pascoe vale", "oak park", "glenroy", "jacana", "broadmeadows", "coolaroo", "roxburgh park", "craigieburn", "macaulay", "flemington bridge", "royal park", "jewell", "brunswick", "anstey", "moreland", "coburg", "batman", "merlynston", "fawkner", "gowrie", "upfield"], activeClassName: "border-amber-400/35 bg-amber-500/15 text-amber-100", inactiveBadgeClassName: "border-amber-400/15 bg-amber-500/10 text-amber-100/85", activeBadgeClassName: "border-amber-400/35 bg-amber-500/15 text-amber-100" },
-  { id: "frankston", label: "Frankston", aliases: ["frankston line", "stony point line", "glen huntly", "ormond", "mckinnon", "bentleigh", "patterson", "moorabbin", "highett", "southland", "cheltenham", "mentone", "parkdale", "mordialloc", "aspendale", "edithvale", "chelsea", "bonbeach", "carrum", "seaford", "kananook", "frankston", "leeton", "tyabb", "hastings", "bittern", "morradoo", "crib point", "stony point"], activeClassName: "border-emerald-400/35 bg-emerald-500/15 text-emerald-100", inactiveBadgeClassName: "border-emerald-400/15 bg-emerald-500/10 text-emerald-100/85", activeBadgeClassName: "border-emerald-400/35 bg-emerald-500/15 text-emerald-100" },
-  { id: "sandringham", label: "Sandringham", aliases: ["sandringham line", "prahran", "windsor", "balaclava", "ripponlea", "elsternwick", "gardenvale", "north brighton", "middle brighton", "brighton beach", "hampton", "sandringham"], activeClassName: "border-[#F178AF]/45 bg-[#F178AF]/18 text-[#FFD8EA]", inactiveBadgeClassName: "border-[#F178AF]/25 bg-[#F178AF]/12 text-[#FFD8EA]", activeBadgeClassName: "border-[#F178AF]/45 bg-[#F178AF]/18 text-[#FFD8EA]" },
+  { id: "vline-ballarat", label: "Ballarat", activeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]", inactiveBadgeClassName: "border-[#B48CE8]/25 bg-[#B48CE8]/12 text-[#EBE0FB]", activeBadgeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]" },
+  { id: "vline-bendigo", label: "Bendigo", activeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]", inactiveBadgeClassName: "border-[#B48CE8]/25 bg-[#B48CE8]/12 text-[#EBE0FB]", activeBadgeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]" },
+  { id: "vline-geelong", label: "Geelong", activeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]", inactiveBadgeClassName: "border-[#B48CE8]/25 bg-[#B48CE8]/12 text-[#EBE0FB]", activeBadgeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]" },
+  { id: "vline-gippsland", label: "Gippsland", activeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]", inactiveBadgeClassName: "border-[#B48CE8]/25 bg-[#B48CE8]/12 text-[#EBE0FB]", activeBadgeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]" },
+  { id: "vline-seymour", label: "Seymour", activeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]", inactiveBadgeClassName: "border-[#B48CE8]/25 bg-[#B48CE8]/12 text-[#EBE0FB]", activeBadgeClassName: "border-[#B48CE8]/45 bg-[#B48CE8]/18 text-[#EBE0FB]" },
+  { id: "buses", label: "Buses", activeClassName: "border-[#FF8200]/45 bg-[#FF8200]/18 text-[#FFE1BF]", inactiveBadgeClassName: "border-[#FF8200]/25 bg-[#FF8200]/12 text-[#FFE1BF]", activeBadgeClassName: "border-[#FF8200]/45 bg-[#FF8200]/18 text-[#FFE1BF]" },
+  { id: "trams", label: "Trams", activeClassName: "border-lime-400/35 bg-lime-500/15 text-lime-100", inactiveBadgeClassName: "border-lime-400/15 bg-lime-500/10 text-lime-100/85", activeBadgeClassName: "border-lime-400/35 bg-lime-500/15 text-lime-100" },
   { id: "other", label: "Other", activeClassName: "border-slate-300/35 bg-slate-400/15 text-slate-100", inactiveBadgeClassName: "border-slate-300/15 bg-slate-400/10 text-slate-100/85", activeBadgeClassName: "border-slate-300/35 bg-slate-400/15 text-slate-100" },
 ];
 
@@ -117,8 +136,18 @@ function getAlertGroupStripTone(group: AlertGroup) {
       return "bg-amber-400";
     case "frankston":
       return "bg-emerald-400";
-    case "sandringham":
-      return "bg-[#F178AF]";
+    case "stony-point":
+      return "bg-[#028430]";
+    case "vline-ballarat":
+    case "vline-bendigo":
+    case "vline-geelong":
+    case "vline-gippsland":
+    case "vline-seymour":
+      return "bg-[#B48CE8]";
+    case "buses":
+      return "bg-[#FF8200]";
+    case "trams":
+      return "bg-lime-400";
     default:
       return "bg-slate-400";
   }
@@ -143,6 +172,12 @@ function getAlertCategory(alert: MetroNotifyAlert) {
   }
   if (filter.id === "trespasser") {
     return "Trespasser";
+  }
+  if (filter.id === "police-request") {
+    return "Police Request";
+  }
+  if (filter.id === "cancellation") {
+    return "Cancellation";
   }
   if (filter.id === "faulty-train") {
     return "Faulty Train";
@@ -172,10 +207,20 @@ function escapeRegExp(value: string) {
 
 function getAlertFilter(alert: MetroNotifyAlert): AlertFilter {
   const searchable = getAlertSearchableText(alert);
+  // "faulty-train"/"track-fault" are train-specific labels, but some of
+  // their trigger keywords ("equipment fault", "mechanical fault") are
+  // generic phrasing PTV also uses for tram and bus disruptions — e.g. a
+  // real tram alert for an equipment fault on Sydney Road was showing up
+  // labelled "Faulty Train". alert.mode is the real, structured signal
+  // (not a guess) for which of those this actually is, so skip those two
+  // train-specific filters whenever the source feed already says this is a
+  // tram or bus alert.
+  const isTrainSpecificFilterId = (id: AlertFilter["id"]) => id === "faulty-train" || id === "track-fault";
   const matched = ALERT_FILTERS.find(
     (filter) =>
       filter.id !== "all" &&
       filter.id !== "other" &&
+      !(isTrainSpecificFilterId(filter.id) && (alert.mode === "tram" || alert.mode === "bus")) &&
       filter.keywords?.some((keyword) => searchable.includes(keyword)),
   );
 
@@ -183,6 +228,30 @@ function getAlertFilter(alert: MetroNotifyAlert): AlertFilter {
 }
 
 function getAlertGroup(alert: MetroNotifyAlert): AlertGroup {
+  // Standalone PTV bus/tram disruptions carry a real `mode` from the source
+  // feed. Route descriptions often name a station or suburb that collides
+  // with a train line's grouping keywords below (e.g. "Epping Station"), so
+  // these are routed to their own group before any of that text matching
+  // runs — never Metro's own "buses replace trains" notices, which have no
+  // `mode` and should keep grouping with the train line they're replacing.
+  if (alert.mode === "bus") {
+    return ALERT_GROUPS.find((group) => group.id === "buses")!;
+  }
+  if (alert.mode === "tram") {
+    return ALERT_GROUPS.find((group) => group.id === "trams")!;
+  }
+  // V/Line disruptions carry a `corridors` list resolved server-side from
+  // structured GTFS route data first, affected stations second, and text
+  // matching only as a last resort — never re-run the Metro train-line
+  // alias matching below, which is unrelated and could misfile a V/Line
+  // alert (e.g. "Pakenham" appears on both a Metro line and a V/Line
+  // corridor). A `mode` of "vline" with no resolved corridor genuinely
+  // couldn't be identified, so it belongs in "Other" rather than a guess.
+  if (alert.mode === "vline") {
+    const corridorId = alert.corridors?.[0];
+    return ALERT_GROUPS.find((group) => group.id === `vline-${corridorId}`) ?? ALERT_GROUPS.find((group) => group.id === "other")!;
+  }
+
   const titleText = cleanAlertCopy(alert.title).toLowerCase();
   const summaryText = cleanAlertCopy(alert.summary).toLowerCase();
   const searchable = `${titleText} ${summaryText}`;
@@ -227,13 +296,23 @@ function getAlertGroups(alert: MetroNotifyAlert) {
   const groups = new Map<AlertGroupId, AlertGroup>();
   groups.set(primaryGroup.id, primaryGroup);
 
+  // A single V/Line disruption can span more than one corridor (e.g. "extra
+  // services" across the Geelong, Ballarat and Bendigo lines) — show it
+  // under every corridor it's actually tagged against, not just the first.
+  if (alert.mode === "vline" && (alert.corridors?.length ?? 0) > 1) {
+    for (const corridorId of alert.corridors!) {
+      const group = ALERT_GROUPS.find((entry) => entry.id === `vline-${corridorId}`);
+      if (group) groups.set(group.id, group);
+    }
+  }
+
   if (searchable.includes("southern cross") && /platforms?\s*9\s*[–-]\s*14|platforms?\s*11\s*(?:and|&)\s*12|escalator/i.test(searchable)) {
     [
       "burnley",
       "clifton-hill",
       "northern",
       "frankston",
-      "sandringham",
+      "cross-city",
     ].forEach((groupId) => {
       const group = ALERT_GROUPS.find((entry) => entry.id === groupId);
       if (group) {
@@ -253,7 +332,7 @@ function isFreshAlert(updatedAt?: string) {
 
 function shouldHideExpiredAlert(alert: MetroNotifyAlert) {
   const filter = getAlertFilter(alert);
-  if (filter.id !== "trespasser") {
+  if (filter.id !== "trespasser" && filter.id !== "police-request") {
     return false;
   }
 
@@ -304,11 +383,18 @@ function getShortAlertSentence(value: string) {
   return candidate.length > 220 ? `${candidate.slice(0, 217).trimEnd()}...` : candidate;
 }
 
+// These come straight from ALERT_TYPE_LABELS: a generic status word, not a
+// description of what actually happened. When that's all we have as the
+// "title", the real information (which service, which stations) lives only
+// in the summary — show that instead of the bare status word.
+const GENERIC_ALERT_STATUS_TITLE = /^(service change|minor delay|major delay|suspended|works alert|travel alert|cancellation|good service|service alert)$/i;
+
 function getAlertFeedHeadline(alert: MetroNotifyAlert) {
   const leadLine = alert.lines.find((line) => line.trim().length > 0)?.trim();
   const title = cleanAlertCopy(alert.title);
   const summary = cleanAlertCopy(alert.summary);
-  const primaryText = title || summary || "Service alert in progress.";
+  const descriptiveTitle = title && !GENERIC_ALERT_STATUS_TITLE.test(title) ? title : "";
+  const primaryText = descriptiveTitle || getShortAlertSentence(summary) || summary || title || "Service alert in progress.";
   const matchedGroup = getAlertGroup(alert);
   const leadLineMatchesGroup = leadLine
     ? matchedGroup.aliases?.some((alias) => alias.toLowerCase() === leadLine.toLowerCase()) ?? false
@@ -335,21 +421,40 @@ function getAlertFeedHeadline(alert: MetroNotifyAlert) {
   return `${leadLine}: ${primaryText}`;
 }
 
+// A closure's main sentence only describes its own two endpoints (e.g. "the
+// City and Caulfield") — real, separate bullet guidance for riders going
+// FURTHER than that (e.g. "Passengers travelling beyond Caulfield are
+// advised to board a Belgrave, Lilydale or Glen Waverley train to Burnley,
+// and change for an express replacement bus") is exactly what tells a
+// Cranbourne/Pakenham rider how their own trip is actually arranged during
+// the closure, and was being silently dropped whenever it happened to match
+// (or get swallowed by) the generic fallback line below. Real PTV wording,
+// just surfaced instead of discarded.
+function extractBeyondClosureGuidance(summary: string) {
+  const bulletMatch = summary.match(/[••]\s*([^••]*\bbeyond\b[^••]*)/i);
+  if (!bulletMatch) return "";
+  return bulletMatch[1].replace(/\s+/g, " ").trim().replace(/\.+$/, "") + ".";
+}
+
 function getAlertFeedDetail(alert: MetroNotifyAlert) {
   const title = cleanAlertCopy(alert.title);
   const summary = cleanAlertCopy(alert.summary);
   const shortSummary = getShortAlertSentence(summary);
+  const beyondGuidance = extractBeyondClosureGuidance(summary);
 
-  if (
+  const base =
     shortSummary &&
     shortSummary.toLowerCase() !== title.toLowerCase() &&
     !shortSummary.toLowerCase().includes(title.toLowerCase()) &&
     !title.toLowerCase().includes(shortSummary.toLowerCase())
-  ) {
-    return shortSummary;
+      ? shortSummary
+      : "Check run details and plan ahead if your trip is affected.";
+
+  if (beyondGuidance && !base.toLowerCase().includes(beyondGuidance.toLowerCase().slice(0, 24))) {
+    return `${base} ${beyondGuidance}`;
   }
 
-  return "Check run details and plan ahead if your trip is affected.";
+  return base;
 }
 
 function getAlertDisplayLines(alert: MetroNotifyAlert) {
@@ -445,17 +550,42 @@ function getAlertDisplayLines(alert: MetroNotifyAlert) {
   return [group.label];
 }
 
+// Belgrave/Lilydale/Alamein/Glen Waverley, Clifton Hill, and Upfield/
+// Craigieburn are the three groups still routed via the original City Loop —
+// PTV's own alert text just says "the City" generically rather than naming a
+// station, so substitute the real, specific loop station these lines
+// actually enter through instead of the vague "city".
+// Frankston/Cranbourne/Pakenham/Sunbury moved to the Metro Tunnel instead:
+// confirmed by their own closure text ("no trains running through Arden,
+// Parkville, State Library, Town Hall and Anzac stations"), which also
+// confirms the real, specific substitution for THESE lines — Town Hall, not
+// Parliament (a real fact worth acting on for these too, not just the loop
+// groups above).
+const CITY_PLACE_NAME_BY_ALERT_GROUP_ID: Partial<Record<AlertGroupId, string>> = {
+  burnley: "Parliament",
+  "clifton-hill": "Parliament",
+  northern: "Parliament",
+  "metro-tunnel": "Town Hall",
+  frankston: "Town Hall",
+};
+
+function replaceGenericCityPlaceName(value: string, alert: MetroNotifyAlert) {
+  const replacement = CITY_PLACE_NAME_BY_ALERT_GROUP_ID[getAlertGroup(alert).id];
+  if (!replacement) return value;
+  return /^(the\s+)?city$/i.test(value.trim()) ? replacement : value;
+}
+
 function getAlertRouteLabel(alert: MetroNotifyAlert) {
   const title = cleanAlertCopy(alert.title);
 
   const fromMatch = title.match(/\bfrom\s+(.+?)\s+to\s+(.+)$/i);
   if (fromMatch) {
-    return `${fromMatch[1].trim()} -> ${fromMatch[2].trim()}`;
+    return `${replaceGenericCityPlaceName(fromMatch[1].trim(), alert)} -> ${replaceGenericCityPlaceName(fromMatch[2].trim(), alert)}`;
   }
 
   const betweenMatch = title.match(/\bbetween\s+(.+?)\s+and\s+(.+)$/i);
   if (betweenMatch) {
-    return `${betweenMatch[1].trim()} <-> ${betweenMatch[2].trim()}`;
+    return `${replaceGenericCityPlaceName(betweenMatch[1].trim(), alert)} <-> ${replaceGenericCityPlaceName(betweenMatch[2].trim(), alert)}`;
   }
 
   const stationMatch = title.match(/^(.+?)\s+Station\s+/i);
@@ -557,6 +687,58 @@ function uniqueAlertValues(values: Array<string | null | undefined>) {
       seen.add(key);
       return true;
     });
+}
+
+// PTV's own updatedAt can sit on a longer-running disruption record that
+// genuinely hasn't been touched in hours, even though this specific train's
+// cancellation just appeared under it — firstNotifiedAt (real: recorded the
+// moment we detected and pushed this exact alert) is the more accurate "how
+// long ago" fact whenever we have it. Not a one-off fix: every "time ago"
+// display for a metro alert on this page should prefer it the same way.
+function getMelbourneNowMinutesSinceMidnight() {
+  const parts = new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Melbourne",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value);
+  return hour * 60 + minute;
+}
+
+// A cancellation alert's own title spells out the real scheduled time of the
+// specific service ("The 5:02pm Sandringham to Flinders Street service has
+// been cancelled") — a same-day, real fact that's far more precise than
+// PTV's own batch-level updatedAt on the longer-running disruption record
+// this specific cancellation happens to be filed under. Only trusted when it
+// lands within the last 18 hours of Melbourne's current clock, so a stray
+// time-like substring elsewhere in the text can't be misread as today's
+// event and, e.g., produce a bogus "in 3 hours" reading.
+function extractCancellationEventAgeMs(alert: MetroNotifyAlert): number | undefined {
+  const match = `${alert.title} ${alert.summary}`.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)\b/i);
+  if (!match) return undefined;
+  let hour = Number(match[1]) % 12;
+  if (/pm/i.test(match[3])) hour += 12;
+  const minute = Number(match[2]);
+  const diffMinutes = getMelbourneNowMinutesSinceMidnight() - (hour * 60 + minute);
+  if (diffMinutes < 0 || diffMinutes > 18 * 60) return undefined;
+  return diffMinutes * 60_000;
+}
+
+function getAlertAgeTimestamp(alert: MetroNotifyAlert): string | number | undefined {
+  if (alert.firstNotifiedAt) return alert.firstNotifiedAt;
+  const eventAgeMs = extractCancellationEventAgeMs(alert);
+  if (eventAgeMs !== undefined) return Date.now() - eventAgeMs;
+  return alert.updatedAt;
+}
+
+// A multi-night closure announced days ago but running right now shouldn't
+// read as old news — see isAlertWindowActiveNow.
+function getAlertAgeLabel(alert: MetroNotifyAlert): string {
+  if (isAlertWindowActiveNow(alert)) return "Active now";
+  const timestamp = getAlertAgeTimestamp(alert);
+  return timestamp ? formatDistanceToNow(new Date(timestamp), { addSuffix: true }) : "Just updated";
 }
 
 function bundleSimilarAlerts(alerts: MetroNotifyAlert[]): AlertBundle[] {
@@ -737,6 +919,11 @@ export default function TodaysAlerts() {
       const nextValue = !browserNotificationsEnabled;
       setBrowserNotificationsEnabled(nextValue);
       setNotificationsEnabled(nextValue);
+      if (nextValue) {
+        void subscribeToPush();
+      } else {
+        void unsubscribeFromPush();
+      }
       return;
     }
 
@@ -749,6 +936,9 @@ export default function TodaysAlerts() {
     const enabled = permission === "granted";
     setBrowserNotificationsEnabled(enabled);
     setNotificationsEnabled(enabled);
+    if (enabled) {
+      void subscribeToPush();
+    }
   };
 
   return (
@@ -839,7 +1029,7 @@ export default function TodaysAlerts() {
                   {browserNotificationPermission === "denied"
                     ? "Blocked by device settings. On iPhone open Settings → Apps → TransitAlert → Notifications → Allow Notifications, then return here."
                     : browserNotificationsSupported
-                      ? "One tap enables browser alerts for new Metro notifications while the app is open."
+                      ? "One tap enables push alerts for new Metro disruptions, even when TransitAlert is closed."
                       : "This browser does not support web notifications here."}
                 </p>
               </div>
@@ -984,11 +1174,7 @@ export default function TodaysAlerts() {
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-white/45">
-                          {alert.updatedAt
-                            ? `${formatDistanceToNow(new Date(alert.updatedAt), { addSuffix: true })}`
-                            : "Just updated"}
-                        </p>
+                        <p className="text-xs text-white/45">{getAlertAgeLabel(alert)}</p>
                       </div>
 
                       <h3 className="mt-3 text-lg font-semibold leading-snug text-white">
@@ -996,7 +1182,7 @@ export default function TodaysAlerts() {
                       </h3>
                       <p className="mt-2 text-sm text-white/60">{getAlertFeedDetail(alert)}</p>
 
-                      {(displayLines.length > 0 || routeLabel) && (
+                      {(displayLines.length > 0 || routeLabel || alert.tdn) && (
                         <div className="mt-3 flex flex-wrap gap-2">
                           {displayLines.map((line) => (
                             <span
@@ -1009,6 +1195,11 @@ export default function TodaysAlerts() {
                           {routeLabel ? (
                             <span className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
                               {routeLabel}
+                            </span>
+                          ) : null}
+                          {alert.tdn ? (
+                            <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200">
+                              TDN {alert.tdn}
                             </span>
                           ) : null}
                         </div>
@@ -1086,11 +1277,7 @@ export default function TodaysAlerts() {
                         </h3>
                         <p className="mt-2 text-sm text-white/60">{getAlertFeedDetail(alert)}</p>
                       </div>
-                      <p className="shrink-0 text-xs text-white/45">
-                        {alert.updatedAt
-                          ? formatDistanceToNow(new Date(alert.updatedAt), { addSuffix: true })
-                          : "Just updated"}
-                      </p>
+                      <p className="shrink-0 text-xs text-white/45">{getAlertAgeLabel(alert)}</p>
                     </div>
 
                     {(displayLines.length > 0 || bundle.routeLabels.length > 0) && (
@@ -1251,14 +1438,10 @@ export default function TodaysAlerts() {
                         </h3>
                         <p className="mt-2 text-sm leading-relaxed text-white/60">{getAlertFeedDetail(alert)}</p>
                       </div>
-                      <p className="shrink-0 text-xs text-white/45">
-                        {alert.updatedAt
-                          ? formatDistanceToNow(new Date(alert.updatedAt), { addSuffix: true })
-                          : "Just updated"}
-                      </p>
+                      <p className="shrink-0 text-xs text-white/45">{getAlertAgeLabel(alert)}</p>
                     </div>
 
-                    {(displayLines.length > 0 || bundle.routeLabels.length > 0) && (
+                    {(displayLines.length > 0 || bundle.routeLabels.length > 0 || alert.tdn) && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {displayLines.map((line) => (
                           <span key={`${bundle.id}-expanded-${line}`} className={`rounded-full border px-3 py-1 text-xs font-medium ${pillTone}`}>
@@ -1270,6 +1453,11 @@ export default function TodaysAlerts() {
                             {routeLabel}
                           </span>
                         ))}
+                        {alert.tdn ? (
+                          <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200">
+                            TDN {alert.tdn}
+                          </span>
+                        ) : null}
                       </div>
                     )}
 

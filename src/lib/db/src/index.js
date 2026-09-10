@@ -98,6 +98,31 @@ export async function ensureDatabaseReady() {
         ALTER TABLE app_users
         ADD COLUMN IF NOT EXISTS must_change_password boolean NOT NULL DEFAULT false;
       `,
+        `
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+          token text PRIMARY KEY,
+          user_id text NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+          expires_at timestamp NOT NULL,
+          used_at timestamp,
+          created_at timestamp NOT NULL DEFAULT now()
+        );
+      `,
+        `
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+          endpoint text PRIMARY KEY,
+          p256dh text NOT NULL,
+          auth_key text NOT NULL,
+          user_id text REFERENCES app_users(id) ON DELETE CASCADE,
+          created_at timestamp NOT NULL DEFAULT now(),
+          last_seen_at timestamp NOT NULL DEFAULT now()
+        );
+      `,
+        `
+        CREATE TABLE IF NOT EXISTS sent_push_alerts (
+          alert_id text PRIMARY KEY,
+          sent_at timestamp NOT NULL DEFAULT now()
+        );
+      `,
       ];
 
       if (pglite) {

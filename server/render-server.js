@@ -1,5 +1,5 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -10,10 +10,15 @@ import authHandler from "../api/auth/[action].js";
 import consistHandler from "../api/consist/[consist].js";
 import metroNotifyAlertsHandler from "../api/metro-notify/alerts.js";
 import preferencesHandler from "../api/preferences/[[...slug]].js";
+import pushHandler from "../api/push/[action].js";
+import { checkAndPushNewAlerts, isPushConfigured } from "../api/_lib/push.js";
 import liveBusesHandler from "../api/ptv/live-buses.js";
+import sydneyTransitHandler from "../api/ptv/sydney-transit.js";
 import liveTrainsHandler from "../api/ptv/live-trains.js";
 import liveTramsHandler from "../api/ptv/live-trams.js";
 import timetableHandler from "../api/ptv/timetable.js";
+import journeyPlanHandler from "../api/journey/plan.js";
+import { warmJourneyGraph } from "../api/_lib/journey-graph.js";
 import ptvV3StatusHandler from "../api/ptv/v3-status.js";
 import { isPtvV3Configured } from "../api/_lib/ptv-v3.js";
 import reportsHandler from "../api/reports/[[...slug]].js";
@@ -172,6 +177,8 @@ function getApiResolution(urlObject) {
       return { handler: authHandler, query: { ...query, action: remainder[0] || "" } };
     case "preferences":
       return { handler: preferencesHandler, query: { ...query, slug: remainder } };
+    case "push":
+      return { handler: pushHandler, query: { ...query, action: remainder[0] || "" } };
     case "reports":
       return { handler: reportsHandler, query: { ...query, slug: remainder } };
     case "admin":
@@ -186,9 +193,12 @@ function getApiResolution(urlObject) {
       if (remainder[0] === "v3-status") return { handler: ptvV3StatusHandler, query };
       if (remainder[0] === "live-trams") return { handler: liveTramsHandler, query };
       if (remainder[0] === "timetable") return { handler: timetableHandler, query };
+      if (remainder[0] === "sydney-transit") return { handler: sydneyTransitHandler, query };
       return null;
     case "telegram":
       return remainder[0] === "status" ? { handler: telegramStatusHandler, query } : null;
+    case "journey":
+      return remainder[0] === "plan" ? { handler: journeyPlanHandler, query } : null;
     default:
       return null;
   }
@@ -208,9 +218,25 @@ async function serveStaticFile(filePath, res) {
 
   const extension = path.extname(filePath).toLowerCase();
   const contentType = CONTENT_TYPES[extension] || "application/octet-stream";
-  const cacheControl = extension === ".html"
+  const isServiceWorker = path.basename(filePath).toLowerCase() === "sw.js";
+  const cacheControl = extension === ".html" || isServiceWorker
     ? "no-cache, no-store, must-revalidate"
     : "public, max-age=31536000, immutable";
+
+  if (isServiceWorker) {
+    // Served with an explicit Content-Length (no chunked transfer) since some
+    // browsers/proxies are strict about the service-worker script fetch and
+    // reject a chunked response with an opaque "unknown error" installing it.
+    const contents = await readFile(filePath);
+    res.writeHead(200, {
+      "Content-Type": contentType,
+      "Cache-Control": cacheControl,
+      "Content-Length": contents.length,
+    });
+    res.end(contents);
+    return true;
+  }
+
   res.writeHead(200, { "Content-Type": contentType, "Cache-Control": cacheControl });
   createReadStream(filePath).pipe(res);
   return true;
@@ -239,25 +265,33 @@ async function serveSpa(urlObject, res) {
 }
 
 const server = createServer(async (req, res) => {
-  // Enable CORS for frontend (GitHub Pages) and local dev.
-  try {
-    const origin = req.headers.origin || "https://tylerbnobleday-cmyk.github.io";
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Vary", "Origin");
+  const urlObject = new URL(req.url || "/", `http://${req.headers.host || `127.0.0.1:${PORT}`}`);
+  const isApiRequest = urlObject.pathname.replace(/^\/+/, "").split("/")[0] === "api";
 
-    if (req.method === "OPTIONS") {
-      res.writeHead(204);
-      res.end();
-      return;
+  // CORS is only meaningful for cross-origin API calls (e.g. the GitHub Pages
+  // frontend talking to this backend). Static assets and the SPA shell are
+  // same-origin document/script loads — setting Access-Control-* on them is
+  // unnecessary and can confuse strict same-origin fetches like service
+  // worker script installation.
+  if (isApiRequest) {
+    try {
+      const origin = req.headers.origin || "https://tylerbnobleday-cmyk.github.io";
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Vary", "Origin");
+
+      if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+    } catch (e) {
+      // Non-fatal: continue to request handling
     }
-  } catch (e) {
-    // Non-fatal: continue to request handling
   }
 
-  const urlObject = new URL(req.url || "/", `http://${req.headers.host || `127.0.0.1:${PORT}`}`);
   try { if (await ghostDatabaseHandler(req, res, urlObject)) return; } catch (error) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: error.message })); return; }
   const resolvedApi = getApiResolution(urlObject);
 
@@ -298,6 +332,28 @@ async function start() {
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`TransitAlert Render server listening on ${PORT}`);
   });
+
+  // Build the journey-planner graph now instead of on whichever real
+  // request happens to arrive first — that first build takes roughly a
+  // minute, and a user staring at "Plan a journey" for a minute with no
+  // feedback reads as broken, not slow.
+  console.log("[journey-graph] Warming journey planner graph...");
+  warmJourneyGraph().then(() => {
+    console.log("[journey-graph] Journey planner graph ready.");
+  });
+
+  if (isPushConfigured()) {
+    console.log("[transitalert-push] Web push configured, starting alert watch loop");
+    const runPushCheck = () => {
+      checkAndPushNewAlerts().catch((error) => {
+        console.error("[transitalert-push] Alert check failed", error?.message ?? error);
+      });
+    };
+    runPushCheck();
+    setInterval(runPushCheck, 60_000);
+  } else {
+    console.warn("[transitalert-push] VAPID keys not configured — push notifications disabled");
+  }
 }
 
 void start();

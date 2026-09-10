@@ -1,7 +1,8 @@
-﻿import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { getCurrentVlineAllocation } from "@/lib/vline-allocation";
 import {
   Bell,
   ChevronDown,
@@ -11,6 +12,8 @@ import {
   Map as MapIcon,
   MapPin,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   Settings,
@@ -25,6 +28,8 @@ import {
   LINES,
   SERVICE_FILTERS,
   getFilterChips,
+  getLiveLineColor,
+  getVehicleFocusKey,
   type AdminDebugLineKey,
   type LayerState,
   type ServiceFilterKey,
@@ -34,8 +39,10 @@ import { RiskyRoutes } from "@/components/RiskyRoutes";
 import { AddReportDrawer } from "@/components/AddReportDrawer";
 import { Tabs } from "@/components/ui/tabs";
 import { TRANSITALERT_WEB_VERSION } from "@/lib/version";
-import { fetchAuthSession, logoutSession } from "@/lib/auth";
+import { continueAsGuest, fetchAuthSession, logoutSession, markGuestIntent } from "@/lib/auth";
+import { isIosDevice, isStandaloneApp, notificationsEnabled } from "@/lib/pwa";
 import {
+  broadcastWelcomeEmail,
   fetchAdminAccounts,
   fetchAdminConfig,
   saveAdminConfig,
@@ -44,7 +51,12 @@ import {
   type ApprovedDebugTesterRecord,
   type AdminRuntimeConfig,
 } from "@/lib/admin-config";
-import { fetchLiveTrains, isVlineLiveTrain, type LiveTrain } from "@/lib/live-trains";
+import { fetchLiveTrains, isSydneyTrainsLiveTrain, isVlineLiveTrain, type LiveTrain } from "@/lib/live-trains";
+import { getVlineRouteMetaFromTripId, isGenericRegionalPlaceholder } from "@/lib/regional-fallback";
+import { fetchLiveBuses, type LiveBus } from "@/lib/live-buses";
+import { lookupBusFleetInfo } from "@/lib/bus-fleet";
+import { fetchLiveTrams, type LiveTram } from "@/lib/live-trams";
+import { fetchSydneyTransit } from "@/lib/sydney-transit";
 import busButtonIcon from "@/assets/icons/bus.png";
 import tramButtonIcon from "@/assets/icons/tram.png";
 import {
@@ -62,7 +74,7 @@ import {
   writeLocalPreferences,
 } from "@/lib/preferences";
 import { fetchMetroNotifyAlerts, isAlertCurrent, type MetroNotifyAlert } from "@/lib/todays-alerts";
-import { fetchStationDepartures } from "@/lib/timetable";
+import { fetchStationDepartures, fetchJourneyPlan, fetchSurfaceStopDepartures } from "@/lib/timetable";
 
 const TRAIN_BOARDING_HINTS: Record<string, { zone: string; reason: string }> = {
   "North Melbourne": {
@@ -99,33 +111,6 @@ const TRAIN_BOARDING_HINTS: Record<string, { zone: string; reason: string }> = {
   },
 };
 
-const SIMPLE_SURFACE_ROUTES = [
-  {
-    name: "Route 64 tram",
-    mode: "tram" as const,
-    stops: ["Melbourne University", "Anzac", "Balaclava Junction", "Caulfield Junction", "East Brighton"],
-    summary: "Good cross-city tram link via Domain, St Kilda Road, and Hawthorn Road.",
-  },
-  {
-    name: "Route 630 bus",
-    mode: "bus" as const,
-    stops: ["Elwood", "Elsternwick", "Ormond", "Huntingdale", "Monash University"],
-    summary: "Useful orbital bus for rail interchanges between the bayside and Monash corridor.",
-  },
-  {
-    name: "Route 630 bus",
-    mode: "bus" as const,
-    stops: ["Hawthorn Rd/North Rd", "Huntingdale Station/Haughton Rd"],
-    summary: "Direct Brighton East connection to Huntingdale for Pakenham and Cranbourne line trains.",
-  },
-  {
-    name: "Route 703 bus",
-    mode: "bus" as const,
-    stops: ["Lilac Cres/Centre Rd", "Clayton Station/Carinish Rd"],
-    summary: "Direct Brighton East to Clayton connection for Pakenham and Cranbourne line services.",
-  },
-];
-
 const SURFACE_PLANNER_STATIONS: Station[] = [
   { name: "Melbourne University", position: [-37.7982, 144.9605] },
   { name: "Balaclava Junction", position: [-37.8693, 144.9952] },
@@ -139,11 +124,12 @@ const SURFACE_PLANNER_STATIONS: Station[] = [
   { name: "Huntingdale Station/Haughton Rd", position: [-37.9108, 145.1027] },
 ];
 
-const HOME_ORIGIN_LABEL = "Home · 15 Louise St, Brighton East";
 const CURRENT_LOCATION_LABEL = "Current location";
 const JOURNEY_STORAGE_KEY = "transitalert-active-journey-v1";
 const ADMIN_DEBUG_STORAGE_KEY = "transitalert-admin-debug-line-v1";
-const HOME_ORIGIN_COORDS: [number, number] = [-37.9147, 145.0186];
+// Generic Melbourne-area fallback point used only when a journey has no
+// resolved origin/destination station coordinates yet.
+const DEFAULT_FALLBACK_COORDS: [number, number] = [-37.9147, 145.0186];
 const VERSION_SEEN_STORAGE_KEY = "transitalert-last-seen-version";
 const ACCOUNT_ROLE_OPTIONS = ["Traveller", "Bug Tester", "Friend", "Special", "Train Driver", "Station Staff", "Admin"] as const;
 
@@ -172,10 +158,12 @@ type VersionModalProps = {
 type FleetTypeKey =
   | "hcmt"
   | "xtrapolis"
+  | "xtrapolis2"
   | "siemens"
-  | "ss-comeng"
-  | "ns-comeng"
+  | "edi-comeng"
+  | "alstom-comeng"
   | "n-class"
+  | "sprinter"
   | "vlocity"
   | "xpt"
   | "tangara"
@@ -184,13 +172,21 @@ type FleetTypeKey =
   | "millennium"
   | "k-set"
   | "oscar"
+  | "sydney-trains-unclassified"
   | "mariyung"
-  | "v-set"
   | "endeavour"
   | "hunter"
   | "xplorer"
   | "metropolis";
-type FleetFilterKey = "all" | FleetTypeKey;
+// Buses are categorised by their real vehicle type (Volvo B8RLE, Scania
+// K320UB, BYD D9RA, etc. — sourced from the bus fleet database, not the
+// operator) and trams by their real fleet class (B2, E, A2, etc., read
+// straight from the live feed) rather than one flat "Bus" or "Tram" bucket —
+// each gets its own dynamic fleet key derived from live data instead of a
+// fixed, potentially-stale hardcoded list.
+type BusTypeFleetKey = `bus:${string}`;
+type TramClassFleetKey = `tram:${string}`;
+type FleetFilterKey = "all" | FleetTypeKey | BusTypeFleetKey | TramClassFleetKey;
 type HomeTabKey = "map" | "journey" | "fleets" | "pid" | "admin";
 
 type FleetTripStatus = "running" | "upcoming";
@@ -214,7 +210,7 @@ type FleetTrip = {
   tripNumber: string;
   line: string;
   route: string;
-  fleet: FleetTypeKey;
+  fleet: FleetTypeKey | BusTypeFleetKey | TramClassFleetKey;
   status: FleetTripStatus;
   lineColor: string;
   statusLabel: string;
@@ -224,6 +220,9 @@ type FleetTrip = {
   realtimeLabel: string;
   consistPublicLabel: string;
   specialLabel: string;
+  // Bus-only: the real chassis/model text (e.g. "Volvo B8RLEA"), shown as a
+  // subtitle on each row alongside the operator-based fleet grouping.
+  vehicleModel?: string;
 };
 
 type StationDeparture = {
@@ -249,6 +248,16 @@ type JourneyLeg = {
   to: string;
   detail: string;
   badge: string;
+};
+
+// One polyline per leg, so the map can draw a walk from the door as a thin
+// dashed line, a train leg along the real line colour, and a bus leg in its
+// own colour — instead of one flat line straight through every stop that
+// makes a mixed-mode trip look like a single, wrong service.
+type JourneyLegSegment = {
+  mode: JourneyLeg["mode"];
+  positions: [number, number][];
+  routeLabel?: string;
 };
 
 type JourneyDisplay = {
@@ -285,10 +294,12 @@ type ChangelogEntry = {
 const FLEET_TYPES: FleetTypeConfig[] = [
   { key: "hcmt", label: "HCMT", emoji: "Train", total: 37 },
   { key: "xtrapolis", label: "X'Trapolis 100", emoji: "Train", total: 32 },
+  { key: "xtrapolis2", label: "X'Trapolis 2.0", emoji: "Train", total: 1 },
   { key: "siemens", label: "Siemens", emoji: "Train", total: 20 },
-  { key: "ss-comeng", label: "EDI Comeng", emoji: "Train", total: 12 },
-  { key: "ns-comeng", label: "Alstom Comeng", emoji: "Train", total: 7 },
+  { key: "edi-comeng", label: "EDI Comeng", emoji: "Train", total: 51 },
+  { key: "alstom-comeng", label: "Alstom Comeng", emoji: "Train", total: 49 },
   { key: "n-class", label: "N Class", emoji: "Train", total: 1 },
+  { key: "sprinter", label: "Sprinter", emoji: "Train", total: 1 },
   { key: "vlocity", label: "VLocity", emoji: "Train", total: 25 },
   { key: "xpt", label: "XPT", emoji: "Train", total: 1 },
   { key: "tangara", label: "Tangara (T Set)", emoji: "Train", total: 0 },
@@ -297,8 +308,8 @@ const FLEET_TYPES: FleetTypeConfig[] = [
   { key: "millennium", label: "Millennium (M Set)", emoji: "Train", total: 0 },
   { key: "k-set", label: "K Set", emoji: "Train", total: 0 },
   { key: "oscar", label: "Oscar (H Set)", emoji: "Train", total: 0 },
+  { key: "sydney-trains-unclassified", label: "Sydney Trains", emoji: "Train", total: 0 },
   { key: "mariyung", label: "Mariyung (D Set)", emoji: "Train", total: 0 },
-  { key: "v-set", label: "V Set", emoji: "Train", total: 0 },
   { key: "endeavour", label: "Endeavour", emoji: "Train", total: 0 },
   { key: "hunter", label: "Hunter", emoji: "Train", total: 0 },
   { key: "xplorer", label: "Xplorer", emoji: "Train", total: 0 },
@@ -312,10 +323,12 @@ const FLEET_FILTER_GROUPS: FleetFilterGroup[] = [
       { key: "all", label: "All" },
       { key: "hcmt", label: "HCMT" },
       { key: "xtrapolis", label: "X'Trapolis 100" },
+      { key: "xtrapolis2", label: "X'Trapolis 2.0" },
       { key: "siemens", label: "Siemens" },
-      { key: "ss-comeng", label: "EDI Comeng" },
-      { key: "ns-comeng", label: "Alstom Comeng" },
+      { key: "edi-comeng", label: "EDI Comeng" },
+      { key: "alstom-comeng", label: "Alstom Comeng" },
       { key: "n-class", label: "N Class" },
+      { key: "sprinter", label: "Sprinter" },
       { key: "vlocity", label: "VLocity" },
     ],
   },
@@ -328,27 +341,112 @@ const FLEET_FILTER_GROUPS: FleetFilterGroup[] = [
       { key: "millennium", label: "Millennium (M Set)" },
       { key: "k-set", label: "K Set" },
       { key: "oscar", label: "Oscar (H Set)" },
+      // The live Sydney Trains feed doesn't publish which physical fleet
+      // class a vehicle is (its own vehicle id is an anonymised, rotating
+      // string — verified by fetching the real feed directly), so a real
+      // vehicle that can't be matched to one of the specific sets above
+      // lands here instead of being guessed into one.
+      { key: "sydney-trains-unclassified", label: "Sydney Trains" },
+      // Sydney Metro is operationally a separate network, but it's still
+      // part of the same Sydney rail system as far as this filter grouping
+      // is concerned — no need for its own top-level section for one fleet.
+      { key: "metropolis", label: "Metropolis (Sydney Metro)" },
     ],
   },
   {
     label: "NSW TrainLink",
     filters: [
       { key: "mariyung", label: "Mariyung (D Set)" },
-      { key: "v-set", label: "V Set" },
       { key: "endeavour", label: "Endeavour" },
       { key: "hunter", label: "Hunter" },
       { key: "xplorer", label: "Xplorer" },
       { key: "xpt", label: "XPT" },
     ],
   },
-  {
-    label: "Sydney Metro",
-    filters: [
-      { key: "metropolis", label: "Metropolis" },
-    ],
-  },
 ];
-const FLEET_FILTERS = FLEET_FILTER_GROUPS.flatMap((group) => group.filters);
+
+// One accent colour per fleet category so the tracker's filter groups read
+// as distinct sections at a glance instead of a wall of identical grey
+// cards — matches the tone each mode already uses elsewhere (orange for
+// NSW/XPT, emerald for trams, amber for buses).
+const FLEET_GROUP_ACCENTS: Record<string, { dot: string; selectedBorder: string; selectedBg: string; selectedGlow: string; countBg: string; countText: string }> = {
+  Victoria: {
+    dot: "bg-cyan-300",
+    selectedBorder: "border-cyan-300/80",
+    selectedBg: "bg-cyan-400/15",
+    selectedGlow: "shadow-[0_0_18px_rgba(34,211,238,0.22)]",
+    countBg: "bg-cyan-300/10",
+    countText: "text-cyan-200",
+  },
+  "Sydney Trains": {
+    dot: "bg-sky-400",
+    selectedBorder: "border-sky-300/80",
+    selectedBg: "bg-sky-400/15",
+    selectedGlow: "shadow-[0_0_18px_rgba(56,189,248,0.22)]",
+    countBg: "bg-sky-300/10",
+    countText: "text-sky-200",
+  },
+  "NSW TrainLink": {
+    dot: "bg-orange-400",
+    selectedBorder: "border-orange-300/80",
+    selectedBg: "bg-orange-400/15",
+    selectedGlow: "shadow-[0_0_18px_rgba(251,146,60,0.22)]",
+    countBg: "bg-orange-300/10",
+    countText: "text-orange-200",
+  },
+  "Sydney Metro": {
+    dot: "bg-violet-400",
+    selectedBorder: "border-violet-300/80",
+    selectedBg: "bg-violet-400/15",
+    selectedGlow: "shadow-[0_0_18px_rgba(167,139,250,0.22)]",
+    countBg: "bg-violet-300/10",
+    countText: "text-violet-200",
+  },
+  "Victoria Buses": {
+    dot: "bg-amber-400",
+    selectedBorder: "border-amber-300/80",
+    selectedBg: "bg-amber-400/15",
+    selectedGlow: "shadow-[0_0_18px_rgba(251,191,36,0.22)]",
+    countBg: "bg-amber-300/10",
+    countText: "text-amber-200",
+  },
+  "NSW Buses": {
+    dot: "bg-orange-400",
+    selectedBorder: "border-orange-300/80",
+    selectedBg: "bg-orange-400/15",
+    selectedGlow: "shadow-[0_0_18px_rgba(251,146,60,0.22)]",
+    countBg: "bg-orange-300/10",
+    countText: "text-orange-200",
+  },
+  "Victoria Trams": {
+    dot: "bg-emerald-400",
+    selectedBorder: "border-emerald-300/80",
+    selectedBg: "bg-emerald-400/15",
+    selectedGlow: "shadow-[0_0_18px_rgba(52,211,153,0.22)]",
+    countBg: "bg-emerald-300/10",
+    countText: "text-emerald-200",
+  },
+  "NSW Trams": {
+    dot: "bg-teal-400",
+    selectedBorder: "border-teal-300/80",
+    selectedBg: "bg-teal-400/15",
+    selectedGlow: "shadow-[0_0_18px_rgba(45,212,191,0.22)]",
+    countBg: "bg-teal-300/10",
+    countText: "text-teal-200",
+  },
+  default: {
+    dot: "bg-cyan-300",
+    selectedBorder: "border-cyan-300/80",
+    selectedBg: "bg-cyan-400/15",
+    selectedGlow: "shadow-[0_0_18px_rgba(34,211,238,0.22)]",
+    countBg: "bg-cyan-300/10",
+    countText: "text-cyan-200",
+  },
+};
+
+function slugifyFleetLabel(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-+|-+$)/g, "") || "unknown";
+}
 
 const PID_STATIONS = [
   "Flinders Street",
@@ -393,6 +491,40 @@ const PID_THEMES: PidThemeMode[] = ["dark", "light"];
 const VERSION_LOG: ChangelogEntry[] = [
   {
     version: TRANSITALERT_WEB_VERSION,
+    date: "07/09/2026",
+    notes: [
+      "TransitAlert 1.0: the journey planner, live alerts, and push notifications have all been through a full pass of real-data verification and are now considered production-ready.",
+      "Fixed a real safety-relevant bug where the journey planner's 'next service' suggestion for a train leg could recommend a service heading the opposite direction — e.g. an Ormond to Glen Huntly trip could suggest an outbound Frankston-line train instead of a city-bound one. Departure matching now checks the actual station order on the line, not just the route name.",
+      "Train legs in the journey planner — both the map line and the text leg cards — now use that line's real colour (e.g. Frankston green, Sandringham pink) instead of a generic blue. Tram and bus legs use their own real mode colours the same way.",
+      "Live 'take this service' and 'next service' departure times in the journey planner now show a live-updating 'in X mins' countdown next to the clock time.",
+      "The Train Tracker's service-continuity panel can now show up to two previous and two next workings (TDNs) for the same physical train, not just one each way, whenever the official timetable confirms that many linked services back-to-back.",
+      "Fixed alert 'Details here' links that were pointing to a dead Metro Trains page with no actual content — they now open Transport Victoria's live disruptions page.",
+      "Fixed a bug where multi-night works alerts (e.g. a bus replacement running Sunday to Wednesday) could disappear from the alerts list partway through, even though the disruption was still active — visibility now also checks the dates written in the alert text, not just when it was last updated.",
+      "Fixed an alert title that was being cut off mid-sentence (e.g. 'Buses replace trains between the City and Caulfield from 8') — the title-shortening logic was mistaking the decimal point in times like '8.30pm' for the end of a sentence.",
+      "Fixed duplicate alert cards for the same disruption caused by 'the City' and 'City' being treated as different locations.",
+      "Added a dedicated 'Police request' alert filter, split out from Trespasser incidents so the two can be filtered separately.",
+      "Fixed push notification links opening a 'Detour Ahead' 404 page instead of the alerts screen.",
+      "TransitAlert now sends a push notification whenever a new version is released, summarising what changed.",
+      "Journey planner was rebuilt from scratch on real GTFS data across every mode — trains, V/Line, trams, and buses — instead of a handful of hardcoded example routes, so any real trip across the network can now be planned properly.",
+      "Fixed a bug that silently excluded every train route from journey planning (a GTFS route ID format collided with internal path-finding logic), which had been forcing bus-only routes even when a direct train was faster.",
+      "Metro Tunnel journeys now show as one seamless leg end to end instead of a fake 'change trains' stop at Anzac or Town Hall — the schedule splits the TDN there, but it's the same physical train, and the planner now knows that.",
+      "The journey map now draws each leg of a trip as its own line — train, tram, bus, and walking each get their own colour and style — instead of one flat line straight through every stop that made mixed-mode trips look broken.",
+      "Bus and tram legs in the journey planner now get the same live 'take this service / next service' departure board as train legs, with real times pulled from the live feed.",
+      "Removed the Google Maps cross-check link from the journey planner — planning now happens fully in TransitAlert using real schedule data.",
+      "Destinations can now be found by their real public-facing name (like a tram's headsign) even when that differs from the technical stop name underneath.",
+      "Fixed a bug where two different physical buses could be shown as the same vehicle's 'previous' or 'next' service — formation matching now requires the live feed to confirm it's actually the same vehicle before claiming continuity.",
+      "TDNs are now hidden from non-premium users on the train detail panel and previous/next service cards, showing the service time instead.",
+      "Corrected the Brighton Beach station marker, which was placed roughly 600m off in a nearby park instead of on the platform.",
+      "Removed the boarding-guide 'best door' card from Flinders Street and Southern Cross, and gave the remaining boarding guide cards a cleaner look.",
+      "Added a Nearby Stops panel to the map, listing real nearby stations, tram stops, and bus stops with live distance and one-tap navigation.",
+      "Bus and tram stop departure boards now show a 'Trackable now' badge so it's clear which upcoming services actually have a live GPS-tracked vehicle behind them versus schedule-only.",
+      "Added smooth, real GTFS-shaped track curves for the Metro Tunnel corridor instead of straight lines between stations.",
+      "Fixed real push notifications: the background alert watcher was marking every disruption alert as 'already sent' even when nobody was subscribed yet, so alerts that existed before your first subscription could never reach you. New disruption alerts now push correctly.",
+      "Confirmed Fleet Tracker search already finds buses and trams by their real fleet number or registration (e.g. searching a tram's fleet number or a bus's plate returns that exact vehicle).",
+    ],
+  },
+  {
+    version: "0.95",
     date: "05/09/2026",
     notes: [
       "Version 0.95 adds faster live-vehicle refresh and steadier train movement while zooming or moving the map.",
@@ -542,16 +674,16 @@ const TRANSITALERT_SYSTEM_NOTES = [
 
 const VERSION_HIGHLIGHT_CARDS = [
   {
-    title: "What’s new in 0.95",
-    body: "Clearer train and bus bubbles, faster live movement, complete stopping patterns, and safer Metro, V/Line and NSW TrainLink identification.",
+    title: "Real, verified journey planning",
+    body: "Every mode — train, tram, bus, V/Line — planned end to end on real GTFS data, with correct-direction departures, real per-line colours, and a live 'in X mins' countdown.",
   },
   {
-    title: "Guest + accounts",
-    body: "Guest mode stays quick for casual browsing, while tester sign-up, sign-in, and remembered account data now run against the same real local database host.",
+    title: "Alerts you can trust",
+    body: "Fixed dead 'Details here' links, cut-off titles, duplicate cards, and alerts disappearing mid-disruption — plus a new Police request filter alongside Trespassers.",
   },
   {
-    title: "Regional live tracking",
-    body: "V/Line and NSW TrainLink are kept separate, with exact station-board journeys, regional stopping patterns, consist details, and seven-car XPT labelling.",
+    title: "Deeper train tracking",
+    body: "The Train Tracker can now show up to two previous and two next linked services for the same physical train, whenever the timetable confirms the full chain.",
   },
 ] as const;
 
@@ -614,46 +746,20 @@ function getFleetLineTone(line: string) {
   const joined = line.toLowerCase();
   if (/(sunbury|cranbourne|pakenham|metro tunnel)/i.test(joined)) return "bg-sky-500 text-sky-950";
   if (/(mernda|hurstbridge)/i.test(joined)) return "bg-red-600 text-white";
-  if (/(frankston|stony point)/i.test(joined)) return "bg-green-600 text-white";
+  if (/stony point/i.test(joined)) return "bg-[#028430] text-white";
+  if (/frankston/i.test(joined)) return "bg-green-600 text-white";
   if (/(werribee|williamstown|sandringham|altona)/i.test(joined)) return "bg-pink-500 text-white";
   if (/(upfield|craigieburn)/i.test(joined)) return "bg-yellow-400 text-yellow-950";
   if (/(belgrave|lilydale|glen waverley|alamein)/i.test(joined)) return "bg-blue-600 text-white";
-  return "bg-slate-500 text-white";
-}
-
-function normaliseFleetLineGroup(vehicle: LiveTrain) {
-  const searchable = `${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
-  if (/(metro tunnel|town hall|state library)/i.test(searchable)) return "metro-tunnel";
-  if (/(cranbourne|pakenham|east pakenham)/i.test(searchable)) return "hcmt-corridor";
-  if (/(sunbury|watergardens)/i.test(searchable)) return "sunbury";
-  if (/(mernda|hurstbridge)/i.test(searchable)) return "clifton-hill";
-  if (/(belgrave|lilydale|glen waverley|alamein)/i.test(searchable)) return "burnley";
-  if (/(craigieburn|upfield)/i.test(searchable)) return "northern";
-  if (/(frankston|werribee|williamstown|sandringham|altona)/i.test(searchable)) return "bayside";
-  return "unknown";
-}
-
-function resolveMetroFleetKey(vehicle: LiveTrain, explicitFleet: FleetTypeKey | null): FleetTypeKey {
-  const lineGroup = normaliseFleetLineGroup(vehicle);
-
-  switch (lineGroup) {
-    case "metro-tunnel":
-    case "hcmt-corridor":
-    case "sunbury":
-      return "hcmt";
-    case "clifton-hill":
-    case "burnley":
-      return "xtrapolis";
-    case "northern":
-      return explicitFleet === "xtrapolis" ? "xtrapolis" : "ns-comeng";
-    case "bayside":
-      if (explicitFleet === "ss-comeng" || explicitFleet === "siemens") {
-        return explicitFleet;
-      }
-      return "siemens";
-    default:
-      return explicitFleet ?? "xtrapolis";
+  // Matches the same real V/Line purple (#7c3aed) already used for its
+  // route lines/markers on the live map — this badge previously fell
+  // through to the generic grey default since "V/Line" and its regional
+  // corridor names (Seymour, Bendigo, Gippsland, ...) matched none of the
+  // metro-line patterns above.
+  if (/(v\/?line|traralgon|bairnsdale|ballarat|wendouree|bendigo|echuca|geelong|waurn ponds|seymour|shepparton|warrnambool|maryborough|ararat|swan hill|albury)/i.test(joined)) {
+    return "bg-violet-600 text-white";
   }
+  return "bg-slate-500 text-white";
 }
 
 function getRegionalFleetKey(vehicle: LiveTrain): FleetTypeKey {
@@ -665,9 +771,70 @@ function getRegionalFleetKey(vehicle: LiveTrain): FleetTypeKey {
   if (/\bhunter\b/.test(joined)) return "hunter";
   if (/xplorer/.test(joined)) return "xplorer";
   if (family.includes("xpt") || /xpt|nsw trainlink/.test(joined)) return "xpt";
+  if (family.includes("sprinter") || SPRINTER_CONSIST_PATTERN.test(joined) || STONY_POINT_LINE_PATTERN.test(joined) || /sprinter/.test(joined)) return "sprinter";
+  // Bairnsdale/Albury/Swan Hill are DESTINATIONS, not train types — both
+  // N class locomotive-hauled sets and VLocity railcars run all three real
+  // routes, so matching on the town name alone wrongly classified every
+  // VLocity service to those towns (real consist "V2117"/"V1296"/"V1299",
+  // confirmed live) as N Class before the VLocity check below ever ran.
+  if (family.includes("n class") || N_CLASS_CONSIST_PATTERN.test(joined) || /n\s*class|n-?set|\bloco\b|locomotive/.test(joined)) return "n-class";
   if (family.includes("vlocity") || /\bv\d{3,4}\b/.test(joined)) return "vlocity";
-  if (family.includes("n class") || /n\s*class|n-?set|loco|locomotive|swan hill|bairnsdale|albury/.test(joined)) return "n-class";
   return "vlocity";
+}
+
+// Real Melbourne suburban carriage number ranges (source: vicsig.net/suburban/fleet):
+// Comeng motor 324M-680M / trailer 1008T-1190T, Siemens motor 701M-843M /
+// trailer 2501T-2572T, X'Trapolis motor 1M-288M & 851M-985M / trailer
+// 1301T-1444T & 1626T-1693T, the sole X'Trapolis 2.0 set 8105-8605, HCMT
+// 9001-9070. These fleets are NOT rostered one-per-line — Comeng in
+// particular "can run system wide" per that roster — so classification reads
+// the vehicle's own car numbers instead of guessing from which line it
+// happens to be on right now.
+//
+// EDI/Alstom Comeng sub-split, sourced from VICSIG's current Melbourne fleet
+// list (updated 6 August 2026) — VICSIG marks the former M>Train sets with
+// (M), which are the EDI-Rail refurbished Comengs; the remaining current
+// sets are Alstom refurbished. 51 EDI 3-car sets (102 motor cars) and 49
+// Alstom 3-car sets (98 motor cars) as currently in service — this is the
+// live fleet as VICSIG lists it, not every Comeng that has ever existed,
+// so a withdrawn/scrapped set's old number won't appear in either list.
+const ALSTOM_COMENG_MOTOR_NUMBERS = new Set([
+  561, 565, 562, 566, 563, 564, 567, 568, 569, 612, 570, 661, 573, 574, 579,
+  580, 581, 584, 582, 651, 587, 588, 590, 647, 591, 592, 593, 594, 595, 596,
+  599, 600, 601, 602, 603, 604, 605, 606, 607, 608, 609, 610, 611, 662, 615,
+  616, 619, 620, 621, 622, 623, 624, 625, 626, 627, 648, 628, 652, 629, 630,
+  631, 632, 635, 636, 637, 638, 639, 640, 641, 674, 642, 673, 643, 644, 645,
+  646, 653, 654, 655, 656, 657, 658, 659, 660, 663, 664, 665, 666, 667, 668,
+  669, 670, 675, 676, 677, 678, 679, 680,
+]);
+const EDI_COMENG_MOTOR_NUMBERS = new Set([
+  324, 342, 327, 349, 328, 464, 329, 366, 335, 387, 343, 384, 351, 352, 353,
+  354, 355, 356, 357, 358, 369, 370, 371, 372, 377, 378, 379, 380, 381, 382,
+  389, 426, 391, 392, 397, 398, 401, 402, 405, 406, 417, 418, 421, 422, 423,
+  424, 429, 430, 431, 432, 433, 434, 443, 444, 455, 456, 457, 458, 471, 472,
+  477, 478, 481, 482, 485, 486, 495, 496, 499, 534, 501, 502, 505, 506, 507,
+  508, 511, 512, 513, 514, 518, 551, 521, 522, 525, 526, 530, 552, 531, 532,
+  535, 536, 541, 542, 543, 544, 545, 546, 547, 548, 549, 550,
+]);
+
+// The plain "Comeng" (unsplit) fleet category was removed once VICSIG's
+// current fleet list (see ALSTOM/EDI sets above) confirmed every real
+// in-service Comeng motor number is one or the other — verified live against
+// the full running fleet with zero leftovers. If a future renumbering or
+// refurbishment ever introduces a genuinely unlisted number, this needs the
+// sets refreshed from VICSIG again rather than reviving a generic bucket.
+function classifyComengMotorNumbers(motorNumbers: number[]): "alstom-comeng" | "edi-comeng" {
+  return motorNumbers.some((n) => EDI_COMENG_MOTOR_NUMBERS.has(n)) ? "edi-comeng" : "alstom-comeng";
+}
+
+function inferFleetTypeKeyFromConsist(vehicle: LiveTrain): FleetTypeKey | null {
+  const motorNumbers = Array.from(vehicle.consist.matchAll(/(\d+)M\b/gi)).map((match) => Number(match[1]));
+  if (motorNumbers.some((n) => n >= 9000 && n <= 9999)) return "hcmt";
+  if (motorNumbers.some((n) => n >= 8100 && n <= 8699)) return "xtrapolis2";
+  if (motorNumbers.some((n) => (n >= 1 && n <= 288) || (n >= 851 && n <= 985))) return "xtrapolis";
+  if (motorNumbers.some((n) => n >= 701 && n <= 843)) return "siemens";
+  if (motorNumbers.some((n) => n >= 324 && n <= 680)) return classifyComengMotorNumbers(motorNumbers);
+  return null;
 }
 
 function inferFleetTypeKey(vehicle: LiveTrain): FleetTypeKey {
@@ -675,21 +842,35 @@ function inferFleetTypeKey(vehicle: LiveTrain): FleetTypeKey {
 
   const searchable = `${vehicle.consist} ${vehicle.trainType} ${vehicle.line} ${vehicle.destination} ${vehicle.serviceDescription ?? ""}`.toLowerCase();
   if (/metropolis|sydney metro|metro north west/.test(searchable)) return "metropolis";
+  // Sydney Trains' real per-trip fleet class (e.g. "8 car Waratah", "8 car
+  // Waratah Series 2", "4 car Tangara") comes straight from Transport for
+  // NSW's own static schedule now (see buildSydneyTrainsLiveTrains /
+  // loadSydneyTrainsFleetLookup) — sourced, not guessed. "Waratah" alone
+  // (no "Series 2") is the original A-set batch; only the Series 2 batch
+  // spells out "Series 2", so that check has to come first or every
+  // Waratah would match the A-set pattern.
+  if (/waratah.*series\s*2|waratah\s*b\b/.test(searchable)) return "waratah-b";
+  if (/waratah/.test(searchable)) return "waratah-a";
   if (/tangara|\bt\s*set\b|\bt-set\b/.test(searchable)) return "tangara";
-  if (/waratah\s*a|a\s*set|\ba-set\b/.test(searchable)) return "waratah-a";
-  if (/waratah\s*b|b\s*set|\bb-set\b/.test(searchable)) return "waratah-b";
   if (/millennium|\bm\s*set\b|\bm-set\b/.test(searchable)) return "millennium";
   if (/\bk\s*set\b|\bk-set\b/.test(searchable)) return "k-set";
   if (/oscar|\bh\s*set\b|\bh-set\b/.test(searchable)) return "oscar";
   if (/(hcmt)/i.test(searchable)) return "hcmt";
+  if (/(x'?trapolis\s*2(\.0)?)/i.test(searchable)) return "xtrapolis2";
   if (/(x'?trapolis)/i.test(searchable)) return "xtrapolis";
-  let explicitFleet: FleetTypeKey | null = null;
-  if (/(siemens)/i.test(searchable)) {
-    explicitFleet = "siemens";
-  } else if (/(comeng)/i.test(searchable)) {
-    explicitFleet = /(craigieburn|upfield)/i.test(searchable) ? "ns-comeng" : "ss-comeng";
+  if (/(siemens)/i.test(searchable)) return "siemens";
+  if (/(comeng)/i.test(searchable)) {
+    const motorNumbers = Array.from(vehicle.consist.matchAll(/(\d+)M\b/gi)).map((match) => Number(match[1]));
+    return classifyComengMotorNumbers(motorNumbers);
   }
-  return resolveMetroFleetKey(vehicle, explicitFleet);
+  // Checked after every specific real-class keyword above, and before the
+  // Melbourne-only fallback further down (which used to silently claim
+  // every unrecognised train as X'Trapolis 100) — a real Sydney Trains
+  // vehicle whose fleet class wasn't resolved (schedule lookup miss, or a
+  // genuinely new/rare category not in the list above) otherwise fell all
+  // the way through to that and got mislabelled as Melbourne rolling stock.
+  if (isSydneyTrainsLiveTrain(vehicle)) return "sydney-trains-unclassified";
+  return inferFleetTypeKeyFromConsist(vehicle) ?? "xtrapolis";
 }
 
 function getHcmtSetLabel(vehicle: LiveTrain) {
@@ -700,7 +881,19 @@ function getHcmtSetLabel(vehicle: LiveTrain) {
 
 function getFleetSetDisplay(vehicle: LiveTrain, fleet: FleetTypeKey) {
   if (fleet === "hcmt") return getHcmtSetLabel(vehicle);
-  if (fleet === "vlocity" || fleet === "n-class" || fleet === "xpt") {
+  if (fleet === "n-class" || fleet === "sprinter") {
+    // Real reporting mark (e.g. "N453") when the live feed has one — the
+    // fleet name is already shown right next to this and repeating it here
+    // tells a rider nothing new. Stony Point's own placeholder consist is
+    // literally the word "train" glued to its trip-derived number (e.g.
+    // "train68340") rather than a real reporting mark — strip that prefix
+    // so it doesn't read as if "train" were part of the identifier.
+    const consist = vehicle.consist?.trim().replace(/^train(?=\d)/i, "");
+    return consist && !/^unknown$/i.test(consist)
+      ? consist
+      : `${getRegionalFleetCarLength(vehicle)} ${getRegionalFleetTrainFamily(vehicle)}`;
+  }
+  if (fleet === "vlocity" || fleet === "xpt") {
     return `${getRegionalFleetCarLength(vehicle)} ${getRegionalFleetTrainFamily(vehicle)}`;
   }
   return vehicle.consist || vehicle.tdn || "Set TBC";
@@ -708,7 +901,17 @@ function getFleetSetDisplay(vehicle: LiveTrain, fleet: FleetTypeKey) {
 
 function buildFleetRoute(vehicle: LiveTrain) {
   const cleaned = vehicle.serviceDescription?.trim();
-  if (cleaned && cleaned.length > 0) return cleaned;
+  if (cleaned && !isGenericRegionalPlaceholder(cleaned)) return cleaned;
+  // A real V/Line service (Sprinter included) reports line/destination/
+  // serviceDescription as the same generic literal "V/Line" — confirmed
+  // live on the Seymour Sprinter (TDN 8326). Resolve the real corridor from
+  // the trip's own route code before falling back to that placeholder text.
+  if (isVlineLiveTrain(vehicle) && (isGenericRegionalPlaceholder(vehicle.line) || isGenericRegionalPlaceholder(vehicle.destination))) {
+    const cityBound = vehicle.direction === "up" || vehicle.direction === "city-bound" ||
+      /southern cross|flinders street|melbourne central|flagstaff|parliament|city/i.test(vehicle.destination);
+    const meta = getVlineRouteMetaFromTripId(vehicle.tripId, cityBound);
+    if (meta) return `${meta.origin} → ${meta.destination}`;
+  }
   return `${vehicle.line} to ${vehicle.destination}`;
 }
 
@@ -797,33 +1000,81 @@ function getRegionalFleetRouteLabel(vehicle: LiveTrain) {
   return vehicle.line.replace(/\s+line$/i, "").replace(/^V\/Line$/i, "Regional");
 }
 
+// Real V/Line N-class locomotives report their live position under their
+// plain reporting mark ("N453", "N460", ...) — the literal words "N class"
+// never appear anywhere in the live feed (consist/trainType/line/destination
+// are all generic, e.g. destination is literally "V/Line"), so the
+// word-matching checks below always missed genuine live N-class trips and
+// let them fall through to the VLocity default. N451-N474 is the real fleet
+// (VICSIG), matched here by the shared reporting-mark pattern rather than a
+// hardcoded number range so a fleet renumbering doesn't silently break this.
+const N_CLASS_CONSIST_PATTERN = /\bN\d{3}\b/i;
+// Same real-feed gap as N class: a live Sprinter's own reporting mark is
+// "S70xx" (confirmed live: TDN 8326 = consist "S7002", with destination/
+// line/serviceDescription all the same generic "V/Line" placeholder as
+// everything else) — the literal word "Sprinter" never appears anywhere in
+// the live feed, so the word-matching checks below always missed real
+// Sprinter trips and let them fall through to the VLocity default.
+const SPRINTER_CONSIST_PATTERN = /\bS70\d{2}\b/i;
+// The Stony Point line is a further, separate gap: it is the one PTV
+// metropolitan line worked exclusively by Sprinter railcars (no other
+// fleet type ever runs there), but its live feed entries carry neither the
+// word "Sprinter" nor a real S70xx reporting mark — just a generic
+// placeholder like "train68340" (confirmed live: TDN 8508, line "Stony
+// Point", consist "train68340"). Classifying by line identity here isn't a
+// guess: it's the one line where the operator's rostered rolling stock
+// really is always this one fleet.
+const STONY_POINT_LINE_PATTERN = /stony point/i;
+// The inbound (Stony Point -> Frankston) direction's real trip_headsign is
+// "Frankston" — line/destination/serviceDescription can all come back
+// "Frankston" with no text mentioning Stony Point at all for that direction.
+// The real route code "STY" survives in tripId regardless (confirmed static
+// schedule format: "02-STY--1-T5-8518"), so check that too rather than
+// relying solely on direction-dependent display text.
+function isStonyPointVehicle(vehicle: LiveTrain) {
+  return STONY_POINT_LINE_PATTERN.test(`${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`)
+    || /-STY--/i.test(vehicle.tripId ?? "");
+}
+
 function getRegionalFleetTrainFamily(vehicle: LiveTrain) {
   const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
   if (/XPT/.test(joined)) return "XPT";
   if (/XPLORER/.test(joined)) return "Xplorer";
   if (/NSW TRAINLINK/.test(joined)) return "XPT";
-  if (/SPRINTER/.test(joined)) return "Sprinter";
-  if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "N class";
+  if (/SPRINTER/.test(joined) || SPRINTER_CONSIST_PATTERN.test(joined) || isStonyPointVehicle(vehicle)) return "Sprinter";
+  if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined) || N_CLASS_CONSIST_PATTERN.test(joined)) return "N class";
   if (/VLOCITY|\bV\d{3,4}\b/.test(joined)) return "VLocity";
   return "Other locomotive";
 }
 
 function getRegionalFleetCarLength(vehicle: LiveTrain) {
+  const allocation = getCurrentVlineAllocation(vehicle);
+  if (allocation) return `${allocation.carCount}-car`;
+  if (vehicle.tripId?.startsWith("01-") || /VLOCITY|V\/LINE/i.test(`${vehicle.trainType} ${vehicle.line}`)) return "";
   const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
   const explicitCarMatch = joined.match(/\b(3|4|5|6|7|8|9)\s*[- ]?CAR\b/);
   if (explicitCarMatch?.[1]) return `${explicitCarMatch[1]}-car`;
-  if (/\bV\d{3,4}\b.*\bV\d{3,4}\b/.test(joined)) return "6-car";
-  if (/\bV\d{3,4}\b/.test(joined) || /VLOCITY/.test(joined)) return "3-car";
-  if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "loco set";
-  if (/XPT|XPLORER|SPRINTER/.test(joined)) return "special";
+  if (/N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined) || N_CLASS_CONSIST_PATTERN.test(joined)) return "loco set";
+  if (/XPT|XPLORER|SPRINTER/.test(joined) || SPRINTER_CONSIST_PATTERN.test(joined) || isStonyPointVehicle(vehicle)) return "special";
   return "set TBC";
 }
 
+// Mirrors getNswTrainLinkSetNumber/getRegionalAllocatedSetLabel in Map.tsx —
+// NSW TrainLink has no tracked consist/set number, so its own trip number
+// (already visible in its label, e.g. "(731)") stands in for one; V/Line's
+// own loco-hauled specials use the real allocation/leadingSet data when known.
 function getRegionalFleetSpecialLabel(vehicle: LiveTrain) {
   const joined = `${vehicle.consist} ${vehicle.trainType} ${vehicle.tdn} ${vehicle.line} ${vehicle.destination}`.toUpperCase();
-  if (/XPT|XPLORER|NSW TRAINLINK/.test(joined)) return "Special train";
-  if (/SPRINTER|N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined)) return "Special movement";
-  if (!/VLOCITY|\bV\d{3,4}\b/.test(joined) && isVlineLiveTrain(vehicle)) return "Special / other";
+  if (/XPLORER/.test(joined)) return `Xplorer leading set ${vehicle.tripId?.split(".")[0] || vehicle.tdn}`;
+  if (/XPT|NSW TRAINLINK/.test(joined)) return `XPT leading set ${vehicle.tripId?.split(".")[0] || vehicle.tdn}`;
+  if (/SPRINTER|N\s*CLASS|N-?SET|LOCOMOTIVE|LOCO/.test(joined) || N_CLASS_CONSIST_PATTERN.test(joined) || SPRINTER_CONSIST_PATTERN.test(joined)) {
+    const allocation = getCurrentVlineAllocation(vehicle);
+    return `V/Line leading set ${allocation?.setIds.join(" + ") || vehicle.leadingSet?.setId || vehicle.consist.trim() || vehicle.tdn}`;
+  }
+  if (!/VLOCITY|\bV\d{3,4}\b/.test(joined) && isVlineLiveTrain(vehicle)) {
+    const allocation = getCurrentVlineAllocation(vehicle);
+    return `V/Line leading set ${allocation?.setIds.join(" + ") || vehicle.leadingSet?.setId || vehicle.consist.trim() || vehicle.tdn}`;
+  }
   return "";
 }
 
@@ -832,7 +1083,7 @@ function getFleetRealtimeLabel(vehicle: LiveTrain) {
     return `${formatServiceClock(vehicle.timestamp)} ${getPublicServiceCode(buildFleetRoute(vehicle), vehicle.line)} Service`;
   }
 
-  return `${formatServiceClock(vehicle.timestamp)} (${getRegionalFleetRouteLabel(vehicle)}) (${getRegionalFleetCarLength(vehicle)}) (${getRegionalFleetTrainFamily(vehicle)})`;
+  return [formatServiceClock(vehicle.timestamp), getRegionalFleetRouteLabel(vehicle), getRegionalFleetCarLength(vehicle), getRegionalFleetTrainFamily(vehicle)].filter(Boolean).join(" · ");
 }
 
 function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
@@ -840,7 +1091,7 @@ function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
     const fleet = inferFleetTypeKey(vehicle);
     return {
       id: `${vehicle.consist}-${vehicle.tdn}-${index}`,
-      focusKey: `${vehicle.consist}::${vehicle.tdn}`,
+      focusKey: getVehicleFocusKey(vehicle),
       tdn: vehicle.tdn.startsWith("TDN") ? vehicle.tdn : `TDN ${vehicle.tdn}`,
       tripNumber: vehicle.tdn.replace(/^TDN\s*/i, "").trim(),
       line: vehicle.line,
@@ -859,11 +1110,88 @@ function buildFleetTripsFromLive(vehicles: LiveTrain[]): FleetTrip[] {
   });
 }
 
+// Real chassis manufacturer + model (Volvo B8RLE, Scania K320UB, BYD D9RA,
+// ...) from the bus fleet database, for DISPLAY only — never guessed from
+// body style, since a Volgren Optimus body sits on diesel, hybrid and
+// electric chassis alike. Falls back to "Unidentified model" for a bus
+// whose registration/fleet number isn't in the database. Bus grouping
+// itself is by operator (see busFilterGroup) — this is shown as a subtitle
+// on each row so the real vehicle model is still visible per-bus.
+function getBusChassisLabel(vehicle: LiveBus) {
+  const info = lookupBusFleetInfo(vehicle);
+  if (!info) return "Unidentified model";
+  const model = info.chassisModel.replace(/\s+-\s+(Cat|Cummins|Volvo|Detroit|MAN|Scania)$/i, "");
+  return `${info.chassisManufacturer} ${model}`.trim();
+}
+
+function buildBusFleetTrips(vehicles: LiveBus[], region: "vic" | "nsw" = "vic"): FleetTrip[] {
+  return vehicles.map((vehicle, index) => {
+    const identity = vehicle.fleetNumber ?? vehicle.registration ?? vehicle.vehicleId ?? "";
+    const operator = vehicle.operator ?? (region === "nsw" ? "Sydney bus network" : "PTV contracted bus service");
+    return {
+      id: `bus-${region}-${vehicle.id}-${index}`,
+      focusKey: `bus:${vehicle.tripId ?? vehicle.id}`,
+      tdn: identity ? `Bus ${identity}` : `Route ${vehicle.route}`,
+      tripNumber: vehicle.route,
+      line: operator,
+      route: vehicle.destination ? `To ${vehicle.destination}` : `Route ${vehicle.route}`,
+      // Region-prefixed so a Victorian and NSW operator never collide under
+      // the same filter key — see busFilterGroups below, which splits these
+      // into separate "Victoria Buses" / "NSW Buses" sections.
+      fleet: `bus:${region}-${slugifyFleetLabel(operator)}` as BusTypeFleetKey,
+      status: vehicle.timestamp ? "running" : "upcoming",
+      lineColor: "border border-orange-400/25 bg-orange-500/10 text-orange-200",
+      statusLabel: formatFleetUpdatedAt(vehicle.timestamp),
+      updatedAt: vehicle.timestamp ?? "",
+      consist: vehicle.registration ?? "",
+      setNumber: identity,
+      realtimeLabel: "",
+      consistPublicLabel: "",
+      specialLabel: "",
+      vehicleModel: region === "nsw" ? undefined : getBusChassisLabel(vehicle),
+    };
+  });
+}
+
+function buildTramFleetTrips(vehicles: LiveTram[], region: "vic" | "nsw" = "vic"): FleetTrip[] {
+  return vehicles.map((vehicle, index) => {
+    const operator = vehicle.operator ?? (region === "nsw" ? "Sydney Light Rail" : "Yarra Trams");
+    // NSW light rail has no "class" concept the way Melbourne's tram fleet
+    // does (B2, E, A2, ...) — its own two real operators (CBD & South East /
+    // Newcastle) are the meaningful grouping there instead, so group by
+    // operator rather than by vehicle.label for that region.
+    const groupLabel = region === "nsw" ? operator : vehicle.label || "unknown";
+    return {
+      id: `tram-${region}-${vehicle.id}-${index}`,
+      focusKey: `tram:${vehicle.tripId ?? vehicle.id}`,
+      tdn: vehicle.fleetNumber ? `Tram ${vehicle.fleetNumber}` : `Route ${vehicle.route}`,
+      tripNumber: vehicle.route,
+      line: operator,
+      route: vehicle.destination ? `To ${vehicle.destination}` : `Route ${vehicle.route}`,
+      fleet: `tram:${region}-${slugifyFleetLabel(groupLabel)}` as TramClassFleetKey,
+      status: vehicle.timestamp ? "running" : "upcoming",
+      lineColor: "border border-emerald-400/25 bg-emerald-500/10 text-emerald-200",
+      statusLabel: formatFleetUpdatedAt(vehicle.timestamp),
+      updatedAt: vehicle.timestamp ?? "",
+      consist: "",
+      setNumber: vehicle.fleetNumber ?? "",
+      realtimeLabel: "",
+      consistPublicLabel: "",
+      specialLabel: "",
+      // Shown as a small "Operated by ..." line above the fleet name, the
+      // same way Google Transit shows "Operated by Sydney Trains" above a
+      // vehicle's consist — Victorian trams are all Yarra Trams-operated in
+      // reality, but that fact was previously buried in the Line badge only.
+      vehicleModel: `Operated by ${operator}`,
+    };
+  });
+}
+
 function getFleetTripSortScore(trip: FleetTrip) {
   const seen = trip.updatedAt ? new Date(trip.updatedAt).getTime() : 0;
   const recencyScore = Number.isFinite(seen) ? seen : 0;
   const activeBonus = trip.status === "running" ? 10_000_000_000_000 : 0;
-  const regionalBonus = trip.fleet === "xpt" || trip.fleet === "vlocity" || trip.fleet === "n-class" ? 5_000 : 0;
+  const regionalBonus = trip.fleet === "xpt" || trip.fleet === "vlocity" || trip.fleet === "n-class" || trip.fleet === "sprinter" ? 5_000 : 0;
   return activeBonus + recencyScore + regionalBonus;
 }
 
@@ -900,17 +1228,32 @@ function formatPlannerDuration(totalMinutes: number) {
   return `${hours}h ${minutes}m`;
 }
 
-function getJourneyLegModeTone(mode: JourneyLeg["mode"]) {
-  switch (mode) {
+// Train legs use the real line's own colour (the same lookup the map uses),
+// since "Frankston line" and "Sandringham line" are visually distinct
+// everywhere else in the app — a single flat blue for every train leg here
+// was the odd one out. Tram and bus stay their established mode colours.
+function getJourneyLegAccentColor(leg: JourneyLeg): string {
+  switch (leg.mode) {
     case "train":
-      return "border-sky-400/20 bg-sky-500/10 text-sky-100";
+      return getLiveLineColor(leg.title);
     case "tram":
-      return "border-lime-400/20 bg-lime-500/10 text-lime-100";
+      return "#34d399";
     case "bus":
-      return "border-orange-400/20 bg-orange-500/10 text-orange-100";
+      return "#FF8200";
     default:
-      return "border-white/10 bg-white/5 text-white/80";
+      return "#94a3b8";
   }
+}
+
+function formatRelativeMinutes(targetIso: string): string {
+  const diffMs = new Date(targetIso).getTime() - Date.now();
+  const diffMinutes = Math.round(diffMs / 60000);
+  if (diffMinutes <= 0) return "due now";
+  if (diffMinutes === 1) return "in 1 min";
+  if (diffMinutes < 60) return `in ${diffMinutes} mins`;
+  const hours = Math.floor(diffMinutes / 60);
+  const mins = diffMinutes % 60;
+  return mins > 0 ? `in ${hours}h ${mins}m` : `in ${hours}h`;
 }
 
 function journeyLegsOrigin(display: JourneyDisplay) {
@@ -1234,7 +1577,14 @@ export default function Home() {
   const queryClient = useQueryClient();
   const { data: authSession } = useQuery({
     queryKey: ["auth-session"],
-    queryFn: fetchAuthSession,
+    queryFn: async () => {
+      const session = await fetchAuthSession();
+      if (session.authenticated) return session;
+      const guestSession = await continueAsGuest();
+      markGuestIntent();
+      return guestSession;
+    },
+    refetchOnMount: "always",
     retry: false,
     staleTime: 60_000,
   });
@@ -1246,6 +1596,35 @@ export default function Home() {
     refetchInterval: isMobile ? 30_000 : 15_000,
     staleTime: isMobile ? 20_000 : 10_000,
   });
+  const { data: liveFleetBuses = [] } = useQuery({
+    queryKey: ["live-fleet-board", "buses"],
+    queryFn: () => fetchLiveBuses(),
+    enabled: Boolean(authSession?.authenticated),
+    retry: false,
+    refetchInterval: isMobile ? 30_000 : 15_000,
+    staleTime: isMobile ? 20_000 : 10_000,
+  });
+  const { data: liveFleetTrams = [], isError: isLiveTramsError } = useQuery({
+    queryKey: ["live-fleet-board", "trams"],
+    queryFn: () => fetchLiveTrams(),
+    enabled: Boolean(authSession?.authenticated),
+    retry: false,
+    refetchInterval: isMobile ? 30_000 : 15_000,
+    staleTime: isMobile ? 20_000 : 10_000,
+  });
+  // Sydney buses/light rail — a separate NSW Transport Open Data product from
+  // the Melbourne PTV feeds above, so it's its own query rather than folded
+  // into the Melbourne ones (see api/ptv/sydney-transit.js).
+  const { data: sydneyTransitData } = useQuery({
+    queryKey: ["live-fleet-board", "sydney-transit"],
+    queryFn: () => fetchSydneyTransit(),
+    enabled: Boolean(authSession?.authenticated),
+    retry: false,
+    refetchInterval: isMobile ? 30_000 : 15_000,
+    staleTime: isMobile ? 20_000 : 10_000,
+  });
+  const sydneyLiveBuses = sydneyTransitData?.buses ?? [];
+  const sydneyLiveTrams = sydneyTransitData?.trams ?? [];
   const { data: metroJourneyAlerts = [] } = useQuery({
     queryKey: ["/api/metro-notify/alerts", "journey-brief"],
     queryFn: fetchMetroNotifyAlerts,
@@ -1259,6 +1638,7 @@ export default function Home() {
     const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [isUtilityPanelOpen, setIsUtilityPanelOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isVersionOpen, setIsVersionOpen] = useState(false);
   const [isVersionFirstOpen, setIsVersionFirstOpen] = useState(false);
@@ -1280,6 +1660,7 @@ export default function Home() {
   const [journeyOrigin, setJourneyOrigin] = useState<string>("Flinders Street");
   const [journeyDestination, setJourneyDestination] = useState<string>("Sandringham");
   const [journeyRoute, setJourneyRoute] = useState<Station[]>([]);
+  const [journeyLegSegments, setJourneyLegSegments] = useState<JourneyLegSegment[]>([]);
   const [journeySummary, setJourneySummary] = useState<string>("Plan a journey using the fields below.");
   const [journeyBoardingAdvice, setJourneyBoardingAdvice] = useState<string>("");
   const [journeyDisplay, setJourneyDisplay] = useState<JourneyDisplay | null>(null);
@@ -1327,7 +1708,10 @@ export default function Home() {
   >({});
   const isAdmin = authSession?.user?.isAdmin ?? false;
   const isGuest = authSession?.user?.role === "Guest";
-  const isPremium = hasPremiumAccess(preferences);
+  // Admins already have more access than Premium unlocks — never let a stored
+  // preferences flag (which may predate this account becoming admin) gate a
+  // premium feature away from them.
+  const isPremium = isAdmin || hasPremiumAccess(preferences);
   const mobilePerformanceMode = getMobilePerformanceMode(preferences);
   const premiumPaypalLink = getPremiumPaypalLink(preferences);
   const favouriteConsists = getFavouriteConsists(preferences);
@@ -1369,6 +1753,10 @@ export default function Home() {
   });
   const adminAccounts = adminAccountsPayload?.accounts ?? [];
   const approvedDebugTesters = adminAccountsPayload?.approvedDebugTesters ?? [];
+
+  const broadcastWelcomeMutation = useMutation({
+    mutationFn: broadcastWelcomeEmail,
+  });
 
   const signOutMutation = useMutation({
     mutationFn: logoutSession,
@@ -1418,48 +1806,6 @@ export default function Home() {
     () => new Map(uniqueStations.map((station) => [station.name.trim().toLowerCase(), station])),
     [uniqueStations],
   );
-  const plannerNetwork = useMemo(() => {
-    const graph = new Map<string, Array<{ to: string; line: string; mode: JourneyLeg["mode"] }>>();
-
-    const addConnection = (from: string, to: string, line: string, mode: JourneyLeg["mode"]) => {
-      const edges = graph.get(from) ?? [];
-      edges.push({ to, line, mode });
-      graph.set(from, edges);
-    };
-
-    if ((preferences.transportModes as TransportMode[]).includes("train")) {
-      for (const line of PLANNER_LINES) {
-        for (let index = 0; index < line.stations.length - 1; index += 1) {
-          const current = line.stations[index];
-          const next = line.stations[index + 1];
-          if (!current || !next) continue;
-          addConnection(current.name, next.name, line.name, "train");
-          addConnection(next.name, current.name, line.name, "train");
-        }
-      }
-    }
-
-    for (const route of SIMPLE_SURFACE_ROUTES) {
-      if (!(preferences.transportModes as TransportMode[]).includes(route.mode)) continue;
-      for (let index = 0; index < route.stops.length - 1; index += 1) {
-        const current = route.stops[index];
-        const next = route.stops[index + 1];
-        if (!current || !next) continue;
-        addConnection(current, next, route.name, route.mode);
-        addConnection(next, current, route.name, route.mode);
-      }
-    }
-
-    // Passenger walking transfer between the Route 703 street stop and the
-    // Clayton railway platforms. Keep this explicit so the itinerary uses the
-    // stop names people see on signs and in Google/PTV directions.
-    addConnection("Clayton Station/Carinish Rd", "Clayton", "Walk to Clayton railway platforms", "walk");
-    addConnection("Clayton", "Clayton Station/Carinish Rd", "Walk to Route 703 stop", "walk");
-    addConnection("Huntingdale Station/Haughton Rd", "Huntingdale", "Walk to Huntingdale railway platforms", "walk");
-    addConnection("Huntingdale", "Huntingdale Station/Haughton Rd", "Walk to Route 630 stop", "walk");
-
-    return graph;
-  }, [preferences.transportModes]);
   const journeyTrainLeg = journeyDisplay?.legs.find((leg) => leg.mode === "train") ?? null;
   const { data: journeyTrainDepartures } = useQuery({
     queryKey: ["journey-train-departures", journeyTrainLeg?.from],
@@ -1475,58 +1821,180 @@ export default function Home() {
     if (!journeyTrainLeg || !journeyTrainDepartures?.departures) return [];
     const routeText = journeyTrainLeg.title.toLowerCase();
     const now = Date.now() - 60_000;
+
+    // Matching on line name alone isn't enough — a line runs both directions,
+    // so "Frankston line" departures from a station include trains heading
+    // both toward the city AND away from it. Without also checking direction,
+    // this could recommend boarding a real, correctly-timed train that's
+    // going the opposite way from where this leg is actually headed. Resolve
+    // the real line's station order (already used elsewhere for corridor
+    // labels) and only keep departures whose destination lies on the same
+    // side of the boarding stop as this leg's own destination.
+    // Leg names come from the real GTFS stop ("Ormond Station"); LINES uses
+    // the app's own bare station names ("Ormond") — strip the suffix before
+    // comparing or this never matches anything at all.
+    const stripStationSuffix = (value: string) => value.replace(/\s+(railway\s+)?station$/i, "").trim().toLowerCase();
+    const legFromKey = stripStationSuffix(journeyTrainLeg.from);
+    const legToKey = stripStationSuffix(journeyTrainLeg.to);
+    const lineEntry = Object.values(LINES).find(
+      (stations) =>
+        stations.some((station) => stripStationSuffix(station.name) === legFromKey) &&
+        stations.some((station) => stripStationSuffix(station.name) === legToKey),
+    );
+    const fromIndex = lineEntry?.findIndex((station) => stripStationSuffix(station.name) === legFromKey) ?? -1;
+    const toIndex = lineEntry?.findIndex((station) => stripStationSuffix(station.name) === legToKey) ?? -1;
+    const directionSign = lineEntry && fromIndex !== -1 && toIndex !== -1 ? Math.sign(toIndex - fromIndex) : 0;
+    const resolveStationIndex = (text: string) => {
+      if (!lineEntry) return -1;
+      let bestIndex = -1;
+      let bestLength = 0;
+      for (let index = 0; index < lineEntry.length; index += 1) {
+        const name = lineEntry[index].name.toLowerCase();
+        if (text.includes(name) && name.length > bestLength) {
+          bestIndex = index;
+          bestLength = name.length;
+        }
+      }
+      return bestIndex;
+    };
+
     return journeyTrainDepartures.departures
       .filter((departure) => {
         const serviceText = `${departure.route} ${departure.destination}`.toLowerCase();
         const routeMatches = /pakenham/.test(routeText)
           ? /pakenham/.test(serviceText)
           : routeText.split(" ").some((part) => part.length > 4 && serviceText.includes(part));
-        return routeMatches && new Date(departure.expectedAt || departure.scheduledAt).getTime() >= now;
+        if (!routeMatches || new Date(departure.expectedAt || departure.scheduledAt).getTime() < now) return false;
+
+        if (directionSign !== 0) {
+          const destinationIndex = resolveStationIndex((departure.destination || "").toLowerCase());
+          if (destinationIndex !== -1 && Math.sign(destinationIndex - fromIndex) !== directionSign) return false;
+        }
+        return true;
       })
       .sort((left, right) => new Date(left.expectedAt || left.scheduledAt).getTime() - new Date(right.expectedAt || right.scheduledAt).getTime())
       .slice(0, 2);
   }, [journeyTrainDepartures, journeyTrainLeg]);
+  const journeySurfaceLeg = journeyDisplay?.legs.find((leg) => leg.mode === "bus" || leg.mode === "tram") ?? null;
+  const journeySurfaceLegStop = journeySurfaceLeg
+    ? journeyRoute.find((station) => station.name === journeySurfaceLeg.from) ?? null
+    : null;
+  const { data: journeySurfaceDepartures } = useQuery({
+    queryKey: ["journey-surface-departures", journeySurfaceLeg?.mode, journeySurfaceLegStop?.name, journeySurfaceLeg?.title],
+    queryFn: () =>
+      fetchSurfaceStopDepartures({
+        mode: journeySurfaceLeg!.mode as "bus" | "tram",
+        route: journeySurfaceLeg!.title,
+        lat: journeySurfaceLegStop!.position[0],
+        lng: journeySurfaceLegStop!.position[1],
+      }),
+    enabled: Boolean(journeySurfaceLeg && journeySurfaceLegStop),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
+    retry: 3,
+  });
+  const journeyMatchingSurfaceDepartures = useMemo(() => {
+    if (!journeySurfaceLeg || !journeySurfaceDepartures?.departures) return [];
+    const now = Date.now() - 60_000;
+    return journeySurfaceDepartures.departures
+      .filter((departure) => new Date(departure.expectedAt || departure.scheduledAt).getTime() >= now)
+      .sort((left, right) => new Date(left.expectedAt || left.scheduledAt).getTime() - new Date(right.expectedAt || right.scheduledAt).getTime())
+      .slice(0, 2);
+  }, [journeySurfaceDepartures, journeySurfaceLeg]);
   const lineKeys = useMemo(() => Object.keys(LINES), []);
 
-  const selectedFleetFilterLabel = useMemo(
-    () => FLEET_FILTERS.find((filter) => filter.key === selectedFleetType)?.label ?? "All",
-    [selectedFleetType],
+  const liveFleetTrips = useMemo(
+    () => [
+      ...buildFleetTripsFromLive(liveFleetVehicles),
+      ...buildBusFleetTrips(liveFleetBuses, "vic"),
+      ...buildBusFleetTrips(sydneyLiveBuses, "nsw"),
+      ...buildTramFleetTrips(liveFleetTrams, "vic"),
+      ...buildTramFleetTrips(sydneyLiveTrams, "nsw"),
+    ],
+    [liveFleetVehicles, liveFleetBuses, liveFleetTrams, sydneyLiveBuses, sydneyLiveTrams],
   );
-  const liveFleetTrips = useMemo(() => buildFleetTripsFromLive(liveFleetVehicles), [liveFleetVehicles]);
   const fleetCountByType = useMemo(
     () =>
-      liveFleetTrips.reduce<Record<FleetTypeKey, number>>(
-        (counts, trip) => {
-          counts[trip.fleet] += 1;
-          return counts;
-        },
-        {
-          hcmt: 0,
-          xtrapolis: 0,
-          siemens: 0,
-          "ss-comeng": 0,
-          "ns-comeng": 0,
-          "n-class": 0,
-          vlocity: 0,
-          xpt: 0,
-          tangara: 0,
-          "waratah-a": 0,
-          "waratah-b": 0,
-          millennium: 0,
-          "k-set": 0,
-          oscar: 0,
-          mariyung: 0,
-          "v-set": 0,
-          endeavour: 0,
-          hunter: 0,
-          xplorer: 0,
-          metropolis: 0,
-        },
-      ),
+      liveFleetTrips.reduce<Record<string, number>>((counts, trip) => {
+        counts[trip.fleet] = (counts[trip.fleet] ?? 0) + 1;
+        return counts;
+      }, {}),
     [liveFleetTrips],
   );
+  // Bus operators and tram classes aren't a fixed enum like train rolling
+  // stock — they're read straight from whatever the live feed reports right
+  // now, so their filter buttons are generated from live data instead of a
+  // hardcoded list that could drift out of date.
+  const victoriaBusFilterGroup = useMemo<FleetFilterGroup>(() => {
+    const operatorLabels = new Map<BusTypeFleetKey, string>();
+    for (const bus of liveFleetBuses) {
+      const operator = bus.operator?.trim() || "PTV contracted bus service";
+      operatorLabels.set(`bus:vic-${slugifyFleetLabel(operator)}`, operator);
+    }
+    return {
+      label: "Victoria Buses",
+      filters: Array.from(operatorLabels, ([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label)),
+    };
+  }, [liveFleetBuses]);
+  const nswBusFilterGroup = useMemo<FleetFilterGroup>(() => {
+    const operatorLabels = new Map<BusTypeFleetKey, string>();
+    for (const bus of sydneyLiveBuses) {
+      const operator = bus.operator?.trim() || "Sydney bus network";
+      operatorLabels.set(`bus:nsw-${slugifyFleetLabel(operator)}`, operator);
+    }
+    return {
+      label: "NSW Buses",
+      filters: Array.from(operatorLabels, ([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label)),
+    };
+  }, [sydneyLiveBuses]);
+  const victoriaTramFilterGroup = useMemo<FleetFilterGroup>(() => {
+    const classLabels = new Map<TramClassFleetKey, string>();
+    for (const tram of liveFleetTrams) {
+      const tramClass = tram.label?.trim() || "Unknown";
+      classLabels.set(`tram:vic-${slugifyFleetLabel(tramClass)}`, `${tramClass} class`);
+    }
+    return {
+      label: "Victoria Trams",
+      filters: Array.from(classLabels, ([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label)),
+    };
+  }, [liveFleetTrams]);
+  const nswTramFilterGroup = useMemo<FleetFilterGroup>(() => {
+    const operatorLabels = new Map<TramClassFleetKey, string>();
+    for (const tram of sydneyLiveTrams) {
+      const operator = tram.operator?.trim() || "Sydney Light Rail";
+      operatorLabels.set(`tram:nsw-${slugifyFleetLabel(operator)}`, operator);
+    }
+    return {
+      label: "NSW Trams",
+      filters: Array.from(operatorLabels, ([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label)),
+    };
+  }, [sydneyLiveTrams]);
+  const allFleetFilterGroups = useMemo(
+    () => [...FLEET_FILTER_GROUPS, victoriaBusFilterGroup, nswBusFilterGroup, victoriaTramFilterGroup, nswTramFilterGroup],
+    [victoriaBusFilterGroup, nswBusFilterGroup, victoriaTramFilterGroup, nswTramFilterGroup],
+  );
+  const allFleetFilters = useMemo(
+    () => allFleetFilterGroups.flatMap((group) => group.filters),
+    [allFleetFilterGroups],
+  );
+  const fleetTypeLabels = useMemo(
+    () => new Map<string, string>([
+      ...FLEET_TYPES.map((type) => [type.key, type.label] as const),
+      ...victoriaBusFilterGroup.filters.map((filter) => [filter.key, filter.label] as const),
+      ...nswBusFilterGroup.filters.map((filter) => [filter.key, filter.label] as const),
+      ...victoriaTramFilterGroup.filters.map((filter) => [filter.key, filter.label] as const),
+      ...nswTramFilterGroup.filters.map((filter) => [filter.key, filter.label] as const),
+    ]),
+    [victoriaBusFilterGroup, nswBusFilterGroup, victoriaTramFilterGroup, nswTramFilterGroup],
+  );
+  const selectedFleetFilterLabel = useMemo(
+    () => allFleetFilters.find((filter) => filter.key === selectedFleetType)?.label ?? "All",
+    [allFleetFilters, selectedFleetType],
+  );
   const getFleetFilterCount = useCallback(
-    (fleetKey: FleetFilterKey) => (fleetKey === "all" ? liveFleetTrips.length : fleetCountByType[fleetKey]),
+    (fleetKey: FleetFilterKey) => (fleetKey === "all" ? liveFleetTrips.length : fleetCountByType[fleetKey] ?? 0),
     [fleetCountByType, liveFleetTrips.length],
   );
   const fleetTripsForSelection = useMemo(
@@ -1537,7 +2005,7 @@ export default function Home() {
       const query = fleetSearchQuery.trim().toLowerCase();
       if (!query) return byType;
       return byType.filter((trip) =>
-        `${trip.tdn} ${trip.tripNumber} ${trip.setNumber} ${trip.route} ${trip.line} ${trip.fleet}`
+        `${trip.tdn} ${trip.tripNumber} ${trip.setNumber} ${trip.route} ${trip.line} ${trip.fleet} ${trip.vehicleModel ?? ""}`
           .toLowerCase()
           .includes(query),
       );
@@ -1656,6 +2124,7 @@ export default function Home() {
 
   const finishJourney = useCallback(() => {
     setJourneyRoute([]);
+    setJourneyLegSegments([]);
     setJourneySummary("Plan a journey using the fields below.");
     setJourneyBoardingAdvice("");
     setJourneyDisplay(null);
@@ -1690,8 +2159,36 @@ export default function Home() {
         setOriginPickerMessage("Current location ready.");
         setIsOriginPickerOpen(false);
       },
-      () => {
-        setOriginPickerMessage("Couldn't fetch your current location just now.");
+      (error) => {
+        // An installed PWA is a separate app to the OS, so a location grant
+        // given to the site in a regular browser tab doesn't carry over —
+        // the OS blocks the request until the installed app itself is given
+        // location permission, which reports as PERMISSION_DENIED here with
+        // no prompt ever shown. Callers who only saw the generic message
+        // couldn't tell that apart from a plain "you said no".
+        //
+        // Confirmed against a real device: iOS does not give "Add to Home
+        // Screen" web apps their own entry in Settings > Location Services at
+        // all in many iOS versions (Settings for the installed TransitAlert
+        // icon showed only "Notifications", no Location row whatsoever) — so
+        // telling an iOS user to go toggle it there sends them to a setting
+        // that doesn't exist. The only real workaround is using the site in
+        // Safari directly, where geolocation isn't tied to the home-screen icon.
+        if (error.code === error.PERMISSION_DENIED) {
+          setOriginPickerMessage(
+            isStandaloneApp() && isIosDevice()
+              ? "The installed TransitAlert app can't get your location — iOS doesn't expose a Location permission for home-screen web apps. Open transit-alert.com in Safari directly (not the home-screen icon) to use current location there."
+              : isStandaloneApp()
+                ? "Location is blocked for the installed TransitAlert app. Check Settings > Apps > TransitAlert > Permissions > Location and allow it, then try again."
+                : "Location access is blocked for this site. Allow it in your browser's site settings, then try again.",
+          );
+          return;
+        }
+        if (error.code === error.TIMEOUT) {
+          setOriginPickerMessage("Location took too long to respond. Try again.");
+          return;
+        }
+        setOriginPickerMessage("Your device couldn't determine a location just now.");
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     );
@@ -1854,12 +2351,6 @@ export default function Home() {
     setIsUtilityPanelOpen(true);
   }, [activeTab]);
 
-  useEffect(() => {
-    if (authSession && !isAuthenticated) {
-      setLocation("/login");
-    }
-  }, [authSession, isAuthenticated, setLocation]);
-
   const findNearestStation = useCallback(
     (coords: [number, number]) => {
       return uniqueStations
@@ -1872,48 +2363,6 @@ export default function Home() {
         .sort((left, right) => left.distance - right.distance)[0]?.station ?? null;
     },
     [uniqueStations],
-  );
-
-  const buildJourneyPath = useCallback(
-    (originName: string, destinationName: string) => {
-      if (originName === destinationName) {
-        return { stationNames: [originName], edges: [] as Array<{ line: string; mode: JourneyLeg["mode"] }> };
-      }
-
-      const visited = new Set<string>([originName]);
-      const queue = [originName];
-      const previous = new Map<string, { station: string; line: string; mode: JourneyLeg["mode"] }>();
-
-      while (queue.length > 0) {
-        const current = queue.shift();
-        if (!current) continue;
-        if (current === destinationName) break;
-
-        for (const edge of plannerNetwork.get(current) ?? []) {
-          if (visited.has(edge.to)) continue;
-          visited.add(edge.to);
-          previous.set(edge.to, { station: current, line: edge.line, mode: edge.mode });
-          queue.push(edge.to);
-        }
-      }
-
-      if (!visited.has(destinationName)) return null;
-
-      const stationNames: string[] = [destinationName];
-      const edges: Array<{ line: string; mode: JourneyLeg["mode"] }> = [];
-      let cursor = destinationName;
-
-      while (cursor !== originName) {
-        const step = previous.get(cursor);
-        if (!step) return null;
-        edges.unshift({ line: step.line, mode: step.mode });
-        stationNames.unshift(step.station);
-        cursor = step.station;
-      }
-
-      return { stationNames, edges };
-    },
-    [plannerNetwork],
   );
 
   const getJourneyBoardingAdvice = (route: Station[], summary: string) => {
@@ -1953,8 +2402,9 @@ export default function Home() {
     };
   };
 
-  const applyJourneyPlan = (route: Station[], summary: string, display?: JourneyDisplay) => {
+  const applyJourneyPlan = (route: Station[], summary: string, display?: JourneyDisplay, legSegments?: JourneyLegSegment[]) => {
     setJourneyRoute(route);
+    setJourneyLegSegments(legSegments ?? []);
     setJourneySummary(summary);
     setJourneyBoardingAdvice(getJourneyBoardingAdvice(route, summary));
     setJourneyDisplay(display ?? null);
@@ -1963,15 +2413,14 @@ export default function Home() {
     setAttachedJourneyServiceLabel(null);
   };
 
-  const computeJourneyRoute = () => {
+  const computeJourneyRoute = async () => {
     try {
-      setJourneyPlannerMessage("");
+      setJourneyPlannerMessage("Planning your journey against the live network…");
       const trimmedDestination = journeyDestination.trim();
       const destination =
         stationByName.get(trimmedDestination) ??
         stationByNormalizedName.get(trimmedDestination.toLowerCase()) ??
         null;
-      const isHomeOrigin = journeyOrigin === HOME_ORIGIN_LABEL;
       const isCurrentLocationOrigin = currentLocationOrigin !== null && journeyOrigin === currentLocationOrigin;
 
       let resolvedOrigin =
@@ -1979,53 +2428,34 @@ export default function Home() {
         stationByNormalizedName.get(journeyOrigin.trim().toLowerCase()) ??
         null;
       let accessLeg: JourneyLeg | null = null;
+      let originLat: number | undefined;
+      let originLng: number | undefined;
 
-    if (isHomeOrigin) {
-      const shouldUseRoute630Access =
-        /clayton|westall|springvale|sandown park|noble park|yarraman|dandenong|hallam|narre warren|berwick|beaconsfield|officer|cardinia road|pakenham/i.test(destination?.name ?? "");
-      const nearestHomeStation = shouldUseRoute630Access
-        ? stationByName.get("Hawthorn Rd/North Rd") ?? findNearestStation(HOME_ORIGIN_COORDS)
-        : findNearestStation(HOME_ORIGIN_COORDS);
-      if (nearestHomeStation) {
-        resolvedOrigin = nearestHomeStation;
-        accessLeg = {
-          mode: "walk",
-          title: "Start from home",
-          from: "15 Louise St, Brighton East",
-          to: nearestHomeStation.name,
-          detail: `Go to ${nearestHomeStation.name} first, then TransitAlert will attach the best rail leg.`,
-          badge: "Access",
-        };
+      if (isCurrentLocationOrigin && currentLocationCoords) {
+        originLat = currentLocationCoords[0];
+        originLng = currentLocationCoords[1];
+        const nearestGpsStation = findNearestStation(currentLocationCoords);
+        if (nearestGpsStation) {
+          resolvedOrigin = nearestGpsStation;
+          accessLeg = {
+            mode: "walk",
+            title: "Start from current location",
+            from: journeyOrigin,
+            to: nearestGpsStation.name,
+            detail: `Go to ${nearestGpsStation.name} first, then continue from there.`,
+            badge: "GPS",
+          };
+        }
       }
-    } else if (isCurrentLocationOrigin && currentLocationCoords) {
-      const [currentLat, currentLng] = currentLocationCoords;
-      const shouldUseRoute703Access =
-        currentLat >= -37.95 && currentLat <= -37.88 &&
-        currentLng >= 144.98 && currentLng <= 145.05 &&
-        /clayton|westall|springvale|sandown park|noble park|yarraman|dandenong|hallam|narre warren|berwick|beaconsfield|officer|cardinia road|pakenham/i.test(destination?.name ?? "");
-      const nearestGpsStation = shouldUseRoute703Access
-        ? stationByName.get("Lilac Cres/Centre Rd") ?? findNearestStation(currentLocationCoords)
-        : findNearestStation(currentLocationCoords);
-      if (nearestGpsStation) {
-        resolvedOrigin = nearestGpsStation;
-        accessLeg = {
-          mode: "walk",
-          title: "Start from current location",
-          from: journeyOrigin,
-          to: nearestGpsStation.name,
-          detail: `Go to ${nearestGpsStation.name} first, then continue from the best matching train line.`,
-          badge: "GPS",
-        };
-      }
-    }
 
-      if (!resolvedOrigin || !destination) {
-        applyJourneyPlan([], "Pick a valid destination and start point, then plan the trip again.");
-        setJourneyPlannerMessage("Choose a recognised start point and destination before planning.");
+      const trimmedOrigin = journeyOrigin.trim();
+      if ((!trimmedOrigin && originLat === undefined) || !trimmedDestination) {
+        applyJourneyPlan([], "Pick a start point and destination, then plan the trip again.");
+        setJourneyPlannerMessage("Choose a start point and destination before planning.");
         return;
       }
 
-      if (resolvedOrigin.name === destination.name) {
+      if (resolvedOrigin && destination && resolvedOrigin.name === destination.name) {
         const singleLegs: JourneyLeg[] = [
           ...(accessLeg ? [accessLeg] : []),
           {
@@ -2042,25 +2472,38 @@ export default function Home() {
           "You're already at your destination.",
           buildJourneyDisplay([resolvedOrigin], "You're already at your destination.", singleLegs, "Already there", "Station access"),
         );
+        setJourneyPlannerMessage("");
         return;
       }
 
-      const path = buildJourneyPath(resolvedOrigin.name, destination.name);
-      if (!path) {
+      const plan = await fetchJourneyPlan({
+        originName: resolvedOrigin?.name ?? (originLat === undefined ? trimmedOrigin : undefined),
+        originLat,
+        originLng,
+        destinationName: destination?.name ?? trimmedDestination,
+      });
+
+      if (!plan.found) {
+        const fallbackOrigin = resolvedOrigin ?? { name: trimmedOrigin, position: DEFAULT_FALLBACK_COORDS };
+        const fallbackDestination = destination ?? { name: trimmedDestination, position: DEFAULT_FALLBACK_COORDS };
         applyJourneyPlan(
-          [resolvedOrigin, destination],
+          [fallbackOrigin, fallbackDestination],
           "No clean through-route was found right now, so the planner kept your start and end pinned.",
           buildJourneyDisplay(
-            [resolvedOrigin, destination],
+            [fallbackOrigin, fallbackDestination],
             "No clean through-route was found right now.",
             [
               ...(accessLeg ? [accessLeg] : []),
               {
                 mode: "walk",
                 title: "Manual transfer",
-                from: resolvedOrigin.name,
-                to: destination.name,
-                detail: "Check live services manually or attach yourself to a specific trip below.",
+                from: fallbackOrigin.name,
+                to: fallbackDestination.name,
+                detail: plan.reason === "origin-not-found"
+                  ? "That start point couldn't be matched to a real stop or station."
+                  : plan.reason === "destination-not-found"
+                    ? "That destination couldn't be matched to a real stop or station."
+                    : "Check live services manually or attach yourself to a specific trip below.",
                 badge: "Fallback",
               },
             ],
@@ -2068,80 +2511,78 @@ export default function Home() {
             "Fallback route",
           ),
         );
+        setJourneyPlannerMessage("");
         return;
       }
 
-      const routeStations = path.stationNames
-        .map((stationName) => stationByName.get(stationName))
-        .filter((station): station is Station => Boolean(station));
-      const transitLegs: JourneyLeg[] = [];
-
-      if (path.edges.length > 0) {
-        let segmentStartIndex = 0;
-        let activeEdge = path.edges[0];
-
-        for (let index = 1; index <= path.edges.length; index += 1) {
-          const edgeAtIndex = path.edges[index];
-          if (edgeAtIndex?.line === activeEdge?.line && edgeAtIndex.mode === activeEdge.mode) continue;
-
-          const from = path.stationNames[segmentStartIndex] ?? resolvedOrigin.name;
-          const to = path.stationNames[index] ?? destination.name;
-          const stopCount = Math.max(index - segmentStartIndex, 0);
-          const mode = activeEdge?.mode ?? "train";
-          transitLegs.push({
-            mode,
-            title:
-              /Route 703/i.test(activeEdge?.line ?? "")
-                ? "Route 703 toward Blackburn"
-                : /Route 630/i.test(activeEdge?.line ?? "")
-                  ? "Route 630 toward Huntingdale Station"
-                  : mode === "train"
-                    ? `${activeEdge?.line ?? "Rail"} line`
-                    : activeEdge?.line ?? mode,
-            from,
-            to,
-            detail:
-              mode === "walk"
-                ? /Huntingdale/i.test(activeEdge?.line ?? "")
-                  ? "Walk about 140 m to the Huntingdale railway platforms"
-                  : "Walk about 250 m to the Clayton railway platforms"
-                : /Route 703/i.test(activeEdge?.line ?? "")
-                  ? "Ride approximately 35 stops to Clayton Station/Carinish Rd"
-                  : /Route 630/i.test(activeEdge?.line ?? "")
-                    ? "Ride approximately 30 stops to Huntingdale Station/Haughton Rd"
-                  : `${stopCount} stop${stopCount === 1 ? "" : "s"}${index < path.stationNames.length - 1 ? " before changing" : ""}`,
-            badge: mode === "tram" ? "Tram" : mode === "bus" ? "Bus" : "Train",
-          });
-
-          segmentStartIndex = index;
-          activeEdge = edgeAtIndex;
-        }
+      if (plan.alreadyThere) {
+        const arrivalStation = resolvedOrigin ?? destination ?? { name: trimmedDestination, position: DEFAULT_FALLBACK_COORDS };
+        applyJourneyPlan(
+          [arrivalStation],
+          "You're already at your destination.",
+          buildJourneyDisplay([arrivalStation], "You're already at your destination.", [
+            ...(accessLeg ? [accessLeg] : []),
+            { mode: "walk", title: "You have arrived", from: arrivalStation.name, to: arrivalStation.name, detail: "No further travel needed.", badge: "Arrived" },
+          ], "Already there", "Station access"),
+        );
+        setJourneyPlannerMessage("");
+        return;
       }
-      
+
+      const routeStations: Station[] = (plan.stops ?? []).map((stop) => ({
+        name: stop.name,
+        position: [stop.lat, stop.lng],
+      }));
+
+      // Slice the flat stop list back into one polyline per leg (using each
+      // leg's own stopsCount) so a train ride, a walk, and a bus ride each
+      // draw as their own distinct segment instead of one line straight
+      // through every stop regardless of mode.
+      const legSegments: JourneyLegSegment[] = [];
+      let stopCursor = 0;
+      for (const leg of plan.legs ?? []) {
+        const segmentPositions = routeStations
+          .slice(stopCursor, stopCursor + leg.stopsCount + 1)
+          .map((station): [number, number] => station.position);
+        if (segmentPositions.length >= 2) {
+          legSegments.push({ mode: leg.mode, positions: segmentPositions, routeLabel: leg.routeLabel });
+        }
+        stopCursor += leg.stopsCount;
+      }
+      if (accessLeg && legSegments.length > 0) {
+        const trueOriginPosition: [number, number] =
+          originLat !== undefined && originLng !== undefined ? [originLat, originLng] : DEFAULT_FALLBACK_COORDS;
+        legSegments.unshift({ mode: "walk", positions: [trueOriginPosition, legSegments[0].positions[0]] });
+      }
+
+      const transitLegs: JourneyLeg[] = (plan.legs ?? []).map((leg) => ({
+        mode: leg.mode,
+        title: leg.mode === "walk" ? "Walk" : leg.routeLabel,
+        from: leg.from,
+        to: leg.to,
+        detail: leg.mode === "walk"
+          ? `Walk about ${leg.distanceMetres ?? "a short distance"}${typeof leg.distanceMetres === "number" ? " m" : ""} to ${leg.to}`
+          : `${leg.stopsCount} stop${leg.stopsCount === 1 ? "" : "s"}${leg.headsign ? ` toward ${leg.headsign}` : ""}`,
+        badge: leg.mode === "tram" ? "Tram" : leg.mode === "bus" ? "Bus" : leg.mode === "walk" ? "Walk" : "Train",
+      }));
 
       const journeyLegs = [...(accessLeg ? [accessLeg] : []), ...transitLegs];
       if (accessLeg && transitLegs[0]) {
-        const boardingDirection = /Route 703/i.test(transitLegs[0].title)
-          ? "Use the stop for Route 703 buses toward Blackburn, on the Clayton Station side."
-          : /Route 630/i.test(transitLegs[0].title)
-            ? "Use the stop for Route 630 buses on the Huntingdale Station side."
-            : `Board the ${transitLegs[0].title} toward ${transitLegs[0].to}.`;
-        accessLeg.detail = `Walk from your current location to ${resolvedOrigin.name}. ${boardingDirection}`;
+        accessLeg.detail = `Walk from your current location to ${transitLegs[0].from}. Board the ${transitLegs[0].title} toward ${transitLegs[0].to}.`;
       }
-      const changeStations = transitLegs
-        .slice(0, -1)
-        .map((leg) => leg.to)
-        .filter(Boolean);
+      const boardableLegs = transitLegs.filter((leg) => leg.mode !== "walk");
+      const changeStations = boardableLegs.slice(0, -1).map((leg) => leg.to).filter(Boolean);
+      const finalDestinationName = destination?.name ?? trimmedDestination;
       const railSummary =
-        transitLegs.length <= 1
-          ? `Direct journey via ${transitLegs[0]?.title ?? "the selected network"} (${Math.max(routeStations.length - 1, 0)} stops).`
-          : `Stay on board, then change at ${changeStations.join(", ")} to finish the trip to ${destination.name}.`;
+        boardableLegs.length <= 1
+          ? `Direct journey via ${boardableLegs[0]?.title ?? "the selected network"} (${Math.max(routeStations.length - 1, 0)} stops).`
+          : `Stay on board, then change at ${changeStations.join(", ")} to finish the trip to ${finalDestinationName}.`;
       const summary = accessLeg
-        ? `Start from your location by heading to ${resolvedOrigin.name}. ${railSummary}`
+        ? `Start from your location by heading to ${transitLegs[0]?.from ?? finalDestinationName}. ${railSummary}`
         : railSummary;
       const pattern =
-        transitLegs.length <= 1
-          ? transitLegs[0]?.title ?? "Direct service"
+        boardableLegs.length <= 1
+          ? boardableLegs[0]?.title ?? "Direct service"
           : `Change at ${changeStations.join(" + ")}`;
 
       applyJourneyPlan(
@@ -2154,7 +2595,9 @@ export default function Home() {
           pattern,
           accessLeg || transitLegs.some((leg) => leg.mode !== "train") ? "Mixed-mode journey" : "Rail journey",
         ),
+        legSegments,
       );
+      setJourneyPlannerMessage("");
     } catch (error) {
       console.error("Journey planning failed", error);
       setJourneyPlannerMessage("Journey planning hit a problem. Your inputs were kept, so please try again.");
@@ -2480,7 +2923,7 @@ export default function Home() {
       return {
         eyebrow: "Journey Planner",
         title: "Plan across Victoria",
-        summary: "TransitAlert schedule routing with Google Maps and official Victorian journey-planner cross-checks.",
+        summary: "Real-time, multi-modal routing across trains, trams, and buses — planned end to end from the official Victorian GTFS schedule.",
       };
     }
     if (activeTab === "fleets") {
@@ -2595,10 +3038,21 @@ export default function Home() {
         />
       )}
 
+      {isDesktopSidebarCollapsed && (
+        <button
+          type="button"
+          aria-label="Open navigation"
+          onClick={() => setIsDesktopSidebarCollapsed(false)}
+          className="absolute left-3 top-3 z-[72] hidden h-11 w-11 place-items-center rounded-2xl border border-white/15 bg-slate-950/90 text-white shadow-2xl backdrop-blur-xl md:grid"
+        >
+          <PanelLeftOpen className="h-5 w-5" />
+        </button>
+      )}
+
       <aside
-        className={`absolute inset-y-0 left-0 z-[70] flex w-[min(84vw,19rem)] flex-col border-r border-white/10 bg-slate-950/94 p-3 text-white shadow-2xl backdrop-blur-2xl transition-transform duration-200 md:w-60 md:translate-x-0 ${
+        className={`absolute inset-y-0 left-0 z-[70] flex w-[min(84vw,19rem)] flex-col border-r border-white/10 bg-slate-950/94 p-3 text-white shadow-2xl backdrop-blur-2xl transition-transform duration-200 md:w-60 ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        } ${isDesktopSidebarCollapsed ? "md:-translate-x-full" : "md:translate-x-0"}`}
       >
         <div className="flex items-center justify-between rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-3">
           <div>
@@ -2608,6 +3062,15 @@ export default function Home() {
           </div>
           <button type="button" aria-label="Close navigation" onClick={() => setIsSidebarOpen(false)} className="grid h-9 w-9 place-items-center rounded-xl text-white/65 hover:bg-white/10 hover:text-white md:hidden">
             <X className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Collapse navigation"
+            title="Collapse sidebar"
+            onClick={() => setIsDesktopSidebarCollapsed(true)}
+            className="hidden h-9 w-9 place-items-center rounded-xl text-white/65 hover:bg-white/10 hover:text-white md:grid"
+          >
+            <PanelLeftClose className="h-5 w-5" />
           </button>
         </div>
 
@@ -2778,27 +3241,6 @@ export default function Home() {
                 <div className="mt-4 space-y-3">
                   <button
                     type="button"
-                    onClick={() => {
-                      setJourneyOrigin(HOME_ORIGIN_LABEL);
-                      setOriginPickerMessage("");
-                      setIsOriginPickerOpen(false);
-                    }}
-                    className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-4 text-left transition hover:bg-white/10"
-                  >
-                    <div className="flex items-center gap-3">
-                      <MapPin className="h-5 w-5 text-blue-300" />
-                      <div>
-                        <p className="text-base font-semibold text-white">Home · 15 Louise St, Brighton East</p>
-                        <p className="text-xs text-white/55">Saved Tyler origin</p>
-                      </div>
-                    </div>
-                    <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
-                      Home
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
                     onClick={useCurrentLocationForOrigin}
                     className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-4 text-left transition hover:bg-white/10"
                   >
@@ -2901,6 +3343,7 @@ export default function Home() {
 
       {!(["journey", "fleets", "pid", "admin"] as HomeTabKey[]).includes(activeTab) && <TransitMap
         journeyRoute={journeyRoute}
+        journeyLegSegments={journeyLegSegments}
         journeyBusRoutes={activeJourneyBusRoutes}
         splitCrossCityGroup={splitCrossCityGroup}
         transportModes={preferences.transportModes as Array<"train" | "tram" | "bus" | "vline">}
@@ -3125,10 +3568,13 @@ export default function Home() {
                       </div>
 
                       <div className="grid gap-3">
-                        {journeyDisplay.legs.map((leg, index) => (
+                        {journeyDisplay.legs.map((leg, index) => {
+                          const accentColor = getJourneyLegAccentColor(leg);
+                          return (
                           <div
                             key={`${leg.title}-${leg.from}-${leg.to}-${index}`}
-                            className={`rounded-[1.35rem] border px-4 py-4 ${getJourneyLegModeTone(leg.mode)}`}
+                            className="rounded-[1.35rem] border px-4 py-4"
+                            style={{ borderColor: `${accentColor}45`, backgroundColor: `${accentColor}1A`, color: accentColor }}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div>
@@ -3146,7 +3592,8 @@ export default function Home() {
                             </div>
                             <p className="mt-3 text-sm text-current/80">{leg.detail}</p>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -3173,7 +3620,7 @@ export default function Home() {
       <VersionModal isOpen={isVersionOpen} onClose={handleCloseVersionModal} showWelcome={isVersionFirstOpen} />
 
       {activeTab !== "map" && (
-        <div className={activeTab === "journey" || activeTab === "fleets" || activeTab === "pid" || activeTab === "admin" ? "absolute inset-0 z-40 pointer-events-none md:pl-60" : "absolute inset-x-0 bottom-0 z-40 pointer-events-none"}>
+        <div className={activeTab === "journey" || activeTab === "fleets" || activeTab === "pid" || activeTab === "admin" ? `absolute inset-0 z-40 pointer-events-none ${isDesktopSidebarCollapsed ? "" : "md:pl-60"}` : "absolute inset-x-0 bottom-0 z-40 pointer-events-none"}>
           <div className={activeTab === "journey" || activeTab === "fleets" || activeTab === "pid" || activeTab === "admin" ? "h-full w-full pointer-events-none" : "mx-auto w-full max-w-6xl px-3 pb-3 pointer-events-none sm:px-4 sm:pb-4"}>
             <DockedPanelSheet
               isOpen={activeTab === "journey" || activeTab === "fleets" || activeTab === "pid" || activeTab === "admin" ? true : isUtilityPanelOpen}
@@ -3217,11 +3664,49 @@ export default function Home() {
                     )}
                   </div>
                   <h2 className="mt-2 text-xl font-semibold text-white">{journeySummary}</h2>
-                  {journeyDisplay && <div className="mt-4 grid min-w-0 gap-3">{journeyDisplay.legs.map((leg, index) => <div key={`${leg.from}-${leg.to}-${index}`} className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs font-semibold uppercase tracking-wider text-blue-200">Leg {index + 1} · {leg.mode}</p><p className="mt-2 break-words font-semibold text-white">{leg.from} → {leg.to}</p><p className="mt-1 break-words text-sm text-white/55">{leg.title} · {leg.detail}</p>{leg.mode === "train" && leg.from === journeyTrainLeg?.from && <div className="mt-3 grid gap-2">{journeyMatchingTrainDepartures.length > 0 ? journeyMatchingTrainDepartures.map((departure, departureIndex) => <div key={departure.tripId} className="rounded-xl border border-blue-300/15 bg-blue-500/10 px-3 py-2.5"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-200/75">{departureIndex === 0 ? "Take this service" : "If you miss it · next service"}</p><div className="mt-1 flex flex-wrap items-center justify-between gap-2"><p className="font-semibold text-white">{new Date(departure.expectedAt || departure.scheduledAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} to {departure.destination}</p><p className="text-sm font-semibold text-blue-100">Platform {departure.platform || "check screens"}</p></div><p className="mt-1 text-xs text-white/50">{departure.route} · {departure.status === "cancelled" ? "Cancelled" : departure.delaySeconds && departure.delaySeconds > 60 ? `${Math.round(departure.delaySeconds / 60)} min late` : "On time"}</p></div>) : <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/55">Checking live departure time and platform…</p>}</div>}</div>)}</div>}
+                  {journeyDisplay && (
+                    <div className="mt-4 grid min-w-0 gap-3">
+                      {journeyDisplay.legs.map((leg, index) => {
+                        const isLiveTrainLeg = leg.mode === "train" && leg === journeyTrainLeg;
+                        const isLiveSurfaceLeg = (leg.mode === "bus" || leg.mode === "tram") && leg === journeySurfaceLeg;
+                        const liveDepartures = isLiveTrainLeg ? journeyMatchingTrainDepartures : isLiveSurfaceLeg ? journeyMatchingSurfaceDepartures : [];
+                        const legAccentColor = getJourneyLegAccentColor(leg);
+                        return (
+                          <div
+                            key={`${leg.from}-${leg.to}-${index}`}
+                            className="min-w-0 overflow-hidden rounded-2xl border p-4"
+                            style={{ borderColor: `${legAccentColor}45`, backgroundColor: `${legAccentColor}1A`, color: legAccentColor }}
+                          >
+                            <p className="text-xs font-semibold uppercase tracking-wider text-current/70">Leg {index + 1} · {leg.mode}</p>
+                            <p className="mt-2 break-words font-semibold text-white">{leg.from} → {leg.to}</p>
+                            <p className="mt-1 break-words text-sm text-white/55">{leg.title} · {leg.detail}</p>
+                            {(isLiveTrainLeg || isLiveSurfaceLeg) && (
+                              <div className="mt-3 grid gap-2">
+                                {liveDepartures.length > 0 ? liveDepartures.map((departure, departureIndex) => (
+                                  <div key={`${departure.route}-${departure.destination}-${departure.expectedAt || departure.scheduledAt}`} className="rounded-xl border border-blue-300/15 bg-blue-500/10 px-3 py-2.5">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-200/75">{departureIndex === 0 ? "Take this service" : "If you miss it · next service"}</p>
+                                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                                      <p className="font-semibold text-white">
+                                        {new Date(departure.expectedAt || departure.scheduledAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} to {departure.destination}
+                                        <span className="ml-2 text-sm font-semibold text-blue-200">({formatRelativeMinutes(departure.expectedAt || departure.scheduledAt)})</span>
+                                      </p>
+                                      {"platform" in departure && departure.platform && <p className="text-sm font-semibold text-blue-100">Platform {departure.platform}</p>}
+                                    </div>
+                                    <p className="mt-1 text-xs text-white/50">{departure.route} · {departure.status === "cancelled" ? "Cancelled" : "delaySeconds" in departure && departure.delaySeconds && departure.delaySeconds > 60 ? `${Math.round(departure.delaySeconds / 60)} min late` : "On time"}</p>
+                                  </div>
+                                )) : (
+                                  <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/55">Checking live departure time…</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <a href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(journeyOrigin)}&destination=${encodeURIComponent(journeyDestination)}&travelmode=transit`} target="_blank" rel="noreferrer" className="rounded-2xl border border-blue-300/20 bg-blue-500/10 p-4 text-center font-semibold text-blue-100 hover:bg-blue-500/15">Cross-check in Google Maps</a>
+                <div className="grid gap-3">
                   <a href="https://www.ptv.vic.gov.au/journey/" target="_blank" rel="noreferrer" className="rounded-2xl border border-violet-300/20 bg-violet-500/10 p-4 text-center font-semibold text-violet-100 hover:bg-violet-500/15">Open official PTV planner</a>
                 </div>
               </div>
@@ -3278,14 +3763,24 @@ export default function Home() {
                     ))}
                   </div>
 
-                  <div className="space-y-2.5">
-                      {FLEET_FILTER_GROUPS.map((group) => (
-                        <div key={group.label} className="rounded-[1rem] border border-white/10 bg-black/18 p-2">
-                          <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-200/55">
-                            {group.label}
-                          </p>
-                          <div className="overflow-x-auto pb-1">
-                            <div className="flex min-w-max flex-wrap gap-1.5 pr-2">
+                  <div className="space-y-2">
+                      {allFleetFilterGroups.map((group) => {
+                        const accent = FLEET_GROUP_ACCENTS[group.label] ?? FLEET_GROUP_ACCENTS.default;
+                        return (
+                        <div key={group.label} className="rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-white/[0.01] p-2.5">
+                          <div className="mb-2 flex items-center gap-1.5 px-1">
+                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${accent.dot}`} />
+                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">
+                              {group.label}
+                            </p>
+                          </div>
+                          {group.label === "Victoria Trams" && isLiveTramsError && group.filters.length === 0 ? (
+                            <p className="px-1 text-xs text-white/45">
+                              PTV&apos;s live tram feed is down right now — this isn&apos;t a TransitAlert bug, trams will reappear once PTV&apos;s feed recovers.
+                            </p>
+                          ) : (
+                          <div className="relative">
+                            <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                               {group.filters.map((fleet) => {
                                 const isSelected = selectedFleetType === fleet.key;
                                 const count = getFleetFilterCount(fleet.key);
@@ -3294,16 +3789,16 @@ export default function Home() {
                                     key={fleet.key}
                                     type="button"
                                     onClick={() => setSelectedFleetType(fleet.key)}
-                                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.12em] transition duration-200 active:scale-95 ${
+                                    className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-left text-[12px] font-medium transition duration-200 active:scale-95 ${
                                       isSelected
-                                        ? "border-cyan-300/80 bg-cyan-400/15 text-white shadow-[0_0_18px_rgba(34,211,238,0.22)]"
-                                        : "border-white/10 bg-slate-950/70 text-white/78 hover:-translate-y-0.5 hover:border-cyan-300/35 hover:bg-white/[0.07] hover:text-white"
+                                        ? `${accent.selectedBorder} ${accent.selectedBg} text-white ${accent.selectedGlow}`
+                                        : "border-white/10 bg-slate-950/70 text-white/70 hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/[0.07] hover:text-white"
                                     }`}
                                   >
                                     <span>{fleet.label}</span>
                                     {count > 0 && (
                                       <span className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] ${
-                                        isSelected ? "bg-cyan-300/20 text-cyan-100" : "bg-cyan-300/10 text-cyan-200"
+                                        isSelected ? "bg-white/15 text-white" : `${accent.countBg} ${accent.countText}`
                                       }`}>
                                         {count}
                                       </span>
@@ -3312,9 +3807,12 @@ export default function Home() {
                                 );
                               })}
                             </div>
+                            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-slate-950/80 to-transparent" />
                           </div>
+                          )}
                         </div>
-                      ))}
+                        );
+                      })}
                   </div>
 
                   {fleetTripsToDisplay.length > 0 ? (
@@ -3334,15 +3832,30 @@ export default function Home() {
                             key={`${trip.fleet}-${trip.tdn}-${trip.id}`}
                             className="grid gap-3 px-4 py-3 text-sm text-white/80 transition hover:bg-cyan-400/[0.04] lg:grid-cols-[92px_minmax(150px,1.1fr)_minmax(130px,0.9fr)_120px_110px_96px_112px] lg:items-center"
                           >
-                            <div className="flex items-center gap-2">
-                              <span className={`h-2.5 w-2.5 rounded-full ${trip.fleet === "hcmt" ? "bg-sky-300" : trip.fleet === "vlocity" ? "bg-violet-300" : trip.fleet === "n-class" ? "bg-amber-300" : trip.fleet === "xpt" ? "bg-orange-400" : trip.fleet.includes("comeng") ? "bg-emerald-300" : "bg-cyan-300"}`} />
-                              <span className="font-semibold text-white">{FLEET_TYPES.find((fleet) => fleet.key === trip.fleet)?.label ?? trip.fleet}</span>
+                            <div className="flex flex-col gap-0.5">
+                              {/* Trams: the operator ("Operated by Yarra Trams" / a Sydney light
+                                  rail operator) leads, above the class name — the same "Operated
+                                  by ..." convention transit apps use, so it's the first thing read
+                                  rather than a buried Line badge. */}
+                              {trip.fleet.startsWith("tram:") && trip.vehicleModel && (
+                                <span className="truncate text-[11px] text-white/45">{trip.vehicleModel}</span>
+                              )}
+                              <div className="flex items-center gap-2">
+                                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${trip.fleet === "hcmt" ? "bg-sky-300" : trip.fleet === "vlocity" ? "bg-violet-300" : trip.fleet === "n-class" ? "bg-purple-400" : trip.fleet === "sprinter" ? "bg-purple-300" : trip.fleet === "xpt" ? "bg-orange-400" : trip.fleet.startsWith("bus:") ? "bg-amber-400" : trip.fleet.startsWith("tram:") ? "bg-emerald-400" : trip.fleet === "edi-comeng" || trip.fleet === "alstom-comeng" ? "bg-emerald-300" : "bg-cyan-300"}`} />
+                                <span className="font-semibold text-white">{fleetTypeLabels.get(trip.fleet) ?? trip.fleet}</span>
+                              </div>
+                              {/* Category (above) is the physical size class — the real chassis/model
+                                  name is shown here underneath so filtering by category never hides
+                                  which actual vehicle this is, per the fleet database's per-vehicle model. */}
+                              {!trip.fleet.startsWith("tram:") && trip.vehicleModel && (
+                                <span className="truncate pl-4 text-[11px] text-white/45">{trip.vehicleModel}</span>
+                              )}
                             </div>
                             <div className="min-w-0">
                               <p className="truncate font-mono text-cyan-100">{hasPremiumAccess(accountPreferences) ? trip.tdn : getPublicFleetServiceLabel(trip)}</p>
                               <p className="truncate text-xs text-white/45 lg:hidden">{trip.route}</p>
                             </div>
-                            <p className="min-w-0 truncate text-white/80">{trip.route}</p>
+                            <p className="hidden min-w-0 truncate text-white/80 lg:block">{trip.route}</p>
                             <p className="font-mono text-white">{trip.setNumber}</p>
                             <span className={`w-fit rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${trip.lineColor}`}>
                               {trip.line}
@@ -3589,6 +4102,40 @@ export default function Home() {
                         <p className="mt-1 text-xs text-white/60">
                           Review registered accounts, adjust role/access, and manually control premium while registration stays tester-only.
                         </p>
+
+                        <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                          <p className="text-sm font-semibold text-white">Welcome email broadcast</p>
+                          <p className="mt-1 text-xs text-white/60">
+                            Sends the "Welcome to TransitAlert" email to every registered account ({adminAccounts.length} accounts). This
+                            is a one-off send you trigger manually — it never fires on its own.
+                          </p>
+                          <button
+                            type="button"
+                            disabled={broadcastWelcomeMutation.isPending}
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `Send the welcome email to all ${adminAccounts.length} registered accounts now? This can't be undone.`,
+                                )
+                              ) {
+                                broadcastWelcomeMutation.mutate();
+                              }
+                            }}
+                            className="mt-3 rounded-xl border border-blue-400/25 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {broadcastWelcomeMutation.isPending ? "Sending..." : "Send welcome email to all users"}
+                          </button>
+                          {broadcastWelcomeMutation.isSuccess && (
+                            <p className="mt-2 text-xs font-semibold text-emerald-300">
+                              Sent to {broadcastWelcomeMutation.data.sent} of {broadcastWelcomeMutation.data.total} accounts
+                              {broadcastWelcomeMutation.data.failed > 0 ? ` (${broadcastWelcomeMutation.data.failed} failed)` : ""}.
+                            </p>
+                          )}
+                          {broadcastWelcomeMutation.error instanceof Error && (
+                            <p className="mt-2 text-xs font-semibold text-amber-300">{broadcastWelcomeMutation.error.message}</p>
+                          )}
+                        </div>
+
                         <div className="mt-4 space-y-3">
                           {adminAccounts.length > 0 ? (
                             adminAccounts.map((account) => {

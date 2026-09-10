@@ -14,6 +14,8 @@ export type LiveTram = {
   timestamp?: string;
   heading?: number;
   operator?: string;
+  /** The tram's real fleet number (e.g. "2032" for a B2 class), when the live feed publishes one. */
+  fleetNumber?: string;
 };
 
 type LiveTramResponse =
@@ -129,6 +131,7 @@ function normaliseLiveTram(raw: Partial<LiveTram> & Record<string, unknown>, ind
     timestamp: typeof raw.timestamp === "string" ? raw.timestamp : undefined,
     heading: typeof raw.heading === "number" ? raw.heading : undefined,
     operator: typeof raw.operator === "string" && raw.operator.trim() ? raw.operator : "Yarra Trams",
+    fleetNumber: typeof raw.fleetNumber === "string" && raw.fleetNumber.trim() ? raw.fleetNumber.trim() : undefined,
   };
 }
 

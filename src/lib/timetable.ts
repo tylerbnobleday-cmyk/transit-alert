@@ -36,6 +36,7 @@ export type VerifiedBusStop = {
 
 export type BusTripPayload = {
   tripId: string;
+  scheduledTripId?: string;
   route?: string;
   destination?: string;
   stops: VerifiedBusStop[];
@@ -75,10 +76,13 @@ export type BusFormationSegment = {
 };
 
 export type VerifiedTrainStop = {
+  platformSource?: "LIVE" | "SCHEDULED" | "EXPECTED";
   stopId: string;
   stopSequence: number;
   name: string;
   platform?: string;
+  pickupType?: "none";
+  dropOffType?: "none";
   lat?: number;
   lng?: number;
   scheduledArrivalAt: string;
@@ -102,6 +106,12 @@ export type TrainFormationSegment = {
 };
 
 export type TrainTripPayload = {
+  serviceWorkings?: Array<{ crossCity: boolean; crossCityKind?: "flinders-street" | "metro-tunnel"; connectionSource?: "scheduled-turnaround"; segments: TrainFormationSegment[] }>;
+  previousWorkingStatus?: "stabled" | "unknown";
+  nextWorkingStatus?: "stabled" | "unknown";
+
+  scheduledTripId?: string;
+  nextServices?: Array<TrainFormationSegment & { source: "LIVE" | "SCHEDULED" }>;
   tripId: string;
   route?: string;
   destination?: string;
@@ -110,6 +120,8 @@ export type TrainTripPayload = {
   segmentTripIds?: string[];
   segments?: TrainFormationSegment[];
   formationSegments?: TrainFormationSegment[];
+  previousFormationStatus?: "linked" | "stabled" | "unknown";
+  nextFormationStatus?: "linked" | "stabled" | "unknown";
   handover?: {
     station: string;
     fromTripId: string;
@@ -120,6 +132,58 @@ export type TrainTripPayload = {
   scheduleUpdatedAt?: string;
   source?: string;
 };
+
+export type JourneyPlanStop = {
+  name: string;
+  lat: number;
+  lng: number;
+  mode: "train" | "tram" | "bus";
+};
+
+export type JourneyPlanLeg = {
+  mode: "train" | "tram" | "bus" | "walk";
+  routeLabel: string;
+  headsign?: string;
+  from: string;
+  to: string;
+  stopsCount: number;
+  approxSeconds: number;
+  distanceMetres?: number;
+};
+
+export type JourneyPlanResult = {
+  found: boolean;
+  reason?: "origin-not-found" | "destination-not-found" | "no-route";
+  alreadyThere?: boolean;
+  stops?: JourneyPlanStop[];
+  legs?: JourneyPlanLeg[];
+  walkFromOriginSeconds?: number;
+  totalApproxSeconds?: number;
+  error?: string;
+};
+
+export async function fetchJourneyPlan(params: {
+  originName?: string;
+  originLat?: number;
+  originLng?: number;
+  destinationName?: string;
+  destinationLat?: number;
+  destinationLng?: number;
+}): Promise<JourneyPlanResult> {
+  const search = new URLSearchParams();
+  if (params.originName) search.set("originName", params.originName);
+  if (params.originLat !== undefined) search.set("originLat", String(params.originLat));
+  if (params.originLng !== undefined) search.set("originLng", String(params.originLng));
+  if (params.destinationName) search.set("destinationName", params.destinationName);
+  if (params.destinationLat !== undefined) search.set("destinationLat", String(params.destinationLat));
+  if (params.destinationLng !== undefined) search.set("destinationLng", String(params.destinationLng));
+  const response = await fetch(getApiUrl(`/api/journey/plan?${search.toString()}`), { credentials: "include" });
+  const payload = (await response.json().catch(() => ({}))) as JourneyPlanResult;
+  if (!response.ok && !payload.error) {
+    payload.error = "Journey planning is unavailable right now.";
+  }
+  return payload;
+}
 
 async function readTimetableResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {

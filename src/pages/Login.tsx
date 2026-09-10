@@ -11,10 +11,11 @@ import {
   loginWithPassword,
   markGuestIntent,
   registerAccount,
+  requestPasswordReset,
 } from "@/lib/auth";
 import { TRANSITALERT_WEB_VERSION } from "@/lib/version";
 
-type AuthMode = "sign-in" | "register" | "change-password";
+type AuthMode = "sign-in" | "register" | "change-password" | "forgot-password";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -32,6 +33,7 @@ export default function Login() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordFormError, setPasswordFormError] = useState("");
   const [isCapsLockOn, setIsCapsLockOn] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
 
   useEffect(() => {
     try {
@@ -69,7 +71,6 @@ export default function Login() {
         return;
       }
       if (session.user?.role === "Guest") {
-        setLocation("/app");
         return;
       }
       setLocation("/app");
@@ -146,6 +147,10 @@ export default function Login() {
       await queryClient.invalidateQueries({ queryKey: ["auth-session"] });
       setLocation("/app");
     },
+  });
+
+  const requestResetMutation = useMutation({
+    mutationFn: (email: string) => requestPasswordReset(email),
   });
 
   const guestMutation = useMutation({
@@ -272,7 +277,7 @@ export default function Login() {
               </h1>
             </div>
 
-            {mode !== "change-password" && (
+            {mode !== "change-password" && mode !== "forgot-password" && (
             <div className="grid grid-cols-2 gap-2 rounded-[1.15rem] border border-white/10 bg-white/5 p-1">
               <button
                 type="button"
@@ -399,6 +404,75 @@ export default function Login() {
                   </button>
                 </form>
               </div>
+            ) : mode === "forgot-password" ? (
+              <div>
+                <p className="mt-5 text-xs font-semibold uppercase tracking-[0.24em] text-white/45">
+                  Reset password
+                </p>
+                <h2 className="mt-3 text-2xl font-semibold text-white">Forgot your password?</h2>
+                <p className="mt-2 text-sm text-white/60">
+                  Enter the email address on your account and we'll send a link to reset your password.
+                </p>
+
+                {requestResetMutation.isSuccess ? (
+                  <div className="mt-6 space-y-3.5 sm:mt-8 sm:space-y-4">
+                    <div className="rounded-[1.15rem] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 sm:rounded-2xl">
+                      {requestResetMutation.data.message}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setMode("sign-in")}
+                      className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-base font-semibold text-white transition hover:bg-white/10 sm:rounded-2xl sm:py-3"
+                    >
+                      Back to sign in
+                    </button>
+                  </div>
+                ) : (
+                  <form
+                    className="mt-6 space-y-3.5 sm:mt-8 sm:space-y-4"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      requestResetMutation.mutate(forgotPasswordEmail);
+                    }}
+                  >
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-white/45">
+                        Email address
+                      </span>
+                      <input
+                        type="email"
+                        value={forgotPasswordEmail}
+                        onChange={(event) => setForgotPasswordEmail(event.target.value)}
+                        autoComplete="email"
+                        placeholder="name@example.com"
+                        className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-white outline-none transition focus:border-blue-400/60 sm:rounded-2xl sm:py-3"
+                      />
+                    </label>
+
+                    {requestResetMutation.error instanceof Error && (
+                      <div className="rounded-[1.15rem] border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 sm:rounded-2xl">
+                        {requestResetMutation.error.message}
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={requestResetMutation.isPending || !forgotPasswordEmail}
+                      className="w-full rounded-[1.15rem] bg-blue-600 px-4 py-2.5 text-base font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-70 sm:rounded-2xl sm:py-3"
+                    >
+                      {requestResetMutation.isPending ? "Sending reset link..." : "Send reset link"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setMode("sign-in")}
+                      className="w-full rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-base font-semibold text-white transition hover:bg-white/10 sm:rounded-2xl sm:py-3"
+                    >
+                      Back to sign in
+                    </button>
+                  </form>
+                )}
+              </div>
             ) : mode === "sign-in" ? (
               <div>
                 <p className="mt-5 text-xs font-semibold uppercase tracking-[0.24em] text-white/45">
@@ -451,15 +525,25 @@ export default function Login() {
                     </p>
                   )}
 
-                  <label className="flex items-center gap-3 rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/75 sm:rounded-2xl sm:py-3">
-                    <input
-                      type="checkbox"
-                      checked={rememberUser}
-                      onChange={(event) => setRememberUser(event.target.checked)}
-                      className="h-4 w-4 rounded border-white/20 bg-slate-900 text-blue-500"
-                    />
-                    <span>Remember me on this device</span>
-                  </label>
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="flex items-center gap-3 rounded-[1.15rem] border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/75 sm:rounded-2xl sm:py-3">
+                      <input
+                        type="checkbox"
+                        checked={rememberUser}
+                        onChange={(event) => setRememberUser(event.target.checked)}
+                        className="h-4 w-4 rounded border-white/20 bg-slate-900 text-blue-500"
+                      />
+                      <span>Remember me on this device</span>
+                    </label>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setMode("forgot-password")}
+                    className="text-xs font-semibold text-blue-300 transition hover:text-blue-200"
+                  >
+                    Forgot password?
+                  </button>
 
                   {loginMutation.error instanceof Error && (
                     <div className="rounded-[1.15rem] border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 sm:rounded-2xl">
