@@ -584,9 +584,17 @@ export async function getVerifiedTrainMarkerDestination(tripId) {
         const last = rows.at(-1);
         const originStop = timetable.train.stops.get(first.stopId)?.name;
         const finalStop = timetable.train.stops.get(last.stopId)?.name;
+        const baseDestination = (trip.destination || finalStop || "").replace(/\s+Station$/i, "");
+        // Only the intermediate stops count -- a trip terminating at a loop
+        // station itself isn't "via" the loop.
+        const usesCityLoop = !/city loop/i.test(baseDestination) && rows.slice(0, -1).some((row) =>
+          /^(parliament|melbourne central|flagstaff)$/i.test(
+            (timetable.train.stops.get(row.stopId)?.name || "").replace(/\s+Station$/i, ""),
+          ),
+        );
         destinations.set(id, {
           origin: (originStop || "").replace(/\s+Station$/i, ""),
-          destination: (trip.destination || finalStop || "").replace(/\s+Station$/i, ""),
+          destination: usesCityLoop ? `${baseDestination} via City Loop` : baseDestination,
         });
         if (!trip.blockId) continue;
         const key = trip.blockId;

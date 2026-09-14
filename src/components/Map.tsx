@@ -1008,7 +1008,9 @@ function createLiveTrainIcon(
     .replace(/\s+/g, " ")
     .trim();
   const throughDestinationLabel = destinationLabel.split("→")[0]?.trim() || "";
-  const finalDestinationLabel = destinationLabel.split("→").at(-1)?.trim() || destinationLabel;
+  const finalDestinationLabel = (destinationLabel.split("→").at(-1)?.trim() || destinationLabel)
+    .replace(/\s+via\s+.+$/i, "")
+    .trim();
   const markerViaLabel = /HCMT/i.test(getVehicleDisplayType(vehicle))
     ? "Metro Tunnel"
     : options?.viaCityLoop || /City Loop/i.test(destinationLabel)
@@ -10124,7 +10126,6 @@ export function Map({
           cranbourneLine: !(prev.pakenhamLine || prev.cranbourneLine),
         }));
         return true;
-      case "Caulfield":
       case "Malvern":
       case "Clayton":
         setLayers((prev) => {
@@ -11075,7 +11076,12 @@ export function Map({
                 (["TRN", "BDE"].includes(routeKey) && layers.traralgonRegional);
               if (!visible) return null;
               const stations: Station[] = route.stations.map((station) => ({
-                name: station.name,
+                // GENERATED_VLINE_GTFS station names come straight from the raw
+                // GTFS feed (e.g. "Caulfield Station"), while every hand-curated
+                // metro line array already strips the "Station" suffix. Without
+                // normalising here, a station shared with a metro line (like
+                // Caulfield) gets two overlapping markers instead of merging.
+                name: station.name.replace(/\s+Station$/i, ""),
                 position: [station.position[0], station.position[1]],
                 vline: true,
               }));
