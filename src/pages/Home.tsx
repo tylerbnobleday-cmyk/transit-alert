@@ -45,6 +45,7 @@ import {
   type AdminRuntimeConfig,
 } from "@/lib/admin-config";
 import { fetchLiveTrains, isVlineLiveTrain, type LiveTrain } from "@/lib/live-trains";
+import { fetchLiveBuses, type LiveBus } from "@/lib/live-buses";
 import busButtonIcon from "@/assets/icons/bus.png";
 import tramButtonIcon from "@/assets/icons/tram.png";
 import {
@@ -260,6 +261,14 @@ type JourneyDisplay = {
   date: string;
   stopCountLabel: string;
   legs: JourneyLeg[];
+};
+
+type JourneyRouteOption = {
+  label: string;
+  route: Station[];
+  summary: string;
+  display: JourneyDisplay;
+  transfers: number;
 };
 
 type PersistedJourneyState = {
@@ -599,6 +608,138 @@ function estimateMykiFare(route: Station[], legs: JourneyLeg[]) {
   const hasPaidLeg = legs.some((leg) => leg.mode === "train" || leg.mode === "tram" || leg.mode === "bus");
   if (!hasPaidLeg) return null;
   return MYKI_METRO_FARE_ESTIMATE;
+}
+
+type PlannerEdge = { to: string; line: string; mode: JourneyLeg["mode"]; minutes: number };
+type PlannerPath = { stationNames: string[]; edges: PlannerEdge[]; totalMinutes: number };
+
+// Rough effective speeds (including stops/lights) used to estimate travel
+// time between adjacent planner nodes from their coordinates, since this
+// planner doesn't have access to real GTFS trip-level timings.
+const MODE_AVERAGE_SPEED_KMH: Record<JourneyLeg["mode"], number> = {
+  train: 45,
+  tram: 18,
+  bus: 22,
+  walk: 4.8,
+};
+
+const MODE_STOP_DWELL_MINUTES: Record<JourneyLeg["mode"], number> = {
+  train: 1,
+  tram: 0.5,
+  bus: 0.5,
+  walk: 0,
+};
+
+const JOURNEY_TRANSFER_PENALTY_MINUTES = 4;
+const JOURNEY_DISRUPTION_PENALTY_MINUTES = 30;
+
+function haversineDistanceKm(from: [number, number], to: [number, number]) {
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(to[0] - from[0]);
+  const dLng = toRadians(to[1] - from[1]);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(from[0])) * Math.cos(toRadians(to[0])) * Math.sin(dLng / 2) ** 2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function estimateEdgeMinutes(from: Station, to: Station, mode: JourneyLeg["mode"]) {
+  const distanceKm = haversineDistanceKm(from.position, to.position);
+  return (distanceKm / MODE_AVERAGE_SPEED_KMH[mode]) * 60 + MODE_STOP_DWELL_MINUTES[mode];
+}
+
+// Weighted Dijkstra search over the planner graph. `avoidEdgeKeys` lets a
+// second call route around the previously chosen path's edges to surface a
+// genuinely different alternative, and `disruptedLines` softly steers the
+// search away from lines currently affected by a live alert without ruling
+// them out entirely (so a route is still offered when they're the only way).
+function findJourneyPath(
+  network: Map<string, PlannerEdge[]>,
+  originName: string,
+  destinationName: string,
+  options?: { disruptedLines?: Set<string>; avoidEdgeKeys?: Set<string> },
+): PlannerPath | null {
+  if (originName === destinationName) {
+    return { stationNames: [originName], edges: [], totalMinutes: 0 };
+  }
+
+  const disruptedLines = options?.disruptedLines;
+  const avoidEdgeKeys = options?.avoidEdgeKeys;
+
+  const cost = new Map<string, number>([[originName, 0]]);
+  const previous = new Map<string, { station: string; edge: PlannerEdge }>();
+  const visited = new Set<string>();
+  const unvisited = new Set<string>([originName]);
+
+  while (unvisited.size > 0) {
+    let current: string | null = null;
+    let currentCost = Infinity;
+    for (const candidate of unvisited) {
+      const candidateCost = cost.get(candidate) ?? Infinity;
+      if (candidateCost < currentCost) {
+        currentCost = candidateCost;
+        current = candidate;
+      }
+    }
+    if (current === null) break;
+    unvisited.delete(current);
+    visited.add(current);
+    if (current === destinationName) break;
+
+    const incomingLine = previous.get(current)?.edge.line;
+
+    for (const edge of network.get(current) ?? []) {
+      if (visited.has(edge.to)) continue;
+
+      let weight = edge.minutes;
+      if (disruptedLines?.has(edge.line)) weight += JOURNEY_DISRUPTION_PENALTY_MINUTES;
+      if (avoidEdgeKeys?.has(`${current}|${edge.to}|${edge.line}`)) weight *= 6;
+      if (incomingLine && incomingLine !== edge.line) weight += JOURNEY_TRANSFER_PENALTY_MINUTES;
+
+      const candidateCost = currentCost + weight;
+      if (candidateCost < (cost.get(edge.to) ?? Infinity)) {
+        cost.set(edge.to, candidateCost);
+        previous.set(edge.to, { station: current, edge });
+        unvisited.add(edge.to);
+      }
+    }
+  }
+
+  if (!previous.has(destinationName)) return null;
+
+  const stationNames: string[] = [destinationName];
+  const edges: PlannerEdge[] = [];
+  let cursor = destinationName;
+  while (cursor !== originName) {
+    const step = previous.get(cursor);
+    if (!step) return null;
+    edges.unshift(step.edge);
+    stationNames.unshift(step.station);
+    cursor = step.station;
+  }
+
+  return { stationNames, edges, totalMinutes: edges.reduce((total, edge) => total + edge.minutes, 0) };
+}
+
+function countJourneyTransfers(edges: PlannerEdge[]) {
+  let transfers = 0;
+  for (let index = 1; index < edges.length; index += 1) {
+    if (edges[index].line !== edges[index - 1].line) transfers += 1;
+  }
+  return transfers;
+}
+
+function extractJourneyRouteNumber(title: string) {
+  const match = title.match(/Route\s+(\d+)/i);
+  return match ? match[1] : null;
+}
+
+function findLiveBusForJourneyLeg(leg: JourneyLeg, liveBuses: LiveBus[]): LiveBus | null {
+  if (leg.mode !== "bus") return null;
+  const routeNumber = extractJourneyRouteNumber(leg.title);
+  if (!routeNumber) return null;
+  return liveBuses.find((bus) => bus.route === routeNumber) ?? null;
 }
 
 function getJourneyCorridorLabels(route: Station[]) {
@@ -1264,6 +1405,13 @@ export default function Home() {
     refetchInterval: isMobile ? 30_000 : 15_000,
     staleTime: isMobile ? 20_000 : 10_000,
   });
+  const { data: journeyLiveBuses = [] } = useQuery({
+    queryKey: ["journey-live-buses"],
+    queryFn: () => fetchLiveBuses(),
+    retry: false,
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+  });
   const { data: metroJourneyAlerts = [] } = useQuery({
     queryKey: ["/api/metro-notify/alerts", "journey-brief"],
     queryFn: fetchMetroNotifyAlerts,
@@ -1295,9 +1443,12 @@ export default function Home() {
   const [pidLineColor, setPidLineColor] = useState("#22c55e");
   const [pidBranding, setPidBranding] = useState("TransitAlert PID Studio");
   const [focusedVehicleKey, setFocusedVehicleKey] = useState<string | null>(null);
+  const [focusedMapPoint, setFocusedMapPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [journeyOrigin, setJourneyOrigin] = useState<string>("Flinders Street");
   const [journeyDestination, setJourneyDestination] = useState<string>("Sandringham");
   const [journeyRoute, setJourneyRoute] = useState<Station[]>([]);
+  const [journeyRouteOptions, setJourneyRouteOptions] = useState<JourneyRouteOption[]>([]);
+  const [activeJourneyOptionIndex, setActiveJourneyOptionIndex] = useState(0);
   const [journeySummary, setJourneySummary] = useState<string>("Plan a journey using the fields below.");
   const [journeyBoardingAdvice, setJourneyBoardingAdvice] = useState<string>("");
   const [journeyDisplay, setJourneyDisplay] = useState<JourneyDisplay | null>(null);
@@ -1437,11 +1588,17 @@ export default function Home() {
     [uniqueStations],
   );
   const plannerNetwork = useMemo(() => {
-    const graph = new Map<string, Array<{ to: string; line: string; mode: JourneyLeg["mode"] }>>();
+    const graph = new Map<string, PlannerEdge[]>();
+    const stationLookup = new Map<string, Station>();
+    for (const station of ALL_STATIONS) stationLookup.set(station.name, station);
+    for (const station of SURFACE_PLANNER_STATIONS) stationLookup.set(station.name, station);
 
     const addConnection = (from: string, to: string, line: string, mode: JourneyLeg["mode"]) => {
+      const fromStation = stationLookup.get(from);
+      const toStation = stationLookup.get(to);
+      const minutes = fromStation && toStation ? estimateEdgeMinutes(fromStation, toStation, mode) : 3;
       const edges = graph.get(from) ?? [];
-      edges.push({ to, line, mode });
+      edges.push({ to, line, mode, minutes });
       graph.set(from, edges);
     };
 
@@ -1478,6 +1635,16 @@ export default function Home() {
 
     return graph;
   }, [preferences.transportModes]);
+  const disruptedJourneyLines = useMemo(() => {
+    const disrupted = new Set<string>();
+    for (const line of PLANNER_LINES) {
+      const isDisrupted = metroJourneyAlerts.some(
+        (alert) => isAlertCurrent(alert) && metroAlertMatchesJourneyCorridor(alert, [line.name]),
+      );
+      if (isDisrupted) disrupted.add(line.name);
+    }
+    return disrupted;
+  }, [metroJourneyAlerts]);
   const journeyTrainLeg = journeyDisplay?.legs.find((leg) => leg.mode === "train") ?? null;
   const { data: journeyTrainDepartures } = useQuery({
     queryKey: ["journey-train-departures", journeyTrainLeg?.from],
@@ -1678,6 +1845,8 @@ export default function Home() {
 
   const finishJourney = useCallback(() => {
     setJourneyRoute([]);
+    setJourneyRouteOptions([]);
+    setActiveJourneyOptionIndex(0);
     setJourneySummary("Plan a journey using the fields below.");
     setJourneyBoardingAdvice("");
     setJourneyDisplay(null);
@@ -1897,45 +2066,25 @@ export default function Home() {
   );
 
   const buildJourneyPath = useCallback(
-    (originName: string, destinationName: string) => {
-      if (originName === destinationName) {
-        return { stationNames: [originName], edges: [] as Array<{ line: string; mode: JourneyLeg["mode"] }> };
-      }
+    (originName: string, destinationName: string) =>
+      findJourneyPath(plannerNetwork, originName, destinationName, { disruptedLines: disruptedJourneyLines }),
+    [plannerNetwork, disruptedJourneyLines],
+  );
 
-      const visited = new Set<string>([originName]);
-      const queue = [originName];
-      const previous = new Map<string, { station: string; line: string; mode: JourneyLeg["mode"] }>();
-
-      while (queue.length > 0) {
-        const current = queue.shift();
-        if (!current) continue;
-        if (current === destinationName) break;
-
-        for (const edge of plannerNetwork.get(current) ?? []) {
-          if (visited.has(edge.to)) continue;
-          visited.add(edge.to);
-          previous.set(edge.to, { station: current, line: edge.line, mode: edge.mode });
-          queue.push(edge.to);
-        }
-      }
-
-      if (!visited.has(destinationName)) return null;
-
-      const stationNames: string[] = [destinationName];
-      const edges: Array<{ line: string; mode: JourneyLeg["mode"] }> = [];
-      let cursor = destinationName;
-
-      while (cursor !== originName) {
-        const step = previous.get(cursor);
-        if (!step) return null;
-        edges.unshift({ line: step.line, mode: step.mode });
-        stationNames.unshift(step.station);
-        cursor = step.station;
-      }
-
-      return { stationNames, edges };
+  const buildAlternateJourneyPath = useCallback(
+    (originName: string, destinationName: string, primaryPath: PlannerPath) => {
+      const avoidEdgeKeys = new Set(primaryPath.edges.map((edge, index) => `${primaryPath.stationNames[index]}|${edge.to}|${edge.line}`));
+      const alternate = findJourneyPath(plannerNetwork, originName, destinationName, {
+        disruptedLines: disruptedJourneyLines,
+        avoidEdgeKeys,
+      });
+      if (!alternate) return null;
+      const sameRoute =
+        alternate.stationNames.length === primaryPath.stationNames.length &&
+        alternate.stationNames.every((name, index) => name === primaryPath.stationNames[index]);
+      return sameRoute ? null : alternate;
     },
-    [plannerNetwork],
+    [plannerNetwork, disruptedJourneyLines],
   );
 
   const getJourneyBoardingAdvice = (route: Station[], summary: string) => {
@@ -1958,9 +2107,14 @@ export default function Home() {
     legs: JourneyLeg[],
     pattern: string,
     typeLabel = "Metro train",
+    realTotalMinutes?: number,
   ): JourneyDisplay => {
     const start = new Date();
-    const totalMinutes = Math.max(route.length * 3, legs.length * 8, 9);
+    // realTotalMinutes comes from the weighted planner search (real
+    // station-to-station distance/speed estimates). The Math.max fallback is
+    // only for synthetic states with no computed path, like "already there"
+    // or the manual-transfer fallback below.
+    const totalMinutes = Math.round(realTotalMinutes ?? Math.max(route.length * 3, legs.length * 8, 9));
     const end = addMinutesToTime(start, totalMinutes);
 
     return {
@@ -1975,7 +2129,94 @@ export default function Home() {
     };
   };
 
-  const applyJourneyPlan = (route: Station[], summary: string, display?: JourneyDisplay) => {
+  const buildJourneyPlanFromPath = (
+    path: PlannerPath,
+    originName: string,
+    destinationName: string,
+    accessLeg: JourneyLeg | null,
+  ) => {
+    const routeStations = path.stationNames
+      .map((stationName) => stationByName.get(stationName))
+      .filter((station): station is Station => Boolean(station));
+    const transitLegs: JourneyLeg[] = [];
+
+    if (path.edges.length > 0) {
+      let segmentStartIndex = 0;
+      let activeEdge = path.edges[0];
+
+      for (let index = 1; index <= path.edges.length; index += 1) {
+        const edgeAtIndex = path.edges[index];
+        if (edgeAtIndex?.line === activeEdge?.line && edgeAtIndex.mode === activeEdge.mode) continue;
+
+        const from = path.stationNames[segmentStartIndex] ?? originName;
+        const to = path.stationNames[index] ?? destinationName;
+        const stopCount = Math.max(index - segmentStartIndex, 0);
+        const mode = activeEdge?.mode ?? "train";
+        transitLegs.push({
+          mode,
+          title:
+            /Route 703/i.test(activeEdge?.line ?? "")
+              ? "Route 703 toward Blackburn"
+              : /Route 630/i.test(activeEdge?.line ?? "")
+                ? "Route 630 toward Huntingdale Station"
+                : mode === "train"
+                  ? `${activeEdge?.line ?? "Rail"} line`
+                  : activeEdge?.line ?? mode,
+          from,
+          to,
+          detail:
+            mode === "walk"
+              ? /Huntingdale/i.test(activeEdge?.line ?? "")
+                ? "Walk about 140 m to the Huntingdale railway platforms"
+                : "Walk about 250 m to the Clayton railway platforms"
+              : /Route 703/i.test(activeEdge?.line ?? "")
+                ? "Ride approximately 35 stops to Clayton Station/Carinish Rd"
+                : /Route 630/i.test(activeEdge?.line ?? "")
+                  ? "Ride approximately 30 stops to Huntingdale Station/Haughton Rd"
+                : `${stopCount} stop${stopCount === 1 ? "" : "s"}${index < path.stationNames.length - 1 ? " before changing" : ""}`,
+          badge: mode === "tram" ? "Tram" : mode === "bus" ? "Bus" : "Train",
+        });
+
+        segmentStartIndex = index;
+        activeEdge = edgeAtIndex;
+      }
+    }
+
+    const journeyLegs = [...(accessLeg ? [{ ...accessLeg }] : []), ...transitLegs];
+    if (accessLeg && transitLegs[0] && journeyLegs[0]) {
+      const boardingDirection = /Route 703/i.test(transitLegs[0].title)
+        ? "Use the stop for Route 703 buses toward Blackburn, on the Clayton Station side."
+        : /Route 630/i.test(transitLegs[0].title)
+          ? "Use the stop for Route 630 buses on the Huntingdale Station side."
+          : `Board the ${transitLegs[0].title} toward ${transitLegs[0].to}.`;
+      journeyLegs[0].detail = `Walk from your current location to ${originName}. ${boardingDirection}`;
+    }
+    const changeStations = transitLegs
+      .slice(0, -1)
+      .map((leg) => leg.to)
+      .filter(Boolean);
+    const railSummary =
+      transitLegs.length <= 1
+        ? `Direct journey via ${transitLegs[0]?.title ?? "the selected network"} (${Math.max(routeStations.length - 1, 0)} stops).`
+        : `Stay on board, then change at ${changeStations.join(", ")} to finish the trip to ${destinationName}.`;
+    const summary = accessLeg
+      ? `Start from your location by heading to ${originName}. ${railSummary}`
+      : railSummary;
+    const pattern =
+      transitLegs.length <= 1
+        ? transitLegs[0]?.title ?? "Direct service"
+        : `Change at ${changeStations.join(" + ")}`;
+
+    return { routeStations, journeyLegs, summary, pattern, transitLegs };
+  };
+
+  const applyJourneyPlan = (
+    route: Station[],
+    summary: string,
+    display?: JourneyDisplay,
+    options: JourneyRouteOption[] = [],
+    optionIndex = 0,
+  ) => {
     setJourneyRoute(route);
     setJourneySummary(summary);
     setJourneyBoardingAdvice(getJourneyBoardingAdvice(route, summary));
@@ -1983,6 +2224,21 @@ export default function Home() {
     setJourneyStartedAt(route.length > 0 ? new Date().toISOString() : null);
     setAttachedJourneyServiceKey(null);
     setAttachedJourneyServiceLabel(null);
+    setJourneyRouteOptions(options);
+    setActiveJourneyOptionIndex(optionIndex);
+  };
+
+  const selectJourneyRouteOption = (index: number) => {
+    const option = journeyRouteOptions[index];
+    if (!option) return;
+    setJourneyRoute(option.route);
+    setJourneySummary(option.summary);
+    setJourneyBoardingAdvice(getJourneyBoardingAdvice(option.route, option.summary));
+    setJourneyDisplay(option.display);
+    setJourneyStartedAt(new Date().toISOString());
+    setAttachedJourneyServiceKey(null);
+    setAttachedJourneyServiceLabel(null);
+    setActiveJourneyOptionIndex(index);
   };
 
   const computeJourneyRoute = () => {
@@ -2001,6 +2257,7 @@ export default function Home() {
         stationByNormalizedName.get(journeyOrigin.trim().toLowerCase()) ??
         null;
       let accessLeg: JourneyLeg | null = null;
+      let accessMinutes = 0;
 
     if (isHomeOrigin) {
       const shouldUseRoute630Access =
@@ -2010,6 +2267,7 @@ export default function Home() {
         : findNearestStation(HOME_ORIGIN_COORDS);
       if (nearestHomeStation) {
         resolvedOrigin = nearestHomeStation;
+        accessMinutes = estimateEdgeMinutes({ name: "home", position: HOME_ORIGIN_COORDS }, nearestHomeStation, "walk");
         accessLeg = {
           mode: "walk",
           title: "Start from home",
@@ -2030,6 +2288,7 @@ export default function Home() {
         : findNearestStation(currentLocationCoords);
       if (nearestGpsStation) {
         resolvedOrigin = nearestGpsStation;
+        accessMinutes = estimateEdgeMinutes({ name: "current-location", position: currentLocationCoords }, nearestGpsStation, "walk");
         accessLeg = {
           mode: "walk",
           title: "Start from current location",
@@ -2093,90 +2352,36 @@ export default function Home() {
         return;
       }
 
-      const routeStations = path.stationNames
-        .map((stationName) => stationByName.get(stationName))
-        .filter((station): station is Station => Boolean(station));
-      const transitLegs: JourneyLeg[] = [];
+      const buildOption = (candidatePath: PlannerPath, label: string): JourneyRouteOption => {
+        const built = buildJourneyPlanFromPath(candidatePath, resolvedOrigin!.name, destination!.name, accessLeg);
+        const display = buildJourneyDisplay(
+          built.routeStations,
+          built.summary,
+          built.journeyLegs,
+          built.pattern,
+          accessLeg || built.transitLegs.some((leg) => leg.mode !== "train") ? "Mixed-mode journey" : "Rail journey",
+          candidatePath.totalMinutes + accessMinutes,
+        );
+        return {
+          label,
+          route: built.routeStations,
+          summary: built.summary,
+          display,
+          transfers: countJourneyTransfers(candidatePath.edges),
+        };
+      };
 
-      if (path.edges.length > 0) {
-        let segmentStartIndex = 0;
-        let activeEdge = path.edges[0];
+      const primaryOption = buildOption(path, "Fastest route");
+      const options: JourneyRouteOption[] = [primaryOption];
 
-        for (let index = 1; index <= path.edges.length; index += 1) {
-          const edgeAtIndex = path.edges[index];
-          if (edgeAtIndex?.line === activeEdge?.line && edgeAtIndex.mode === activeEdge.mode) continue;
-
-          const from = path.stationNames[segmentStartIndex] ?? resolvedOrigin.name;
-          const to = path.stationNames[index] ?? destination.name;
-          const stopCount = Math.max(index - segmentStartIndex, 0);
-          const mode = activeEdge?.mode ?? "train";
-          transitLegs.push({
-            mode,
-            title:
-              /Route 703/i.test(activeEdge?.line ?? "")
-                ? "Route 703 toward Blackburn"
-                : /Route 630/i.test(activeEdge?.line ?? "")
-                  ? "Route 630 toward Huntingdale Station"
-                  : mode === "train"
-                    ? `${activeEdge?.line ?? "Rail"} line`
-                    : activeEdge?.line ?? mode,
-            from,
-            to,
-            detail:
-              mode === "walk"
-                ? /Huntingdale/i.test(activeEdge?.line ?? "")
-                  ? "Walk about 140 m to the Huntingdale railway platforms"
-                  : "Walk about 250 m to the Clayton railway platforms"
-                : /Route 703/i.test(activeEdge?.line ?? "")
-                  ? "Ride approximately 35 stops to Clayton Station/Carinish Rd"
-                  : /Route 630/i.test(activeEdge?.line ?? "")
-                    ? "Ride approximately 30 stops to Huntingdale Station/Haughton Rd"
-                  : `${stopCount} stop${stopCount === 1 ? "" : "s"}${index < path.stationNames.length - 1 ? " before changing" : ""}`,
-            badge: mode === "tram" ? "Tram" : mode === "bus" ? "Bus" : "Train",
-          });
-
-          segmentStartIndex = index;
-          activeEdge = edgeAtIndex;
-        }
+      const alternatePath = buildAlternateJourneyPath(resolvedOrigin.name, destination.name, path);
+      if (alternatePath) {
+        const alternateTransfers = countJourneyTransfers(alternatePath.edges);
+        const alternateLabel = alternateTransfers < primaryOption.transfers ? "Fewest transfers" : "Alternative route";
+        options.push(buildOption(alternatePath, alternateLabel));
       }
-      
 
-      const journeyLegs = [...(accessLeg ? [accessLeg] : []), ...transitLegs];
-      if (accessLeg && transitLegs[0]) {
-        const boardingDirection = /Route 703/i.test(transitLegs[0].title)
-          ? "Use the stop for Route 703 buses toward Blackburn, on the Clayton Station side."
-          : /Route 630/i.test(transitLegs[0].title)
-            ? "Use the stop for Route 630 buses on the Huntingdale Station side."
-            : `Board the ${transitLegs[0].title} toward ${transitLegs[0].to}.`;
-        accessLeg.detail = `Walk from your current location to ${resolvedOrigin.name}. ${boardingDirection}`;
-      }
-      const changeStations = transitLegs
-        .slice(0, -1)
-        .map((leg) => leg.to)
-        .filter(Boolean);
-      const railSummary =
-        transitLegs.length <= 1
-          ? `Direct journey via ${transitLegs[0]?.title ?? "the selected network"} (${Math.max(routeStations.length - 1, 0)} stops).`
-          : `Stay on board, then change at ${changeStations.join(", ")} to finish the trip to ${destination.name}.`;
-      const summary = accessLeg
-        ? `Start from your location by heading to ${resolvedOrigin.name}. ${railSummary}`
-        : railSummary;
-      const pattern =
-        transitLegs.length <= 1
-          ? transitLegs[0]?.title ?? "Direct service"
-          : `Change at ${changeStations.join(" + ")}`;
-
-      applyJourneyPlan(
-        routeStations,
-        summary,
-        buildJourneyDisplay(
-          routeStations,
-          summary,
-          journeyLegs,
-          pattern,
-          accessLeg || transitLegs.some((leg) => leg.mode !== "train") ? "Mixed-mode journey" : "Rail journey",
-        ),
-      );
+      applyJourneyPlan(primaryOption.route, primaryOption.summary, primaryOption.display, options, 0);
     } catch (error) {
       console.error("Journey planning failed", error);
       setJourneyPlannerMessage("Journey planning hit a problem. Your inputs were kept, so please try again.");
@@ -2939,6 +3144,8 @@ export default function Home() {
         showFilterRail={false}
         focusedVehicleKey={focusedVehicleKey}
         onFocusedVehicleHandled={() => setFocusedVehicleKey(null)}
+        focusedMapPoint={focusedMapPoint}
+        onFocusedMapPointHandled={() => setFocusedMapPoint(null)}
         debugLineKey={adminDebugLineKey}
       />}
 
@@ -3029,6 +3236,25 @@ export default function Home() {
                       </div>
                     )}
                   </div>
+
+                  {journeyRouteOptions.length > 1 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {journeyRouteOptions.map((option, index) => (
+                        <button
+                          type="button"
+                          key={option.label}
+                          onClick={() => selectJourneyRouteOption(index)}
+                          className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                            index === activeJourneyOptionIndex
+                              ? "border-blue-400/40 bg-blue-500/20 text-blue-100"
+                              : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10"
+                          }`}
+                        >
+                          {option.label} · {option.display.duration}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {journeyBoardingAdvice && journeyRoute.length > 1 && (
                     <div className="mt-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2.5">
@@ -3180,10 +3406,23 @@ export default function Home() {
                       </div>
 
                       <div className="grid gap-3">
-                        {journeyDisplay.legs.map((leg, index) => (
+                        {journeyDisplay.legs.map((leg, index) => {
+                          const liveBus = findLiveBusForJourneyLeg(leg, journeyLiveBuses);
+                          const isClickableBus = leg.mode === "bus" && Boolean(liveBus);
+                          return (
                           <div
                             key={`${leg.title}-${leg.from}-${leg.to}-${index}`}
-                            className={`rounded-[1.35rem] border px-4 py-4 ${getJourneyLegModeTone(leg.mode)}`}
+                            role={isClickableBus ? "button" : undefined}
+                            tabIndex={isClickableBus ? 0 : undefined}
+                            onClick={
+                              isClickableBus
+                                ? () => {
+                                    setActiveTab("map");
+                                    setFocusedMapPoint({ lat: liveBus!.lat, lng: liveBus!.lng });
+                                  }
+                                : undefined
+                            }
+                            className={`rounded-[1.35rem] border px-4 py-4 ${getJourneyLegModeTone(leg.mode)} ${isClickableBus ? "cursor-pointer transition hover:brightness-110" : ""}`}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div>
@@ -3200,8 +3439,14 @@ export default function Home() {
                               </span>
                             </div>
                             <p className="mt-3 text-sm text-current/80">{leg.detail}</p>
+                            {leg.mode === "bus" && (
+                              <p className={`mt-2 text-xs font-semibold ${liveBus ? "text-emerald-300" : "text-current/50"}`}>
+                                {liveBus ? "● Live bus tracked — tap to show on map" : "No live bus currently tracked on this route"}
+                              </p>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -3272,7 +3517,119 @@ export default function Home() {
                     )}
                   </div>
                   <h2 className="mt-2 text-xl font-semibold text-white">{journeySummary}</h2>
-                  {journeyDisplay && <div className="mt-4 grid min-w-0 gap-3">{journeyDisplay.legs.map((leg, index) => <div key={`${leg.from}-${leg.to}-${index}`} className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs font-semibold uppercase tracking-wider text-blue-200">Leg {index + 1} · {leg.mode}</p><p className="mt-2 break-words font-semibold text-white">{leg.from} → {leg.to}</p><p className="mt-1 break-words text-sm text-white/55">{leg.title} · {leg.detail}</p>{leg.mode === "train" && leg.from === journeyTrainLeg?.from && <div className="mt-3 grid gap-2">{journeyMatchingTrainDepartures.length > 0 ? journeyMatchingTrainDepartures.map((departure, departureIndex) => <div key={departure.tripId} className="rounded-xl border border-blue-300/15 bg-blue-500/10 px-3 py-2.5"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-200/75">{departureIndex === 0 ? "Take this service" : "If you miss it · next service"}</p><div className="mt-1 flex flex-wrap items-center justify-between gap-2"><p className="font-semibold text-white">{new Date(departure.expectedAt || departure.scheduledAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} to {departure.destination}</p><p className="text-sm font-semibold text-blue-100">Platform {departure.platform || "check screens"}</p></div><p className="mt-1 text-xs text-white/50">{departure.route} · {departure.status === "cancelled" ? "Cancelled" : departure.delaySeconds && departure.delaySeconds > 60 ? `${Math.round(departure.delaySeconds / 60)} min late` : "On time"}</p></div>) : <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/55">Checking live departure time and platform…</p>}</div>}</div>)}</div>}
+                  {journeyDisplay && journeyRoute.length > 1 && (
+                    <p className="mt-1 text-sm text-white/50">{journeyDisplay.duration} · {journeyDisplay.window}</p>
+                  )}
+
+                  {journeyRouteOptions.length > 1 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {journeyRouteOptions.map((option, index) => (
+                        <button
+                          type="button"
+                          key={option.label}
+                          onClick={() => selectJourneyRouteOption(index)}
+                          className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                            index === activeJourneyOptionIndex
+                              ? "border-blue-400/40 bg-blue-500/20 text-blue-100"
+                              : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10"
+                          }`}
+                        >
+                          {option.label} · {option.display.duration}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {journeyFareEstimate && journeyRoute.length > 1 && (
+                    <div className="mt-3 rounded-2xl border border-sky-400/20 bg-sky-500/10 px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-200/85">
+                          Myki fare estimate
+                        </p>
+                        <a
+                          href="https://www.ptv.vic.gov.au/tickets/myki/myki-money-and-myki-pass/"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] font-semibold text-sky-200/85 underline underline-offset-2"
+                        >
+                          Read more
+                        </a>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <div className="rounded-xl bg-black/20 px-3 py-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/45">Full fare</p>
+                          <p className="mt-0.5 text-sm font-semibold text-white">${journeyFareEstimate.full.twoHour.toFixed(2)} <span className="text-white/45 font-normal">/ 2hr</span></p>
+                          <p className="text-xs text-white/55">${journeyFareEstimate.full.daily.toFixed(2)} daily cap</p>
+                        </div>
+                        <div className="rounded-xl bg-black/20 px-3 py-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/45">Concession</p>
+                          <p className="mt-0.5 text-sm font-semibold text-white">${journeyFareEstimate.concession.twoHour.toFixed(2)} <span className="text-white/45 font-normal">/ 2hr</span></p>
+                          <p className="text-xs text-white/55">${journeyFareEstimate.concession.daily.toFixed(2)} daily cap</p>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-[10px] leading-4 text-white/40">
+                        *Fare estimate only, based on standard metropolitan myki pricing. V/Line regional trips use separate distance-based fares — confirm exact pricing at ptv.vic.gov.au.
+                      </p>
+                    </div>
+                  )}
+
+                  {journeyDisplay && (
+                    <div className="mt-4 grid min-w-0 gap-3">
+                      {journeyDisplay.legs.map((leg, index) => {
+                        const liveBus = findLiveBusForJourneyLeg(leg, journeyLiveBuses);
+                        const isClickableBus = leg.mode === "bus" && Boolean(liveBus);
+                        return (
+                          <div
+                            key={`${leg.from}-${leg.to}-${index}`}
+                            role={isClickableBus ? "button" : undefined}
+                            tabIndex={isClickableBus ? 0 : undefined}
+                            onClick={
+                              isClickableBus
+                                ? () => {
+                                    setActiveTab("map");
+                                    setFocusedMapPoint({ lat: liveBus!.lat, lng: liveBus!.lng });
+                                  }
+                                : undefined
+                            }
+                            className={`min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-black/20 p-4 ${isClickableBus ? "cursor-pointer transition hover:border-blue-300/40" : ""}`}
+                          >
+                            <p className="text-xs font-semibold uppercase tracking-wider text-blue-200">Leg {index + 1} · {leg.mode}</p>
+                            <p className="mt-2 break-words font-semibold text-white">{leg.from} → {leg.to}</p>
+                            <p className="mt-1 break-words text-sm text-white/55">{leg.title} · {leg.detail}</p>
+                            {leg.mode === "bus" && (
+                              <p className={`mt-2 text-xs font-semibold ${liveBus ? "text-emerald-300" : "text-white/40"}`}>
+                                {liveBus ? "● Live bus tracked — tap to show on map" : "No live bus currently tracked on this route"}
+                              </p>
+                            )}
+                            {leg.mode === "train" && leg.from === journeyTrainLeg?.from && (
+                              <div className="mt-3 grid gap-2">
+                                {journeyMatchingTrainDepartures.length > 0 ? (
+                                  journeyMatchingTrainDepartures.map((departure, departureIndex) => (
+                                    <div key={departure.tripId} className="rounded-xl border border-blue-300/15 bg-blue-500/10 px-3 py-2.5">
+                                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-200/75">
+                                        {departureIndex === 0 ? "Take this service" : "If you miss it · next service"}
+                                      </p>
+                                      <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                                        <p className="font-semibold text-white">
+                                          {new Date(departure.expectedAt || departure.scheduledAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} to {departure.destination}
+                                        </p>
+                                        <p className="text-sm font-semibold text-blue-100">Platform {departure.platform || "check screens"}</p>
+                                      </div>
+                                      <p className="mt-1 text-xs text-white/50">
+                                        {departure.route} · {departure.status === "cancelled" ? "Cancelled" : departure.delaySeconds && departure.delaySeconds > 60 ? `${Math.round(departure.delaySeconds / 60)} min late` : "On time"}
+                                      </p>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/55">Checking live departure time and platform…</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">

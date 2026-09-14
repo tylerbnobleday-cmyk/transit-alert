@@ -706,6 +706,8 @@ interface MapProps {
   showFilterRail?: boolean;
   focusedVehicleKey?: string | null;
   onFocusedVehicleHandled?: () => void;
+  focusedMapPoint?: { lat: number; lng: number } | null;
+  onFocusedMapPointHandled?: () => void;
   debugLineKey?: AdminDebugLineKey;
   mobilePerformanceMode?: MobilePerformanceMode;
 }
@@ -1035,9 +1037,11 @@ function createLiveTrainIcon(
   ).trim() || "TYPE TBC";
   const consistLabel = formation.family === "HCMT"
     ? getHcmtSetLabel(vehicle.consist) ?? "SET TBC"
-    : isVlineLiveTrain(vehicle)
-      ? getRegionalAllocatedSetLabel(vehicle) || "SET TBC"
-      : getLeadingMotorCarriages(vehicle.consist) ?? "M CARS TBC";
+    : formation.family === "X'Trapolis 100"
+      ? getXtrapolisSetLabel(vehicle.consist) ?? getLeadingMotorCarriages(vehicle.consist) ?? "SET TBC"
+      : isVlineLiveTrain(vehicle)
+        ? getRegionalAllocatedSetLabel(vehicle) || "SET TBC"
+        : getLeadingMotorCarriages(vehicle.consist) ?? "M CARS TBC";
   const vehicleSummaryLabel = escapeInlineMarkerHtml(
     `${carLabel} (${typeLabel.toUpperCase()}) (${consistLabel.toUpperCase()})`,
   );
@@ -8427,6 +8431,20 @@ function getHcmtSetLabel(consist: string) {
   return `SET ${Number.parseInt(matchingSet, 10)}`;
 }
 
+function getXtrapolisSetLabel(consist: string) {
+  // X'Trapolis 100 motor cars are numbered like 81005M; the final two
+  // digits identify the fleet set (81005M is Set 5).
+  const matches = [...consist.toUpperCase().matchAll(/\b\d*(\d{2})M\b/g)];
+  const setNumbers = matches
+    .map((match) => match[1])
+    .filter((value): value is string => Boolean(value));
+  if (setNumbers.length === 0) return null;
+
+  const matchingSet = setNumbers.find((value) => setNumbers.filter((candidate) => candidate === value).length > 1)
+    ?? setNumbers[0];
+  return `SET ${Number.parseInt(matchingSet, 10)}`;
+}
+
 function getSnapshotConsistId(consist: string) {
   const trimmed = consist.trim();
   if (!trimmed || /^unknown$/i.test(trimmed) || isRouteIdentifier(trimmed)) {
@@ -8941,6 +8959,8 @@ export function Map({
   showFilterRail = true,
   focusedVehicleKey = null,
   onFocusedVehicleHandled,
+  focusedMapPoint = null,
+  onFocusedMapPointHandled,
   debugLineKey = "none",
   mobilePerformanceMode = "auto",
 }: MapProps = {}) {
@@ -10029,6 +10049,15 @@ export function Map({
       });
       onFocusedVehicleHandled?.();
     }, [featuredConsistPosition, focusedVehicleKey, liveVehicles, onFocusedVehicleHandled]);
+
+  useEffect(() => {
+    if (!focusedMapPoint) return;
+    mapRef.current?.flyTo([focusedMapPoint.lat, focusedMapPoint.lng], Math.max(mapRef.current.getZoom(), 15), {
+      animate: true,
+      duration: 0.85,
+    });
+    onFocusedMapPointHandled?.();
+  }, [focusedMapPoint, onFocusedMapPointHandled]);
 
   const centerOnUserLocation = useCallback(() => {
     if (!mapRef.current) return;
