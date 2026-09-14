@@ -706,8 +706,8 @@ interface MapProps {
   showFilterRail?: boolean;
   focusedVehicleKey?: string | null;
   onFocusedVehicleHandled?: () => void;
-  focusedMapPoint?: { lat: number; lng: number } | null;
-  onFocusedMapPointHandled?: () => void;
+  focusedBus?: LiveBus | null;
+  onFocusedBusHandled?: () => void;
   debugLineKey?: AdminDebugLineKey;
   mobilePerformanceMode?: MobilePerformanceMode;
 }
@@ -8962,8 +8962,8 @@ export function Map({
   showFilterRail = true,
   focusedVehicleKey = null,
   onFocusedVehicleHandled,
-  focusedMapPoint = null,
-  onFocusedMapPointHandled,
+  focusedBus = null,
+  onFocusedBusHandled,
   debugLineKey = "none",
   mobilePerformanceMode = "auto",
 }: MapProps = {}) {
@@ -10054,13 +10054,14 @@ export function Map({
     }, [featuredConsistPosition, focusedVehicleKey, liveVehicles, onFocusedVehicleHandled]);
 
   useEffect(() => {
-    if (!focusedMapPoint) return;
-    mapRef.current?.flyTo([focusedMapPoint.lat, focusedMapPoint.lng], Math.max(mapRef.current.getZoom(), 15), {
+    if (!focusedBus) return;
+    setSelectedDetail({ type: "bus", bus: focusedBus });
+    mapRef.current?.flyTo([focusedBus.lat, focusedBus.lng], Math.max(mapRef.current.getZoom(), 15), {
       animate: true,
       duration: 0.85,
     });
-    onFocusedMapPointHandled?.();
-  }, [focusedMapPoint, onFocusedMapPointHandled]);
+    onFocusedBusHandled?.();
+  }, [focusedBus, onFocusedBusHandled]);
 
   const centerOnUserLocation = useCallback(() => {
     if (!mapRef.current) return;

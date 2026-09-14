@@ -1443,7 +1443,7 @@ export default function Home() {
   const [pidLineColor, setPidLineColor] = useState("#22c55e");
   const [pidBranding, setPidBranding] = useState("TransitAlert PID Studio");
   const [focusedVehicleKey, setFocusedVehicleKey] = useState<string | null>(null);
-  const [focusedMapPoint, setFocusedMapPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const [focusedBus, setFocusedBus] = useState<LiveBus | null>(null);
   const [journeyOrigin, setJourneyOrigin] = useState<string>("Flinders Street");
   const [journeyDestination, setJourneyDestination] = useState<string>("Sandringham");
   const [journeyRoute, setJourneyRoute] = useState<Station[]>([]);
@@ -3148,8 +3148,8 @@ export default function Home() {
         showFilterRail={false}
         focusedVehicleKey={focusedVehicleKey}
         onFocusedVehicleHandled={() => setFocusedVehicleKey(null)}
-        focusedMapPoint={focusedMapPoint}
-        onFocusedMapPointHandled={() => setFocusedMapPoint(null)}
+        focusedBus={focusedBus}
+        onFocusedBusHandled={() => setFocusedBus(null)}
         debugLineKey={adminDebugLineKey}
       />}
 
@@ -3422,7 +3422,7 @@ export default function Home() {
                               isClickableBus
                                 ? () => {
                                     setActiveTab("map");
-                                    setFocusedMapPoint({ lat: liveBus!.lat, lng: liveBus!.lng });
+                                    setFocusedBus(liveBus);
                                   }
                                 : undefined
                             }
@@ -3445,7 +3445,7 @@ export default function Home() {
                             <p className="mt-3 text-sm text-current/80">{leg.detail}</p>
                             {leg.mode === "bus" && (
                               <p className={`mt-2 text-xs font-semibold ${liveBus ? "text-emerald-300" : "text-current/50"}`}>
-                                {liveBus ? "● Live bus tracked — tap to show on map" : "No live bus currently tracked on this route"}
+                                {liveBus ? "● Live bus tracked — tap to view and follow on map" : "No live bus currently tracked on this route"}
                               </p>
                             )}
                           </div>
@@ -3591,7 +3591,7 @@ export default function Home() {
                               isClickableBus
                                 ? () => {
                                     setActiveTab("map");
-                                    setFocusedMapPoint({ lat: liveBus!.lat, lng: liveBus!.lng });
+                                    setFocusedBus(liveBus);
                                   }
                                 : undefined
                             }
@@ -3602,7 +3602,7 @@ export default function Home() {
                             <p className="mt-1 break-words text-sm text-white/55">{leg.title} · {leg.detail}</p>
                             {leg.mode === "bus" && (
                               <p className={`mt-2 text-xs font-semibold ${liveBus ? "text-emerald-300" : "text-white/40"}`}>
-                                {liveBus ? "● Live bus tracked — tap to show on map" : "No live bus currently tracked on this route"}
+                                {liveBus ? "● Live bus tracked — tap to view and follow on map" : "No live bus currently tracked on this route"}
                               </p>
                             )}
                             {leg.mode === "train" && leg.from === journeyTrainLeg?.from && (
