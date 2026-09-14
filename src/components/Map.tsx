@@ -973,6 +973,7 @@ function createLiveTrainIcon(
     selected?: boolean;
     dimmed?: boolean;
     hideSecondaryLabel?: boolean;
+    viaCityLoop?: boolean;
   },
 ) {
   const markerLine = /HCMT/i.test(getVehicleDisplayType(vehicle)) ? "Metro Tunnel" : vehicle.line;
@@ -1010,7 +1011,7 @@ function createLiveTrainIcon(
   const finalDestinationLabel = destinationLabel.split("→").at(-1)?.trim() || destinationLabel;
   const markerViaLabel = /HCMT/i.test(getVehicleDisplayType(vehicle))
     ? "Metro Tunnel"
-    : /City Loop/i.test(destinationLabel)
+    : options?.viaCityLoop || /City Loop/i.test(destinationLabel)
       ? "City Loop"
       : destinationLabel.includes("→")
         ? throughDestinationLabel.replace(/\s+via\s+.+$/i, "").trim()
@@ -1020,6 +1021,8 @@ function createLiveTrainIcon(
       ? markerViaLabel && markerViaLabel.toLowerCase() !== finalDestinationLabel.toLowerCase()
         ? `${finalDestinationLabel} via ${markerViaLabel}`
         : finalDestinationLabel
+      : markerViaLabel === "City Loop"
+        ? `${finalDestinationLabel} via City Loop`
       : markerViaLabel && originLabel.toLowerCase() !== markerViaLabel.toLowerCase()
         ? `${finalDestinationLabel} via ${originLabel} ${markerViaLabel}`
         : `${finalDestinationLabel} via ${originLabel}`
@@ -11288,6 +11291,7 @@ export function Map({
                   selected: isSelected,
                   dimmed: isZoomedOut && priority !== "high" && !isSelected && !isHovered,
                   hideSecondaryLabel,
+                  viaCityLoop: isSelected && selectedTrainTrip?.tripId === vehicle.tripId && selectedTrainUsesCityLoop,
                 })}
                 zIndexOffset={isSelected ? 4600 : isHovered ? 4200 : hideSecondaryLabel ? 3600 : 3900}
                 riseOnHover
